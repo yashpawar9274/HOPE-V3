@@ -30,6 +30,16 @@ class UpdatesFragment : Fragment() {
     private fun renderFeatureUpdates() {
         val features = listOf(
             FeatureNotice(
+                "HOPE 1.8.9",
+                "Call screen refreshed with shader ORB",
+                "Incoming, outgoing, active, held, and disconnected screens now place the HOPE ORB centrally and animate it from the real Android Telecom call state. Call actions remain connected to Telecom."
+            ),
+            FeatureNotice(
+                "Automatic replies",
+                "MessagingStyle notifications supported",
+                "Auto-reply now reads the latest incoming message and sender from Android MessagingStyle when a notification omits its normal text preview. Reading notification history is separate from the auto-reply controls; unsupported quick-reply actions and safety exclusions still prevent sending."
+            ),
+            FeatureNotice(
                 "HOPE 1.8.8",
                 "Default Assistant starts voice",
                 "The Android assistant gesture now launches HOPE Home and starts a live voice session when microphone, notification, battery, and Gemini setup requirements are satisfied."

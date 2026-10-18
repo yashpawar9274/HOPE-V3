@@ -35,7 +35,6 @@ import androidx.core.content.ContextCompat
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
 import com.jarvis.assistant.R
-import com.jarvis.assistant.JarvisApp
 import com.jarvis.assistant.util.ThemeManager
 import com.jarvis.assistant.util.HopeSpeech
 import java.util.Locale
@@ -173,6 +172,12 @@ class IncomingCallActivity : AppCompatActivity() {
                     View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 )
         }
+        window.statusBarColor = Color.rgb(15, 19, 31)
+        window.navigationBarColor = Color.rgb(15, 19, 31)
+        androidx.core.view.WindowInsetsControllerCompat(window, root).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             isVerticalScrollBarEnabled = false
@@ -203,7 +208,7 @@ class IncomingCallActivity : AppCompatActivity() {
             letterSpacing = 0.08f
             gravity = Gravity.CENTER
             setTextColor(accent)
-            setBackgroundColor(Color.rgb(37, 40, 59))
+            background = roundedBackground(Color.rgb(37, 40, 59), dp(24))
             setPadding(dp(18), dp(11), dp(18), dp(11))
         }
         content.addView(stateView, matchWidth().apply {
@@ -250,10 +255,9 @@ class IncomingCallActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 orbLoaded = true
                 updateOrbState()
-                applyOrbTheme()
             }
         }
-        orbWebView.loadUrl("https://appassets.androidplatform.net/assets/orb.html?embedded=1")
+        orbWebView.loadUrl("https://appassets.androidplatform.net/assets/call_orb.html")
         callOrbContainer.addView(orbWebView, FrameLayout.LayoutParams(-1, -1))
         callDetails = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -278,28 +282,20 @@ class IncomingCallActivity : AppCompatActivity() {
             setPadding(0, dp(3), 0, dp(8))
         }
         callDetails.addView(numberView, matchWidth())
-        callOrbContainer.addView(
-            callDetails,
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.CENTER_VERTICAL or Gravity.CENTER_HORIZONTAL
-                topMargin = dp(108)
-            }
-        )
         content.addView(callOrbContainer, LinearLayout.LayoutParams(-1, dp(330)).apply {
             topMargin = dp(8)
             bottomMargin = dp(4)
         })
-        val orbHeight = (resources.configuration.screenHeightDp * 0.34f).toInt().coerceIn(200, 330)
+        content.addView(callDetails, matchWidth())
+        val orbHeight = (resources.configuration.screenHeightDp * 0.34f).toInt().coerceIn(220, 330)
         callOrbContainer.minimumHeight = dp(orbHeight)
-        content.getChildAt(content.childCount - 1).layoutParams =
-            (content.getChildAt(content.childCount - 1).layoutParams as LinearLayout.LayoutParams).apply {
-                height = dp(orbHeight)
-            }
+        callOrbContainer.layoutParams =
+            (callOrbContainer.layoutParams as LinearLayout.LayoutParams).apply { height = dp(orbHeight) }
         standbyView = TextView(this).apply {
             textSize = 13f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(190, 201, 215))
-            setBackgroundColor(Color.rgb(25, 29, 43))
+            background = roundedBackground(Color.rgb(25, 29, 43), dp(18))
             setPadding(dp(14), dp(11), dp(14), dp(11))
         }
         content.addView(standbyView, matchWidth().apply {
@@ -310,7 +306,7 @@ class IncomingCallActivity : AppCompatActivity() {
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(194, 204, 220))
-            setBackgroundColor(Color.rgb(27, 31, 44))
+            background = roundedBackground(Color.rgb(27, 31, 44), dp(18))
             setPadding(dp(14), dp(12), dp(14), dp(12))
         }
         content.addView(instructionView, matchWidth().apply {
@@ -322,7 +318,7 @@ class IncomingCallActivity : AppCompatActivity() {
             isAllCaps = false
             textSize = 15f
             setTextColor(foreground)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(38, 42, 58))
+            background = roundedBackground(Color.rgb(38, 42, 58), dp(18))
             visibility = View.GONE
         }
         content.addView(quickTextButton, LinearLayout.LayoutParams(-1, dp(48)).apply {
@@ -341,7 +337,7 @@ class IncomingCallActivity : AppCompatActivity() {
             isAllCaps = false
             contentDescription = "End call"
             setTextColor(Color.WHITE)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(177, 0, 24))
+            background = roundedBackground(Color.rgb(177, 0, 24), dp(36))
         }
         content.addView(endCallButton, LinearLayout.LayoutParams(-1, dp(62)).apply {
             topMargin = dp(16)
@@ -381,15 +377,12 @@ class IncomingCallActivity : AppCompatActivity() {
         val ringing = call.state == android.telecom.Call.STATE_RINGING
         screenTitleView.text = when (call.state) {
             android.telecom.Call.STATE_RINGING -> "Incoming call"
-            android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "Calling"
+            android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "Outgoing call"
             android.telecom.Call.STATE_HOLDING -> "Call on hold"
-            else -> "In call"
+            android.telecom.Call.STATE_ACTIVE -> "Active call"
+            else -> "Call"
         }
-        stateView.text = if (ringing) {
-            "●  INCOMING CALL  •  TELECOM"
-        } else {
-            "●  ${callStateLabel(call.state).uppercase(Locale.ROOT)}  •  ANDROID TELECOM"
-        }
+        stateView.text = "●  ${callStateLabel(call.state).uppercase(Locale.ROOT)}  •  ANDROID TELECOM"
         timerView.visibility = if (
             call.state == android.telecom.Call.STATE_ACTIVE ||
             call.state == android.telecom.Call.STATE_HOLDING
@@ -398,7 +391,7 @@ class IncomingCallActivity : AppCompatActivity() {
         val orbState = when (call.state) {
             android.telecom.Call.STATE_RINGING -> "listening"
             android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "thinking"
-            android.telecom.Call.STATE_ACTIVE -> "idle"
+            android.telecom.Call.STATE_ACTIVE -> "active"
             android.telecom.Call.STATE_HOLDING -> "idle"
             else -> "idle"
         }
@@ -524,7 +517,7 @@ class IncomingCallActivity : AppCompatActivity() {
         endCallButton.visibility = View.GONE
         actions.removeAllViews()
         actions.visibility = View.GONE
-        updateOrbState("idle")
+        updateOrbState("disconnected")
         if (!disconnectFinishScheduled) {
             disconnectFinishScheduled = true
             mainHandler.postDelayed(disconnectFinish, 2_000L)
@@ -532,13 +525,10 @@ class IncomingCallActivity : AppCompatActivity() {
     }
 
     private fun moveCallDetails(ringing: Boolean) {
-        val params = (callDetails.layoutParams as? FrameLayout.LayoutParams)?.apply {
-            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            topMargin = if (ringing) dp(134) else dp(108)
-        }
-        if (params != null) {
-            callDetails.layoutParams = params
-        }
+        callContent.removeView(callDetails)
+        val orbIndex = callContent.indexOfChild(callOrbContainer)
+        val detailIndex = if (ringing) orbIndex + 1 else orbIndex
+        callContent.addView(callDetails, detailIndex.coerceAtLeast(0), matchWidth())
     }
 
     private fun speakCallPrompt(caller: String) {
@@ -710,13 +700,19 @@ class IncomingCallActivity : AppCompatActivity() {
         val declineTile = label == "Decline"
         val button = Button(this).apply {
             text = when (label) {
-                "Decline" -> "×\nDecline"
-                "Answer" -> "✓\nAnswer"
+                "Decline" -> "☎\nDecline"
+                "Answer" -> "☎\nAnswer"
+                "Mute" -> "◉\nMute"
+                "Unmute" -> "◉\nUnmute"
+                "Keypad" -> "▦\nKeypad"
+                "Speaker" -> "◖))\nSpeaker"
+                "Speaker on" -> "◖))\nSpeaker on"
                 else -> label
             }
             contentDescription = description
             textSize = if (incomingTile) 20f else 13f
             isAllCaps = false
+            setPadding(dp(8), dp(8), dp(8), dp(8))
             setTextColor(
                 if (incomingTile && !declineTile) Color.rgb(0, 34, 38)
                 else ContextCompat.getColor(
@@ -724,12 +720,13 @@ class IncomingCallActivity : AppCompatActivity() {
                     if (declineTile) android.R.color.white else colorRes
                 )
             )
-            backgroundTintList = android.content.res.ColorStateList.valueOf(
+            background = roundedBackground(
                 when {
-                    declineTile -> Color.rgb(176, 0, 25)
+                    declineTile -> Color.rgb(157, 0, 20)
                     incomingTile -> Color.rgb(0, 222, 230)
-                    else -> Color.rgb(34, 38, 54)
-                }
+                    else -> Color.rgb(31, 35, 51)
+                },
+                dp(if (incomingTile) 24 else 20)
             )
             setOnClickListener { onClick() }
         }
@@ -738,8 +735,8 @@ class IncomingCallActivity : AppCompatActivity() {
             GridLayout.spec(GridLayout.UNDEFINED, 1f)
         ).apply {
             width = 0
-            height = dp(if (incomingTile) 104 else 76)
-            setMargins(dp(6), dp(6), dp(6), dp(6))
+            height = dp(if (incomingTile) 104 else 82)
+            setMargins(dp(5), dp(5), dp(5), dp(5))
         })
     }
 
@@ -787,34 +784,26 @@ class IncomingCallActivity : AppCompatActivity() {
     private fun updateOrbState(forceState: String? = null) {
         if (!orbLoaded || !::orbWebView.isInitialized) return
         val snapshot = HopeCallController.currentCall(this, callId)
-        val state = forceState ?: if (snapshot?.state == android.telecom.Call.STATE_RINGING) "listening" else "idle"
-        orbWebView.evaluateJavascript("window.JarvisOrb && window.JarvisOrb.setState('$state');", null)
+        val state = forceState ?: when (snapshot?.state) {
+            android.telecom.Call.STATE_RINGING -> "listening"
+            android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "thinking"
+            android.telecom.Call.STATE_ACTIVE -> "speaking"
+            android.telecom.Call.STATE_HOLDING -> "idle"
+            else -> "disconnected"
+        }
+        orbWebView.evaluateJavascript("window.HopeCallOrb && window.HopeCallOrb.setState('$state');", null)
     }
 
-    private fun applyOrbTheme() {
-        if (!orbLoaded || !::orbWebView.isInitialized) return
-        val preferences = JarvisApp.instance.preferences
-        val theme = when (preferences.appTheme) {
-            "dark" -> "dark"
-            "red" -> "red"
-            "sunset" -> "sunset"
-            else -> "light"
+    private fun roundedBackground(color: Int, radius: Int) =
+        android.graphics.drawable.GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = radius.toFloat()
         }
-        orbWebView.evaluateJavascript("window.JarvisOrb && window.JarvisOrb.setTheme('$theme');", null)
-        if (preferences.appTheme == "custom") {
-            val safeHex = preferences.customThemeColor.takeIf { it.matches(Regex("#[A-Fa-f0-9]{6}")) }
-            if (safeHex != null) {
-                orbWebView.evaluateJavascript(
-                    "window.JarvisOrb && window.JarvisOrb.setBackground('$safeHex');",
-                    null
-                )
-            }
-        }
-    }
 
     private fun callStateLabel(state: Int): String = when (state) {
-        android.telecom.Call.STATE_ACTIVE -> "In call"
-        android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "Calling…"
+        android.telecom.Call.STATE_RINGING -> "Incoming call"
+        android.telecom.Call.STATE_ACTIVE -> "Active call"
+        android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "Outgoing call"
         android.telecom.Call.STATE_HOLDING -> "Call on hold"
         else -> "Call"
     }

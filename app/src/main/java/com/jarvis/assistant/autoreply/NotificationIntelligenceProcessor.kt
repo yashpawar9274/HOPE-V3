@@ -24,7 +24,8 @@ object NotificationIntelligenceProcessor {
         val packageName = sbn.packageName
         if (packageName == context.packageName ||
             sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 ||
-            !AutoReplyPolicy.isSupportedPackage(packageName, defaultSmsPackage(context))
+            !AutoReplyPolicy.isSupportedPackage(packageName, defaultSmsPackage(context)) ||
+            hasOutgoingLatestMessage(sbn.notification)
         ) return
 
         val (sender, message) = notificationContent(sbn.notification)
@@ -135,7 +136,7 @@ object NotificationIntelligenceProcessor {
         val authorizedReplyRule = matching.firstOrNull {
             it.action == NotificationRuleAction.AUTHORIZED_AUTO_REPLY
         }
-        val ruleAllowsAutoReply = matching.isEmpty() || authorizedReplyRule != null
+        val ruleAllowsAutoReply = matching.none { it.action == NotificationRuleAction.IGNORE }
         if (masterEnabled && ruleAllowsAutoReply && !excluded &&
             !hasOutgoingLatestMessage(sbn.notification)
         ) {
@@ -150,16 +151,31 @@ object NotificationIntelligenceProcessor {
 
     private fun notificationContent(notification: Notification): Pair<String, String> {
         val extras = notification.extras ?: return "" to ""
+        val latestIncoming = try {
+            Notification.MessagingStyle.Message.getMessagesFromBundleArray(
+                notificationParcelables(extras, Notification.EXTRA_MESSAGES)
+            ).lastOrNull { messageSender(it).isNotBlank() }
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not read the latest incoming MessagingStyle message", error)
+            null
+        }
         val sender = (
             extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
                 ?: extras.getCharSequence(Notification.EXTRA_TITLE)
-            )?.toString()?.trim().orEmpty().take(120)
-        val text = sequenceOf(
+            )?.toString()?.trim()?.takeIf(String::isNotBlank)
+            ?: latestIncoming?.let(::messageSender).orEmpty()
+        val safeSender = sender.take(120)
+        val previewText = sequenceOf(
             extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(),
             extras.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
             extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.joinToString("\n") { it.toString() }
-        ).filterNotNull().map(String::trim).firstOrNull(String::isNotBlank).orEmpty()
-        return sender to text.take(MAX_TEXT)
+        ).filterNotNull().map(String::trim).firstOrNull(String::isNotBlank)
+            .orEmpty()
+        val text = AutoReplyPolicy.notificationTextOrLatestMessage(
+            previewText,
+            listOfNotNull(latestIncoming?.text?.toString())
+        )
+        return safeSender to text.take(MAX_TEXT)
     }
 
     private fun appName(context: Context, packageName: String): String {
@@ -195,14 +211,25 @@ object NotificationIntelligenceProcessor {
             null
         }
 
-    private fun hasOutgoingLatestMessage(notification: Notification): Boolean {
-        val extras = notification.extras ?: return false
-        val bundles = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            extras.getParcelableArray(Notification.EXTRA_MESSAGES, Parcelable::class.java).orEmpty()
+    private fun messageSender(message: Notification.MessagingStyle.Message): String =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            message.senderPerson?.name?.toString()?.trim().orEmpty()
         } else {
             @Suppress("DEPRECATION")
-            extras.getParcelableArray(Notification.EXTRA_MESSAGES).orEmpty()
+            message.sender?.toString()?.trim().orEmpty()
         }
+
+    private fun notificationParcelables(extras: android.os.Bundle, key: String): Array<out Parcelable> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            extras.getParcelableArray(key, Parcelable::class.java).orEmpty()
+        } else {
+            @Suppress("DEPRECATION")
+            extras.getParcelableArray(key).orEmpty()
+        }
+
+    private fun hasOutgoingLatestMessage(notification: Notification): Boolean {
+        val extras = notification.extras ?: return false
+        val bundles = notificationParcelables(extras, Notification.EXTRA_MESSAGES)
         val latest = try {
             Notification.MessagingStyle.Message.getMessagesFromBundleArray(bundles).lastOrNull()
         } catch (_: Exception) {

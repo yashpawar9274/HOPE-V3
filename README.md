@@ -9,7 +9,7 @@ An Android voice assistant built with Kotlin, Gemini Live, on-device voice compo
 - Minimum Android version: Android 8.0 (API 26)
 - Compile and target SDK: 34
 - Java/Kotlin target: 17
-- Current app version: 1.8.8 (version code 144)
+- Current app version: 1.8.9 (version code 145)
 
 ## Getting started
 
@@ -84,6 +84,11 @@ The certificate fingerprint must be calculated from the same key used to sign th
 - [Documentation index](docs/README.md)
 - [Voice architecture research](docs/architecture/voice-architecture-research.md)
 - [Voice issue recordings](docs/diagnostics/voice-videos/README.md)
+
+## HOPE 1.8.9 release notes
+
+- Incoming, outgoing, active, held, and disconnected call screens use a refreshed dark navy/cyan HOPE Phone layout with a centered procedural WebGL ORB. Its animation follows Android Telecom call states; no simulated call connection or AI voice activity is shown. Call actions still use Android Telecom.
+- Auto-reply now reads the latest incoming sender and text from Android MessagingStyle when apps omit the usual notification preview fields. Notification reading/history remains a separate preference from auto-reply. Replying still requires the master switch, an enabled app, a supported notification quick-reply action, and passes the configured safety checks.
 
 ## HOPE 1.8.8 release notes
 

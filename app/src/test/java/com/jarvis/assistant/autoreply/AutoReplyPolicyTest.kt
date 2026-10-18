@@ -47,6 +47,13 @@ class AutoReplyPolicyTest {
             "Visible preview",
             AutoReplyPolicy.notificationTextOrLatestMessage(" Visible preview ", listOf("Fallback"))
         )
+        assertEquals(
+            "MessagingStyle incoming message",
+            AutoReplyPolicy.notificationTextOrLatestMessage(
+                "",
+                listOf("MessagingStyle incoming message")
+            )
+        )
         assertEquals("", AutoReplyPolicy.notificationTextOrLatestMessage("", emptyList()))
     }
 
