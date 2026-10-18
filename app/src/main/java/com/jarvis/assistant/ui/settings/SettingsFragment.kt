@@ -10,6 +10,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -27,6 +28,18 @@ class SettingsFragment : Fragment() {
     private var _binding: FragmentSettingsBinding? = null
     private val binding get() = _binding!!
     private val preferences by lazy { JarvisApp.instance.preferences }
+
+    private val assistantRoleRequest = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (_binding == null) return@registerForActivityResult
+        updateDefaultAssistantStatus()
+        if (AssistantRoleHelper.isDefaultAssistant(requireContext())) {
+            Toast.makeText(requireContext(), "HOPE is your default assistant. Hold the system assistant gesture to start a voice session.", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(requireContext(), "Android did not set HOPE as the assistant. Choose HOPE in the system prompt and approve the role.", Toast.LENGTH_LONG).show()
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -196,11 +209,14 @@ class SettingsFragment : Fragment() {
 
         binding.rowDefaultAssistant.setOnClickListener {
             try {
-                startActivity(AssistantRoleHelper.requestOrOpenSettings(requireContext()))
-            } catch (e: android.content.ActivityNotFoundException) {
+                assistantRoleRequest.launch(
+                    AssistantRoleHelper.requestOrOpenSettings(requireContext())
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("SettingsFragment", "Could not open Android assistant role selection.", e)
                 Toast.makeText(
                     requireContext(),
-                    "This device does not provide assistant-app settings.",
+                    "Could not open Android assistant selection: ${e.message ?: "system settings are unavailable"}",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -261,9 +277,9 @@ class SettingsFragment : Fragment() {
     private fun updateDefaultAssistantStatus() {
         val isDefault = AssistantRoleHelper.isDefaultAssistant(requireContext())
         binding.tvDefaultAssistantStatus.text = if (isDefault) {
-            "HOPE is the default assistant"
+            "HOPE is default • hold the system assistant gesture to start voice"
         } else {
-            "Not set • Tap to choose HOPE"
+            "Not set • tap here, then choose HOPE in Android"
         }
         binding.tvDefaultAssistantStatus.setTextColor(
             ContextCompat.getColor(

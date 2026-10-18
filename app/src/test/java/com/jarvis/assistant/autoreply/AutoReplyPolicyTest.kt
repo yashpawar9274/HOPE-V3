@@ -29,6 +29,28 @@ class AutoReplyPolicyTest {
     }
 
     @Test
+    fun enabledAppsIncludeAllConversationsExceptExplicitExclusions() {
+        val excluded = listOf(AutoReplyChat("com.whatsapp", "NoReply"))
+
+        assertTrue(AutoReplyPolicy.isChatAllowed("com.whatsapp", "Family", excluded))
+        assertFalse(AutoReplyPolicy.isChatAllowed("COM.WHATSAPP", " noreply ", excluded))
+        assertTrue(AutoReplyPolicy.isChatAllowed("com.instagram.android", "NoReply", excluded))
+    }
+
+    @Test
+    fun messagingStyleTextFallsBackToLatestIncomingMessage() {
+        assertEquals(
+            "Can you call me?",
+            AutoReplyPolicy.notificationTextOrLatestMessage("", listOf("Earlier", "Can you call me?"))
+        )
+        assertEquals(
+            "Visible preview",
+            AutoReplyPolicy.notificationTextOrLatestMessage(" Visible preview ", listOf("Fallback"))
+        )
+        assertEquals("", AutoReplyPolicy.notificationTextOrLatestMessage("", emptyList()))
+    }
+
+    @Test
     fun credentialsAndPaymentContentAreFiltered() {
         assertTrue(AutoReplyPolicy.containsSensitiveContent("Your verification code is 584923"))
         assertTrue(AutoReplyPolicy.containsSensitiveContent("Send your UPI payment now"))

@@ -19,7 +19,6 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import com.jarvis.assistant.R
-import com.jarvis.assistant.autoreply.AutoReplyChat
 import com.jarvis.assistant.autoreply.AutoReplyCoordinator
 import com.jarvis.assistant.autoreply.AutoReplyPreferences
 import com.jarvis.assistant.autoreply.NotificationIntelligenceStore
@@ -34,7 +33,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
     private lateinit var root: LinearLayout
     private lateinit var serviceStatus: TextView
     private lateinit var notificationStatus: TextView
-    private lateinit var chatList: LinearLayout
+    private lateinit var replyStatus: TextView
 
     private val requestNotificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -55,7 +54,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
 
         addText("AI AUTO-REPLY", 23f, bold = true)
         addText(
-            "Replies are off by default. Enable the master switch and an app, then either opt in per chat or explicitly allow all chats. Gemini is used only when AI-generated replies are enabled.",
+            "Replies stay off until you enable the master switch and at least one supported app. After that, HOPE can reply to all conversations in enabled apps—no per-chat approval is needed. Sensitive messages remain blocked.",
             14f
         )
 
@@ -123,14 +122,14 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             ?.let { addReadAppSwitch("Default SMS app", it) }
 
         addText("AUTO-REPLY SCOPE & RESPONSE", 12f, bold = true)
-        addSettingSwitch(
-            "Reply to all incoming messages from enabled apps",
-            "Off means chats must be individually opted in from a HOPE notification.",
-            NotificationIntelligenceStore.replyToAllEnabled(this)
-        ) { enabled -> NotificationIntelligenceStore.setReplyToAllEnabled(this, enabled) }
+        addText(
+            "All conversations in enabled apps are included automatically. Stop replies from specific senders using Excluded contacts / conversations below.",
+            13f
+        )
+        replyStatus = addText("", 13f, bold = true)
         addSettingSwitch(
             "Use AI-generated contextual replies",
-            "When on, opted-in chats send notification message context to configured Gemini. Off keeps replies on-device with saved templates.",
+            "When on, message context is sent to your configured Gemini service. Off uses the saved reply template on-device.",
             NotificationIntelligenceStore.aiRepliesEnabled(this)
         ) { enabled -> NotificationIntelligenceStore.setAiRepliesEnabled(this, enabled) }
         addButton("Reply language: ${NotificationIntelligenceStore.replyLanguage(this)}") { chooseReplyLanguage() }
@@ -144,7 +143,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
 
         addText("NOTIFICATION RULES", 12f, bold = true)
         addText(
-            "Rules are evaluated locally in priority order. Sending still requires an enabled app, an allowed chat, an Android notification reply action, and the master switch.",
+            "Rules are evaluated locally in priority order. Replies still require an enabled app, an Android notification reply action, the master switch, and available daily reply capacity.",
             13f
         )
         addButton("Create notification rule") { createRule() }
@@ -172,27 +171,17 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             "The device's default SMS app"
         )
 
-        addText("ALLOWED CHATS", 12f, bold = true)
         addText(
-            "Remove a chat here to stop its automatic replies. Conversation history is kept in memory only.",
-            13f
-        )
-        chatList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        root.addView(chatList, matchWidth())
-
-        addText(
-            "Privacy: Notification history is kept locally on this device for apps you select. If AI-generated replies are enabled, recent messages from an authorized chat are sent over HTTPS to the configured Gemini service; fixed-template replies stay on-device. Replies are sent only through an Android notification quick-reply action. If no supported action exists, HOPE skips sending. Sensitive credential/payment messages are not auto-replied to. HOPE does not open chats or tap Send.",
+            "Privacy: Notification history stays on this device for apps you select. If AI-generated replies are enabled, recent incoming messages from the conversation are sent over HTTPS to Gemini; otherwise replies use your local template. HOPE sends only through the message app's notification quick-reply action, skips sensitive credential/payment messages, and never opens chats or taps Send. Auto-replies stop at the configured daily limit and respect quiet hours and exclusions.",
             12f
         )
         updatePermissionStatus()
-        renderAllowedChats()
     }
 
     override fun onResume() {
         super.onResume()
         if (::root.isInitialized) {
             updatePermissionStatus()
-            renderAllowedChats()
         }
     }
 
@@ -222,6 +211,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
                 if (restoringAfterSaveFailure) return@setOnCheckedChangeListener
                 try {
                     AutoReplyPreferences.setAppEnabled(this@AutoReplySettingsActivity, key, checked)
+                    if (::replyStatus.isInitialized) updatePermissionStatus()
                 } catch (e: Exception) {
                     restoringAfterSaveFailure = true
                     isChecked = !checked
@@ -269,6 +259,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
                 if (restoring) return@setOnCheckedChangeListener
                 try {
                     onChange(checked)
+                    if (::replyStatus.isInitialized) updatePermissionStatus()
                 } catch (error: Exception) {
                     restoring = true
                     isChecked = !checked
@@ -577,57 +568,6 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             .setPositiveButton("Close", null).show()
     }
 
-    private fun renderAllowedChats() {
-        chatList.removeAllViews()
-        val chats = try {
-            AutoReplyPreferences.allowedChats(this)
-        } catch (e: Exception) {
-            Toast.makeText(this, e.message, Toast.LENGTH_LONG).show()
-            return
-        }
-        if (chats.isEmpty()) {
-            chatList.addView(TextView(this).apply {
-                text = "No chats enabled. Use “Enable for this chat” on a HOPE notification."
-                textSize = 13f
-                setTextColor(themeColor(R.attr.themeTextMuted))
-                setPadding(0, dp(8), 0, dp(8))
-            })
-            return
-        }
-        chats.sortedBy { it.conversation.lowercase() }.forEach { chat ->
-            chatList.addView(chatRow(chat), matchWidth())
-        }
-    }
-
-    private fun chatRow(chat: AutoReplyChat): View =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(8), dp(8), dp(8))
-            background = getDrawable(R.drawable.bg_jarvis_card)
-            addView(TextView(this@AutoReplySettingsActivity).apply {
-                text = "${AutoReplyCoordinator.appName(chat.packageName)} • ${chat.conversation}"
-                textSize = 14f
-                setTextColor(themeColor(R.attr.themeTextPrimary))
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(Button(this@AutoReplySettingsActivity).apply {
-                text = "Remove"
-                setOnClickListener {
-                    try {
-                        AutoReplyPreferences.setChatAllowed(
-                            this@AutoReplySettingsActivity,
-                            chat.packageName,
-                            chat.conversation,
-                            false
-                        )
-                        renderAllowedChats()
-                    } catch (e: Exception) {
-                        Toast.makeText(this@AutoReplySettingsActivity, e.message, Toast.LENGTH_LONG).show()
-                    }
-                }
-            })
-        }
-
     private fun updatePermissionStatus() {
         val enabled = PermissionHelper.isNotificationListenerEnabled(this)
         serviceStatus.text = if (enabled) {
@@ -644,9 +584,32 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         notificationStatus.text = if (notificationsEnabled) {
             "HOPE notifications: enabled"
         } else {
-            "HOPE notifications: disabled. Enable them to receive chat opt-in actions."
+            "HOPE notifications: disabled. Enable them to see auto-reply status."
         }
         notificationStatus.setTextColor(themeColor(if (notificationsEnabled) R.attr.themeAccent else R.attr.themeTextMuted))
+        val masterEnabled = NotificationIntelligenceStore.isMasterEnabled(this)
+        val enabledApps = listOf(
+            AutoReplyCoordinator.WHATSAPP_SETTING_KEY,
+            AutoReplyCoordinator.INSTAGRAM_SETTING_KEY,
+            AutoReplyCoordinator.SMS_SETTING_KEY
+        ).count { AutoReplyPreferences.isAppEnabled(this, it) }
+        val paused = NotificationIntelligenceStore.isPaused(this)
+        replyStatus.text = when {
+            !enabled -> "Replies are paused: grant HOPE notification access."
+            !masterEnabled -> "Replies are off: turn on the AI Auto Reply master switch."
+            enabledApps == 0 -> "Replies are off: enable at least one app below."
+            paused -> "Replies are paused. Resume notification intelligence to continue."
+            else -> "Ready: all conversations in $enabledApps enabled app(s) are eligible. Sensitive-message, quiet-hour, exclusion, daily-limit, and Android quick-reply checks still apply."
+        }
+        replyStatus.setTextColor(
+            themeColor(
+                if (enabled && masterEnabled && enabledApps > 0 && !paused) {
+                    R.attr.themeAccent
+                } else {
+                    R.attr.themeTextMuted
+                }
+            )
+        )
     }
 
     private fun addText(textValue: String, size: Float, bold: Boolean = false): TextView =

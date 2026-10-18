@@ -15,7 +15,6 @@ data class AutoReplyChat(
 object AutoReplyPreferences {
     private const val FILE_NAME = "jarvis_auto_reply"
     private const val KEY_ENABLED_APPS = "enabled_apps"
-    private const val KEY_ALLOWED_CHATS = "allowed_chats"
     private const val KEY_BLOCKED_CHATS = "blocked_chats"
 
     private fun preferences(context: Context) =
@@ -34,32 +33,12 @@ object AutoReplyPreferences {
         }
     }
 
-    fun allowedChats(context: Context): List<AutoReplyChat> {
-        val serialized = preferences(context).getString(KEY_ALLOWED_CHATS, "[]") ?: "[]"
-        return try {
-            val array = JSONArray(serialized)
-            buildList {
-                for (index in 0 until array.length()) {
-                    val item = array.optJSONObject(index) ?: continue
-                    val packageName = item.optString("package").trim()
-                    val conversation = item.optString("conversation").trim()
-                    if (packageName.isNotBlank() && conversation.isNotBlank()) {
-                        add(AutoReplyChat(packageName, conversation))
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            throw IllegalStateException("Could not read the auto-reply chat allow-list.", e)
-        }
-    }
-
     fun isChatAllowed(context: Context, packageName: String, conversation: String): Boolean {
-        val wanted = AutoReplyPolicy.chatKey(packageName, conversation)
-        if (NotificationIntelligenceStore.replyToAllEnabled(context)) {
-            val blocked = blockedChats(context)
-            return blocked.none { AutoReplyPolicy.chatKey(it.packageName, it.conversation) == wanted }
-        }
-        return allowedChats(context).any { it.key == wanted }
+        return AutoReplyPolicy.isChatAllowed(
+            packageName,
+            conversation,
+            blockedChats(context)
+        )
     }
 
     private fun blockedChats(context: Context): List<AutoReplyChat> {
@@ -89,21 +68,13 @@ object AutoReplyPreferences {
     ) {
         val cleanConversation = conversation.trim()
         require(packageName.isNotBlank() && cleanConversation.isNotBlank()) {
-            "A package and conversation name are required to change the allow-list."
+            "A package and conversation name are required to change the conversation exclusion."
         }
-        val current = allowedChats(context).toMutableList()
-        val key = AutoReplyPolicy.chatKey(packageName, cleanConversation)
-        current.removeAll { it.key == key }
-        if (allowed) current.add(AutoReplyChat(packageName, cleanConversation))
         val blocked = blockedChats(context).toMutableList()
+        val key = AutoReplyPolicy.chatKey(packageName, cleanConversation)
         blocked.removeAll { it.key == key }
-        if (!allowed && NotificationIntelligenceStore.replyToAllEnabled(context)) {
+        if (!allowed) {
             blocked.add(AutoReplyChat(packageName, cleanConversation))
-        }
-        val json = JSONArray().apply {
-            current.forEach { chat ->
-                put(org.json.JSONObject().put("package", chat.packageName).put("conversation", chat.conversation))
-            }
         }
         val blockedJson = JSONArray().apply {
             blocked.forEach { chat ->
@@ -111,16 +82,9 @@ object AutoReplyPreferences {
             }
         }
         check(preferences(context).edit()
-            .putString(KEY_ALLOWED_CHATS, json.toString())
             .putString(KEY_BLOCKED_CHATS, blockedJson.toString())
             .commit()) {
-            "Could not update the auto-reply chat allow-list."
-        }
-    }
-
-    fun clearAllowedChats(context: Context) {
-        check(preferences(context).edit().remove(KEY_ALLOWED_CHATS).remove(KEY_BLOCKED_CHATS).commit()) {
-            "Could not clear the auto-reply chat allow-list."
+            "Could not update auto-reply conversation exclusions."
         }
     }
 }
@@ -140,6 +104,19 @@ object AutoReplyPolicy {
 
     fun chatKey(packageName: String, conversation: String): String =
         "${packageName.trim().lowercase(Locale.ROOT)}:${conversation.trim().lowercase(Locale.ROOT)}"
+
+    fun isChatAllowed(
+        packageName: String,
+        conversation: String,
+        excludedChats: List<AutoReplyChat>
+    ): Boolean {
+        val wanted = chatKey(packageName, conversation)
+        return excludedChats.none { it.key == wanted }
+    }
+
+    fun notificationTextOrLatestMessage(text: String, incomingMessages: List<String>): String =
+        text.trim().takeIf(String::isNotBlank)
+            ?: incomingMessages.lastOrNull()?.trim().orEmpty()
 
     fun containsSensitiveContent(text: String): Boolean =
         Regex(

@@ -4,7 +4,7 @@ import android.speech.tts.TextToSpeech
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
-import java.util.Locale
+import com.jarvis.assistant.util.HopeSpeech
 
 class HopeNotificationListenerService : NotificationListenerService() {
     private var textToSpeech: TextToSpeech? = null
@@ -27,18 +27,11 @@ class HopeNotificationListenerService : NotificationListenerService() {
 
     private fun announce(text: String, language: String) {
         if (!NotificationIntelligenceStore.areAnnouncementsEnabled(this) || !ttsReady) return
-        val locale = when (language) {
-            "Hindi", "Hinglish" -> Locale("hi", "IN")
-            "English" -> Locale.US
-            else -> if (Regex("""[\u0900-\u097F]""").containsMatchIn(text)) Locale("hi", "IN") else Locale.US
-        }
         val engine = textToSpeech ?: return
-        val availability = engine.isLanguageAvailable(locale)
-        if (availability < TextToSpeech.LANG_AVAILABLE) {
-            Log.w(TAG, "Configured announcement language is not available in the installed TTS engine.")
+        if (!HopeSpeech.configureLanguage(engine, language, text)) {
+            Log.w(TAG, "The shared HOPE announcement voice and English fallback are unavailable in the installed TTS engine.")
             return
         }
-        engine.language = locale
         engine.speak(text.take(1000), TextToSpeech.QUEUE_ADD, null, "notification-${System.currentTimeMillis()}")
     }
 

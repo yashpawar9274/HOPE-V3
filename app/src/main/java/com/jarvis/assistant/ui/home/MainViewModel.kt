@@ -169,22 +169,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (JarvisConversationService.isSessionOn.value) {
             turnOffSession()
         } else {
-            val context = getApplication<Application>()
-            if (!PermissionHelper.hasAllRequiredPermissions(context)) {
-                viewModelScope.launch {
-                    _eventFlow.emit("Please allow all permissions in Settings to activate Jarvis.")
-                }
-                return
-            }
-            val apiKey = preferences.apiKey.trim()
-            if (apiKey.isBlank()) {
-                viewModelScope.launch {
-                    _eventFlow.emit("Please configure your Gemini API Key in Settings first.")
-                }
-                return
-            }
-            sendServiceAction(JarvisConversationService.ACTION_START_CONVERSATION)
+            startSession()
         }
+    }
+
+    fun ensureSessionOn() {
+        if (!JarvisConversationService.isSessionOn.value) startSession()
+    }
+
+    private fun startSession() {
+        val context = getApplication<Application>()
+        if (!PermissionHelper.hasAllRequiredPermissions(context)) {
+            viewModelScope.launch {
+                _eventFlow.emit("Please allow all permissions in Settings to activate Jarvis.")
+            }
+            return
+        }
+        val apiKey = preferences.apiKey.trim()
+        if (apiKey.isBlank()) {
+            viewModelScope.launch {
+                _eventFlow.emit("Please configure your Gemini API Key in Settings first.")
+            }
+            return
+        }
+        sendServiceAction(JarvisConversationService.ACTION_START_CONVERSATION)
     }
 
     fun toggleMicMute() {

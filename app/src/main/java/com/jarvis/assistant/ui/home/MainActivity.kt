@@ -25,6 +25,7 @@ import com.jarvis.assistant.databinding.ActivityMainBinding
 import com.jarvis.assistant.ui.chat.ChatFragment
 import com.jarvis.assistant.ui.settings.SettingsFragment
 import com.jarvis.assistant.util.PermissionHelper
+import com.jarvis.assistant.voice.HopeVoiceInteractionSessionService
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -43,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private var activeSnackbar: Snackbar? = null
 
     private var currentTab = TAB_HOME
+    private var assistantVoiceStartPending = false
     private val homeFragment by lazy { HomeFragment() }
     private val chatFragment by lazy { ChatFragment() }
     private val settingsFragment by lazy { SettingsFragment() }
@@ -54,6 +56,7 @@ class MainActivity : AppCompatActivity() {
         if (isGranted) {
             checkPermissionsAndStart()
         } else {
+            assistantVoiceStartPending = false
             Toast.makeText(
                 this,
                 "Microphone permission is required for voice conversation.",
@@ -68,6 +71,7 @@ class MainActivity : AppCompatActivity() {
         if (isGranted) {
             checkPermissionsAndStart()
         } else {
+            assistantVoiceStartPending = false
             Toast.makeText(
                 this,
                 "Notification permission is required to run in the background.",
@@ -200,7 +204,14 @@ class MainActivity : AppCompatActivity() {
         setupNavigationDock()
         selectTab(currentTab)
         observeViewModel()
-        showPhoneSetupOnFirstLaunch()
+        if (intent?.getBooleanExtra(
+                HopeVoiceInteractionSessionService.EXTRA_START_ASSISTANT_VOICE_SESSION,
+                false
+            ) != true
+        ) {
+            showPhoneSetupOnFirstLaunch()
+        }
+        handleAssistantVoiceIntent(intent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (currentTab != TAB_HOME) {
@@ -228,6 +239,25 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt("CURRENT_TAB", currentTab)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAssistantVoiceIntent(intent)
+    }
+
+    private fun handleAssistantVoiceIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(
+                HopeVoiceInteractionSessionService.EXTRA_START_ASSISTANT_VOICE_SESSION,
+                false
+            ) != true
+        ) return
+        intent.removeExtra(HopeVoiceInteractionSessionService.EXTRA_START_ASSISTANT_VOICE_SESSION)
+        selectTab(TAB_HOME)
+        if (JarvisConversationService.isSessionOn.value) return
+        assistantVoiceStartPending = true
+        checkPermissionsAndStart()
     }
 
     override fun onResume() {
@@ -406,7 +436,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        viewModel.toggleSession()
+        if (assistantVoiceStartPending) {
+            assistantVoiceStartPending = false
+            viewModel.ensureSessionOn()
+        } else {
+            viewModel.toggleSession()
+        }
     }
 
     private fun showBatteryPermissionDialog() {
@@ -419,7 +454,7 @@ class MainActivity : AppCompatActivity() {
             .setNeutralButton("OPEN SETTINGS") { _, _ ->
                 selectTab(TAB_SETTINGS)
             }
-            .setNegativeButton("CANCEL", null)
+            .setNegativeButton("CANCEL") { _, _ -> assistantVoiceStartPending = false }
             .show()
     }
 

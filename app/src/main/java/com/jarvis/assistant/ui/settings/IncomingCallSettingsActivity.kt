@@ -73,7 +73,7 @@ class IncomingCallSettingsActivity : AppCompatActivity() {
 
         addText("INCOMING CALL ANNOUNCEMENT", 22f, true)
         addText(
-            "HOPE can announce the caller and ask whether you want to answer or reject. A clear spoken command or an on-screen button is required; silence or an unclear command leaves the call ringing. Making HOPE the default phone app replaces the current call interface; you can restore your previous phone app in Android settings.",
+            "HOPE can announce callers and notifications using the same installed Android speech engine and language. It can also ask whether you want to answer or reject; silence or an unclear command leaves the call ringing. Making HOPE the default phone app replaces the current call interface; you can restore your previous phone app in Android settings.",
             14f
         )
         roleStatus = addText("", 14f, true)
@@ -94,7 +94,7 @@ class IncomingCallSettingsActivity : AppCompatActivity() {
         }
         addSettingSwitch(
             "Announce incoming callers",
-            "Uses Android Text-to-Speech. Caller name/number is spoken only when Android provides it.",
+            "Uses the shared Android HOPE announcement voice. Caller name/number is spoken only when Android provides it.",
             IncomingCallPreferences.isAnnouncementEnabled(this)
         ) { enabled -> IncomingCallPreferences.setAnnouncementEnabled(this, enabled) }
         voiceSwitch = addSettingSwitch(
@@ -112,7 +112,7 @@ class IncomingCallSettingsActivity : AppCompatActivity() {
                 IncomingCallPreferences.setVoiceConfirmationEnabled(this, enabled)
             }
         }
-        addButton("Announcement / command language: ${IncomingCallPreferences.language(this)}") {
+        addButton("Call and notification announcement language: ${IncomingCallPreferences.language(this)}") {
             chooseLanguage()
         }
         addText(

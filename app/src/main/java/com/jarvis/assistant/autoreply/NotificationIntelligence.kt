@@ -102,7 +102,6 @@ object NotificationIntelligenceStore {
     private const val KEY_PROCESSED = "processed_notification_ids"
     private const val KEY_REPLY_DAY = "reply_day"
     private const val KEY_DAILY_REPLIES = "daily_replies"
-    private const val KEY_REPLY_ALL = "reply_all"
     private const val KEY_REPLY_AI = "reply_ai"
     private const val KEY_REPLY_TEMPLATE = "reply_template"
     private const val KEY_REPLY_LANGUAGE = "reply_language"
@@ -141,11 +140,6 @@ object NotificationIntelligenceStore {
     fun isPaused(context: Context): Boolean = prefs(context).getBoolean(KEY_PAUSED, false)
     fun setPaused(context: Context, value: Boolean) {
         check(prefs(context).edit().putBoolean(KEY_PAUSED, value).commit()) { "Could not save notification pause state." }
-    }
-
-    fun replyToAllEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_REPLY_ALL, false)
-    fun setReplyToAllEnabled(context: Context, value: Boolean) {
-        check(prefs(context).edit().putBoolean(KEY_REPLY_ALL, value).commit()) { "Could not save reply scope." }
     }
 
     fun aiRepliesEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_REPLY_AI, false)

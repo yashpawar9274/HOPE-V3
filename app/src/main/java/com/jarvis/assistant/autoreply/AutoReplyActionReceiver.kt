@@ -18,14 +18,14 @@ class AutoReplyActionReceiver : BroadcastReceiver() {
         try {
             AutoReplyPreferences.setChatAllowed(context, packageName, conversation, allowed)
             val message = if (allowed) {
-                "AI auto-replies enabled for $conversation"
+                "Auto-replies enabled for $conversation"
             } else {
-                "AI auto-replies disabled for $conversation"
+                "Auto-replies excluded for $conversation"
             }
             Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             AutoReplyCoordinator.dismissChatNotification(context, packageName, conversation)
         } catch (e: Exception) {
-            Log.e(TAG, "Could not update the auto-reply allow-list", e)
+            Log.e(TAG, "Could not update auto-reply conversation exclusions", e)
             Toast.makeText(context, "Could not update auto-reply settings.", Toast.LENGTH_LONG).show()
         }
     }

@@ -29,6 +29,21 @@ class UpdatesFragment : Fragment() {
 
     private fun renderFeatureUpdates() {
         val features = listOf(
+            FeatureNotice(
+                "HOPE 1.8.8",
+                "Default Assistant starts voice",
+                "The Android assistant gesture now launches HOPE Home and starts a live voice session when microphone, notification, battery, and Gemini setup requirements are satisfied."
+            ),
+            FeatureNotice(
+                "Automatic replies",
+                "All conversations in enabled apps",
+                "No individual chat approval is needed. Turn on the master switch and supported app(s); sensitive-message filters, exclusions, quiet hours, daily limits, and supported notification quick-reply actions still apply."
+            ),
+            FeatureNotice(
+                "Call and notification audio",
+                "One shared HOPE announcement voice",
+                "Incoming-call and notification announcements now use the same installed Android speech engine and language setting. Gemini Live persona voices remain for live conversations; announcement text stays on-device."
+            ),
             FeatureNotice("Agent tasks", "Verified actions and recovery", "JARVIS observes the current screen, checks action results, tracks progress, and stops safely when the UI is unclear."),
             FeatureNotice("Floating avatar", "Always-on or working-only display", "Choose an avatar, double-tap for compact task progress, drag it anywhere on screen, and choose a dock edge in Settings."),
             FeatureNotice("Task progress", "Four-step compact status", "The task HUD shows the goal, recent steps, a running indicator, completed checks, and a subdued dark progress line."),

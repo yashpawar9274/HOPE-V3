@@ -185,7 +185,7 @@ object NotificationIntelligenceProcessor {
             .joinToString("") { byte -> "%02x".format(byte) }
 
     private fun localeForReply(context: Context): String =
-        NotificationIntelligenceStore.replyLanguage(context)
+        com.jarvis.assistant.telephony.IncomingCallPreferences.language(context)
 
     private fun defaultSmsPackage(context: Context): String? =
         try {

@@ -37,6 +37,7 @@ import androidx.webkit.WebViewClientCompat
 import com.jarvis.assistant.R
 import com.jarvis.assistant.JarvisApp
 import com.jarvis.assistant.util.ThemeManager
+import com.jarvis.assistant.util.HopeSpeech
 import java.util.Locale
 
 class IncomingCallActivity : AppCompatActivity() {
@@ -578,14 +579,9 @@ class IncomingCallActivity : AppCompatActivity() {
 
     private fun speakPrompt(prompt: String, language: String, listenAfterPrompt: Boolean) {
         val engine = textToSpeech ?: return
-        val locale = when (language) {
-            "Hindi" -> Locale("hi", "IN")
-            else -> if (language == "Auto") Locale.getDefault() else Locale.US
-        }
-        if (engine.isLanguageAvailable(locale) >= TextToSpeech.LANG_AVAILABLE) {
-            engine.language = locale
-        } else {
-            engine.language = Locale.US
+        if (!HopeSpeech.configureLanguage(engine, language, prompt)) {
+            instructionView.text = "The shared Android HOPE announcement voice is unavailable. Use the on-screen call controls."
+            return
         }
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) = Unit

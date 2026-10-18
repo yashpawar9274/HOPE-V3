@@ -2,11 +2,9 @@ package com.jarvis.assistant.autoreply
 
 import android.app.Notification
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.RemoteInput
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Parcelable
@@ -68,7 +66,11 @@ object AutoReplyCoordinator {
             NotificationIntelligenceStore.isPaused(context)) return
         if (notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
 
-        val text = notificationText(notification).trim()
+        val extractedMessages = extractIncomingMessages(notification)
+        val text = AutoReplyPolicy.notificationTextOrLatestMessage(
+            notificationText(notification),
+            extractedMessages.map(Message::text)
+        )
         val conversation = resolveConversation(notification, packageName, text)
         if (conversation.isBlank() || text.isBlank()) return
         if (hasOutgoingLatestMessage(notification)) return
@@ -83,22 +85,27 @@ object AutoReplyCoordinator {
         val chatAllowed = try {
             AutoReplyPreferences.isChatAllowed(context, packageName, conversation)
         } catch (e: IllegalStateException) {
-            Log.e(TAG, "Could not read the auto-reply chat allow-list", e)
+            Log.e(TAG, "Could not read auto-reply conversation exclusions", e)
             postStatusNotification(context, packageName, conversation, "Auto-reply settings could not be read. No message was sent.")
             return
         } catch (e: ClassCastException) {
-            Log.e(TAG, "Auto-reply chat allow-list has an invalid stored type", e)
+            Log.e(TAG, "Auto-reply conversation exclusions have an invalid stored type", e)
             return
         }
         if (!chatAllowed) {
-            postOptInNotification(context, packageName, conversation)
+            postStatusNotification(
+                context,
+                packageName,
+                conversation,
+                "Auto-reply is excluded for this conversation. Remove it from contact/conversation exclusions to allow replies."
+            )
             return
         }
 
-        val extractedMessages = extractIncomingMessages(notification).ifEmpty {
+        val incoming = extractedMessages.ifEmpty {
             listOf(Message(conversation, text, System.currentTimeMillis()))
         }
-        if (extractedMessages.any { AutoReplyPolicy.containsSensitiveContent(it.text) }) {
+        if (incoming.any { AutoReplyPolicy.containsSensitiveContent(it.text) }) {
             postStatusNotification(
                 context,
                 packageName,
@@ -107,11 +114,11 @@ object AutoReplyCoordinator {
             )
             return
         }
-        val incoming = extractedMessages.map {
+        val safeIncoming = incoming.map {
             it.copy(sender = it.sender.take(80), text = it.text.take(MAX_MESSAGE_LENGTH))
         }
         if (NotificationIntelligenceStore.excludedKeywords(context).any { keyword ->
-                incoming.any { it.text.contains(keyword, ignoreCase = true) }
+                safeIncoming.any { it.text.contains(keyword, ignoreCase = true) }
             }) return
         val remoteInputAction = findReplyAction(notification)
         if (remoteInputAction == null) {
@@ -125,14 +132,14 @@ object AutoReplyCoordinator {
         }
 
         val chatKey = AutoReplyPolicy.chatKey(packageName, conversation)
-        val latest = incoming.last()
+        val latest = safeIncoming.last()
         val fingerprint = "${latest.sender}:${latest.text}"
         val now = System.currentTimeMillis()
         val previous = lastProcessed.put(chatKey, fingerprint to now)
         if (previous?.first == fingerprint && now - previous.second < 45_000L) return
         val generation = chatGenerations.computeIfAbsent(chatKey) { AtomicLong() }.incrementAndGet()
 
-        val recentHistory = appendAndGetHistory(chatKey, incoming)
+        val recentHistory = appendAndGetHistory(chatKey, safeIncoming)
         if (recentHistory.any { AutoReplyPolicy.containsSensitiveContent(it.text) }) {
             postStatusNotification(
                 context,
@@ -205,12 +212,12 @@ object AutoReplyCoordinator {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.e(TAG, "Could not generate or send an AI auto-reply", e)
+                    Log.e(TAG, "Could not generate or send an auto-reply", e)
                     postStatusNotification(
                         context,
                         packageName,
                         conversation,
-                        "AI reply was not sent. Check the Gemini connection and try again."
+                        "Automatic reply was not sent. Check the selected reply mode, connection, and message-app reply action."
                     )
                 }
             }
@@ -289,7 +296,9 @@ object AutoReplyCoordinator {
         val extras = notification.extras ?: return ""
         return sequenceOf(
             extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString(),
-            extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+            extras.getCharSequence(Notification.EXTRA_TEXT)?.toString(),
+            extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+                ?.joinToString("\n") { it.toString() }
         ).filterNotNull().map(String::trim).firstOrNull(String::isNotBlank).orEmpty()
     }
 
@@ -457,24 +466,6 @@ object AutoReplyCoordinator {
         action.actionIntent.send(context, 0, fillInIntent)
     }
 
-    private fun postOptInNotification(context: Context, packageName: String, conversation: String) {
-        ensureNotificationChannel(context)
-        val enableIntent = actionIntent(context, packageName, conversation, true, 1)
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_mic_jarvis)
-            .setContentTitle("${appName(packageName)} • $conversation")
-            .setContentText("Choose whether HOPE may send AI-generated replies for this chat.")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "Only this chat is affected. Recent incoming messages are sent to Gemini to draft a reply; " +
-                    "the reply is sent only through this notification's verified quick-reply action."
-            ))
-            .setAutoCancel(true)
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setOnlyAlertOnce(true)
-            .addAction(0, "Enable for this chat", enableIntent)
-        notificationManager(context).notify(notificationId(packageName, conversation), builder.build())
-    }
-
     private fun postStatusNotification(context: Context, packageName: String, conversation: String, message: String) {
         ensureNotificationChannel(context)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -485,29 +476,6 @@ object AutoReplyCoordinator {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .build()
         notificationManager(context).notify(notificationId(packageName, conversation), notification)
-    }
-
-    private fun actionIntent(
-        context: Context,
-        packageName: String,
-        conversation: String,
-        allowed: Boolean,
-        requestCode: Int
-    ): PendingIntent {
-        val intent = Intent(context, AutoReplyActionReceiver::class.java).apply {
-            putExtra(AutoReplyActionReceiver.EXTRA_PACKAGE, packageName)
-            putExtra(AutoReplyActionReceiver.EXTRA_CONVERSATION, conversation)
-            putExtra(AutoReplyActionReceiver.EXTRA_ALLOWED, allowed)
-            data = Uri.parse(
-                "jarvis://auto-reply/${Uri.encode(packageName)}/${Uri.encode(conversation)}/$allowed"
-            )
-        }
-        return PendingIntent.getBroadcast(
-            context,
-            notificationId(packageName, conversation) * 3 + requestCode,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
     }
 
     private fun notificationId(packageName: String, conversation: String): Int =
