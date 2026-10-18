@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="?attr/themeBg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:id="@+id/btnGemmaBack"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="8dp"
+            android:text="‹  Settings"
+            android:textColor="?attr/themeAccent"
+            android:textSize="15sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="On-device AI &amp; Gemma"
+            android:textColor="?attr/themeTextPrimary"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Gemma 3 1B instruction-tuned, 4-bit LiteRT-LM model. Download size is about 557 MiB; allow additional storage and memory for inference. Performance and compatibility vary by device."
+            android:textColor="?attr/themeTextSecondary"
+            android:textSize="14sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="The model is provided under Google Gemma Terms, separately from the Apache-2.0 LiteRT-LM runtime. Review and accept the terms on Hugging Face before downloading."
+            android:textColor="?attr/themeTextMuted"
+            android:textSize="13sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnGemmaTerms"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Review Gemma model terms" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="No Hugging Face token? Accept model access in your browser, download the exact .litertlm file there, then import it below."
+            android:textColor="?attr/themeTextMuted"
+            android:textSize="13sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDownloadGemmaBrowser"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Open model download in browser" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnImportGemma"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Import downloaded .litertlm file" />
+
+        <EditText
+            android:id="@+id/etHuggingFaceToken"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:hint="Hugging Face read token (stored encrypted)"
+            android:inputType="textPassword"
+            android:singleLine="true"
+            android:textColor="?attr/themeTextPrimary"
+            android:textColorHint="?attr/themeTextMuted" />
+
+        <CheckBox
+            android:id="@+id/checkGemmaTermsAccepted"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="I reviewed and accepted the Gemma terms and have access to this gated model."
+            android:textColor="?attr/themeTextPrimary" />
+
+        <TextView
+            android:id="@+id/tvGemmaModelState"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Model is not downloaded."
+            android:textColor="?attr/themeTextSecondary"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tvGemmaLoadError"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:padding="12dp"
+            android:textColor="#EF4444"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <ProgressBar
+            android:id="@+id/progressGemmaDownload"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:max="1000"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnDownloadGemma"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Download / Resume" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPauseGemma"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="Pause"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnLoadGemma"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Load Gemma" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnUnloadGemma"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="Unload" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDeleteGemma"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Delete model and partial download" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="Chat AI mode"
+            android:textColor="?attr/themeTextPrimary"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/radioAiMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <RadioButton
+                android:id="@+id/radioAutomatic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Automatic — use cloud when enabled and available; otherwise use local Gemma."
+                android:textColor="?attr/themeTextPrimary" />
+
+            <RadioButton
+                android:id="@+id/radioOnline"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Online — send this chat prompt and recent chat context to Gemini."
+                android:textColor="?attr/themeTextPrimary" />
+
+            <RadioButton
+                android:id="@+id/radioOffline"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Offline — use local Gemma only; never send this chat to Gemini."
+                android:textColor="?attr/themeTextPrimary" />
+        </RadioGroup>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchCloudInAutomatic"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Allow cloud use in Automatic mode (turn off for local-only privacy)"
+            android:textColor="?attr/themeTextPrimary" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Gemma hardware backend"
+            android:textColor="?attr/themeTextPrimary"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <RadioGroup
+            android:id="@+id/radioGemmaBackend"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <RadioButton
+                android:id="@+id/radioCpu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="CPU (2 threads, recommended for compatibility)"
+                android:textColor="?attr/themeTextPrimary" />
+
+            <RadioButton
+                android:id="@+id/radioGpu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="GPU (device support varies; loading may fail)"
+                android:textColor="?attr/themeTextPrimary" />
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="System instruction"
+            android:textColor="?attr/themeTextPrimary"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etAiSystemInstruction"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Instructions applied to chat requests"
+            android:inputType="textCapSentences|textMultiLine"
+            android:minLines="3"
+            android:maxLines="6"
+            android:textColor="?attr/themeTextPrimary"
+            android:textColorHint="?attr/themeTextMuted" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSaveAiSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Save AI settings" />
+    </LinearLayout>
+</ScrollView>
