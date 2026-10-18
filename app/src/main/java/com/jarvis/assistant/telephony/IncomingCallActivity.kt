@@ -82,6 +82,7 @@ class IncomingCallActivity : AppCompatActivity() {
     private fun stopVoiceRecognition() {
         if (!speechStarted) return
         speechStarted = false
+        updateOrbState()
         ignoreRecognitionCallback = true
         mainHandler.removeCallbacks(recognitionTimeout)
         speechRecognizer?.cancel()
@@ -136,6 +137,7 @@ class IncomingCallActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (::orbWebView.isInitialized) orbWebView.onResume()
         val filter = IntentFilter(HopeCallController.ACTION_CALL_CHANGED)
         ContextCompat.registerReceiver(this, callUpdates, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         refreshCall(allowPrompt = !promptStarted)
@@ -150,6 +152,7 @@ class IncomingCallActivity : AppCompatActivity() {
     override fun onPause() {
         stopVoiceRecognition()
         mainHandler.removeCallbacks(callTimerTick)
+        if (::orbWebView.isInitialized) orbWebView.onPause()
         try {
             unregisterReceiver(callUpdates)
         } catch (_: IllegalArgumentException) {
@@ -386,7 +389,7 @@ class IncomingCallActivity : AppCompatActivity() {
         ) View.VISIBLE else View.GONE
         moveCallDetails(ringing)
         val orbState = when (call.state) {
-            android.telecom.Call.STATE_RINGING -> "listening"
+            android.telecom.Call.STATE_RINGING -> if (speechStarted) "listening" else "ringing"
             android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "thinking"
             android.telecom.Call.STATE_ACTIVE -> "active"
             android.telecom.Call.STATE_HOLDING -> "idle"
@@ -598,6 +601,7 @@ class IncomingCallActivity : AppCompatActivity() {
                 }
                 mainHandler.removeCallbacks(recognitionTimeout)
                 mainHandler.postDelayed(recognitionTimeout, 8_000L)
+                updateOrbState()
             }
 
             override fun onResults(results: Bundle?) {
@@ -607,6 +611,7 @@ class IncomingCallActivity : AppCompatActivity() {
                     return
                 }
                 speechStarted = false
+                updateOrbState()
                 val recognized = results
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     .orEmpty()
@@ -629,6 +634,7 @@ class IncomingCallActivity : AppCompatActivity() {
                     return
                 }
                 speechStarted = false
+                updateOrbState()
                 instructionView.text = "No voice command recognized. The call is still ringing; tap Answer or Reject."
             }
 
@@ -660,6 +666,7 @@ class IncomingCallActivity : AppCompatActivity() {
         } catch (error: Exception) {
             mainHandler.removeCallbacks(recognitionTimeout)
             speechStarted = false
+            updateOrbState()
             android.util.Log.e(TAG, "Could not start speech recognition for the incoming call.", error)
             instructionView.text = "Voice recognition could not start. Use Answer or Reject."
         }
@@ -760,9 +767,9 @@ class IncomingCallActivity : AppCompatActivity() {
         if (!orbLoaded || !::orbWebView.isInitialized) return
         val snapshot = HopeCallController.currentCall(this, callId)
         val state = forceState ?: when (snapshot?.state) {
-            android.telecom.Call.STATE_RINGING -> "listening"
+            android.telecom.Call.STATE_RINGING -> if (speechStarted) "listening" else "ringing"
             android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "thinking"
-            android.telecom.Call.STATE_ACTIVE -> "speaking"
+            android.telecom.Call.STATE_ACTIVE -> "active"
             android.telecom.Call.STATE_HOLDING -> "idle"
             else -> "disconnected"
         }

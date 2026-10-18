@@ -30,6 +30,11 @@ class UpdatesFragment : Fragment() {
     private fun renderFeatureUpdates() {
         val features = listOf(
             FeatureNotice(
+                "HOPE 1.9.2",
+                "New HOPE Phone call ORB",
+                "Call screens now use the supplied particle-style HOPE ORB, rendered with the Three.js library bundled in the app for offline use. Its status follows Android Telecom call states and actual voice recognition; cellular call audio is not captured."
+            ),
+            FeatureNotice(
                 "HOPE 1.9.1",
                 "Voice command takes a screenshot",
                 "Ask HOPE to take a screenshot or say “screenshot le lo”. On Android 11 and newer, enabled HOPE Accessibility captures and saves it to Pictures/HOPE. On Android 10 and earlier, start Android-approved Screen Share first. The screenshot stays on-device and is not sent to Gemini."

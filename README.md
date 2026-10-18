@@ -9,7 +9,7 @@ An Android voice assistant built with Kotlin, Gemini Live, on-device voice compo
 - Minimum Android version: Android 8.0 (API 26)
 - Compile and target SDK: 34
 - Java/Kotlin target: 17
-- Current app version: 1.9.1 (version code 147)
+- Current app version: 1.9.2 (version code 148)
 
 ## Getting started
 
@@ -84,6 +84,10 @@ The certificate fingerprint must be calculated from the same key used to sign th
 - [Documentation index](docs/README.md)
 - [Voice architecture research](docs/architecture/voice-architecture-research.md)
 - [Voice issue recordings](docs/diagnostics/voice-videos/README.md)
+
+## HOPE 1.9.2 release notes
+
+- Replaced the HOPE Phone call-screen orb with an offline, locally bundled Three.js particle ORB based on the supplied design. The orb status and animation follow real Android Telecom call states and voice-recognition state; it does not capture cellular call audio. A lightweight visual fallback remains available when WebGL is unavailable.
 
 ## HOPE 1.9.1 release notes
 

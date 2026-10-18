@@ -1,134 +1,164 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#050914">
+<title>HOPE Call Orb</title>
 <style>
+:root{color-scheme:dark;--muted:#8ea8c4}
 *{box-sizing:border-box}
-html,body,#orb{width:100%;height:100%;margin:0;overflow:hidden;background:transparent}
-body{background:radial-gradient(circle,rgba(0,208,231,.12),rgba(55,27,110,.16) 48%,transparent 72%)}
-canvas{display:block;width:100%;height:100%;background:radial-gradient(circle,rgba(9,44,57,.8) 0,rgba(5,20,31,.5) 40%,transparent 70%)}
+html,body,#hope-orb-root{width:100%;height:100%;margin:0;overflow:hidden;background:transparent;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+#hope-orb-root{position:relative;min-height:220px;isolation:isolate}
+#hope-orb-canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#hope-orb-fallback{position:absolute;left:50%;top:50%;width:min(56vw,220px);aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle at 36% 30%,#b9fbff 0,#4bdfff 12%,#1768e8 37%,#4b24b7 62%,#070c24 75%);box-shadow:0 0 45px #22b8ff88,0 0 100px #5145ff55;animation:orb-breathe 3s ease-in-out infinite}
+#hope-orb-fallback:before{content:"";position:absolute;inset:-13%;border:1px solid #6beaff99;border-radius:50%;transform:rotateX(67deg) rotateZ(-24deg)}
+#hope-orb-fallback:after{content:"";position:absolute;inset:8%;border-radius:50%;border:1px solid #b5f7ff66;box-shadow:inset 0 0 30px #45cfff88}
+#hope-orb-status{position:absolute;left:0;right:0;bottom:max(12px,env(safe-area-inset-bottom));text-align:center;color:var(--muted);font-size:11px;letter-spacing:.2em;text-transform:uppercase;pointer-events:none;text-shadow:0 1px 10px #000}
+@keyframes orb-breathe{0%,100%{scale:.96;filter:hue-rotate(0)}50%{scale:1.03;filter:hue-rotate(12deg)}}
+@media(prefers-reduced-motion:reduce){#hope-orb-fallback{animation:none}}
 </style>
 </head>
 <body>
-<div id="orb"><canvas id="canvas"></canvas></div>
+<div id="hope-orb-root" aria-label="HOPE Phone call orb">
+  <div id="hope-orb-fallback" aria-hidden="true"></div>
+  <canvas id="hope-orb-canvas" aria-label="Animated HOPE call orb"></canvas>
+  <div id="hope-orb-status" aria-live="polite">HOPE · IDLE</div>
+</div>
+<script src="https://appassets.androidplatform.net/assets/three.min.js"></script>
 <script>
-(function(){
+(() => {
   "use strict";
-  const canvas=document.getElementById("canvas");
-  const gl=canvas.getContext("webgl",{alpha:true,antialias:true,powerPreference:"low-power"})||
-    canvas.getContext("experimental-webgl");
-  if(!gl)return;
-  const vertexSource="attribute vec2 a_position;void main(){gl_Position=vec4(a_position,0.0,1.0);}";
-  const fragmentSource=`
-precision highp float;
-uniform float u_time;
-uniform vec2 u_resolution;
-uniform float u_state;
-vec3 permute(vec3 x){return mod(((x*34.0)+1.0)*x,289.0);}
-float snoise(vec2 v){
-  const vec4 C=vec4(0.211324865405187,0.366025403784439,-0.577350269189626,0.024390243902439);
-  vec2 i=floor(v+dot(v,C.yy));
-  vec2 x0=v-i+dot(i,C.xx);
-  vec2 i1=x0.x>x0.y?vec2(1.0,0.0):vec2(0.0,1.0);
-  vec4 x12=x0.xyxy+C.xxzz;
-  x12.xy-=i1;
-  i=mod(i,289.0);
-  vec3 p=permute(permute(i.y+vec3(0.0,i1.y,1.0))+i.x+vec3(0.0,i1.x,1.0));
-  vec3 m=max(0.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.0);
-  m=m*m;m=m*m;
-  vec3 x=2.0*fract(p*0.0243902439)-1.0;
-  vec3 h=abs(x)-0.5;
-  vec3 ox=floor(x+0.5);
-  vec3 a0=x-ox;
-  m*=1.79284291400159-0.85373472095314*(a0*a0+h*h);
-  vec3 g;
-  g.x=a0.x*x0.x+h.x*x0.y;
-  g.yz=a0.yz*x12.xz+h.yz*x12.yw;
-  return 130.0*dot(m,g);
-}
-void main(){
-  vec2 st=(gl_FragCoord.xy-0.5*u_resolution.xy)/min(u_resolution.x,u_resolution.y);
-  float r=length(st);
-  float speed=u_state<0.5?0.9:(u_state<1.5?1.35:(u_state<2.5?0.65:0.22));
-  float t=u_time*speed;
-  float angle=atan(st.y,st.x);
-  float n=snoise(st*3.2+vec2(cos(t*.5),sin(t*.6)));
-  float n2=snoise(st*5.0-vec2(sin(t*.7),cos(t*.4)));
-  float radius=.385+.018*sin(t*1.5+n);
-  float sphere=smoothstep(radius+.035,radius-.035,r);
-  vec3 cyan=vec3(.0,.91,1.0);
-  vec3 indigo=vec3(.25,.17,.85);
-  vec3 violet=vec3(.55,.2,.91);
-  vec3 deep=vec3(.015,.07,.12);
-  float flow=sin(r*18.0-t*2.0+n*3.0)*.5+.5;
-  float swirl=cos(angle*3.0+t+n2*2.5)*.5+.5;
-  vec3 color=mix(indigo,cyan,flow);
-  color=mix(color,violet,swirl*.48);
-  color=mix(color,deep,smoothstep(.1,.43,r)*.72);
-  float core=exp(-r*9.0)*.38;
-  float halo=exp(-r*4.1)*.27;
-  float rim=smoothstep(.49,.37,r)*smoothstep(.31,.40,r);
-  float brightness=u_state>2.5?.55:1.0;
-  vec3 finalColor=(color*sphere+cyan*core+cyan*rim*.35)*brightness;
-  float alpha=clamp(sphere*.96+halo+rim*.38,0.0,.96)*brightness;
-  gl_FragColor=vec4(finalColor,alpha);
-}`;
-  function compile(type,source){
-    const shader=gl.createShader(type);
-    gl.shaderSource(shader,source);
-    gl.compileShader(shader);
-    if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS)){
-      console.error("HOPE call orb shader failed:",gl.getShaderInfoLog(shader));
-      gl.deleteShader(shader);
-      return null;
+  const root=document.getElementById("hope-orb-root");
+  const canvas=document.getElementById("hope-orb-canvas");
+  const fallback=document.getElementById("hope-orb-fallback");
+  const status=document.getElementById("hope-orb-status");
+  const names=["idle","ringing","listening","thinking","speaking","active","disconnected"];
+  const labels={idle:"HOPE · ON HOLD",ringing:"HOPE · INCOMING CALL",listening:"HOPE · LISTENING",thinking:"HOPE · CONNECTING",speaking:"HOPE · SPEAKING",active:"HOPE · CALL ACTIVE",disconnected:"HOPE · CALL ENDED"};
+  const palettes={
+    blue:{a:0x21e6ff,b:0x2866ff,c:0x8a45ff},
+    violet:{a:0xb7a0ff,b:0x7047ff,c:0x22d7ff},
+    cyan:{a:0x9cffff,b:0x00a8ff,c:0x3dfff0},
+    sunset:{a:0xffcf86,b:0xff5b9d,c:0x8b5cff},
+    red:{a:0xffa1b7,b:0xff315d,c:0x9e42ff},
+    custom:{a:0x7df9ff,b:0x5271ff,c:0xc084fc}
+  };
+  let currentState="idle",theme="blue",renderer,scene,camera,particles,particleMaterial,core,coreMaterial,glow,ringGroup;
+  let rings=[],orbiters=[],raf=0,observer=null,elapsed=0,lastTime=0,disposed=false;
+  function setFallback(show){fallback.style.display=show?"block":"none";canvas.style.display=show?"none":"block";}
+  function setState(value){
+    const next=String(value||"idle").toLowerCase();
+    currentState=names.includes(next)?next:"idle";
+    status.textContent=labels[currentState];
+  }
+  function setTheme(name){
+    theme=palettes[name]?name:"blue";
+    const palette=palettes[theme];
+    if(!particleMaterial)return;
+    particleMaterial.uniforms.uColorA.value.setHex(palette.a);
+    particleMaterial.uniforms.uColorB.value.setHex(palette.b);
+    particleMaterial.uniforms.uColorC.value.setHex(palette.c);
+    coreMaterial.color.setHex(palette.b);
+    coreMaterial.emissive.setHex(palette.a);
+    glow.material.color.setHex(palette.a);
+    rings.forEach((ring,index)=>ring.material.color.setHex(index===0?palette.a:index===1?palette.c:palette.b));
+  }
+  window.HopeCallOrb={
+    setState,
+    setTheme,
+    getState(){return currentState;},
+    getTheme(){return theme;}
+  };
+  window.JarvisOrb=window.HopeCallOrb;
+  if(!window.THREE){setFallback(true);return;}
+  try{
+    renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true,powerPreference:"low-power"});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.5));
+    renderer.setSize(Math.max(1,root.clientWidth),Math.max(1,root.clientHeight),false);
+    renderer.setClearColor(0x000000,0);
+    renderer.outputColorSpace=THREE.SRGBColorSpace;
+    scene=new THREE.Scene();
+    camera=new THREE.PerspectiveCamera(38,1,.1,100);
+    camera.position.set(0,0,8.6);
+    scene.add(new THREE.AmbientLight(0x8bcfff,.6));
+    const keyLight=new THREE.PointLight(0x42dfff,3,18);keyLight.position.set(3,3,4);scene.add(keyLight);
+    const violetLight=new THREE.PointLight(0x764bff,2.4,16);violetLight.position.set(-3,-2,2);scene.add(violetLight);
+    const count=4200,positions=new Float32Array(count*3),sizes=new Float32Array(count),phases=new Float32Array(count);
+    for(let i=0;i<count;i++){
+      const y=Math.random()*2-1,angle=Math.random()*Math.PI*2,radius=1.15+(Math.random()-.5)*.15;
+      const planar=Math.sqrt(1-y*y);
+      positions[i*3]=radius*planar*Math.cos(angle);
+      positions[i*3+1]=radius*y;
+      positions[i*3+2]=radius*planar*Math.sin(angle);
+      sizes[i]=.7+Math.random()*1.4;
+      phases[i]=Math.random()*Math.PI*2;
     }
-    return shader;
+    const geometry=new THREE.BufferGeometry();
+    geometry.setAttribute("position",new THREE.BufferAttribute(positions,3));
+    geometry.setAttribute("aSize",new THREE.BufferAttribute(sizes,1));
+    geometry.setAttribute("aPhase",new THREE.BufferAttribute(phases,1));
+    particleMaterial=new THREE.ShaderMaterial({
+      transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
+      uniforms:{uTime:{value:0},uEnergy:{value:.25},uColorA:{value:new THREE.Color(palettes.blue.a)},uColorB:{value:new THREE.Color(palettes.blue.b)},uColorC:{value:new THREE.Color(palettes.blue.c)}},
+      vertexShader:`attribute float aSize;attribute float aPhase;uniform float uTime;uniform float uEnergy;varying float vGlow;varying float vPhase;void main(){vec3 p=position;float wave=sin(uTime*1.4+aPhase*2.0+position.y*3.2);p+=normalize(position)*wave*(.025+uEnergy*.12);vec4 mv=modelViewMatrix*vec4(p,1.0);gl_Position=projectionMatrix*mv;gl_PointSize=aSize*(1.0+uEnergy*2.5)*(150.0/-mv.z);vGlow=.55+.45*sin(aPhase+uTime*1.7);vPhase=aPhase;}`,
+      fragmentShader:`uniform vec3 uColorA;uniform vec3 uColorB;uniform vec3 uColorC;varying float vGlow;varying float vPhase;void main(){vec2 uv=gl_PointCoord-.5;float d=length(uv);if(d>.5)discard;float alpha=pow(1.0-d*2.0,2.0)*vGlow*.92;vec3 col=mix(uColorA,uColorB,smoothstep(0.0,1.0,gl_FragCoord.y/900.0));col=mix(col,uColorC,.5+.5*sin(vPhase));gl_FragColor=vec4(col,alpha);}`
+    });
+    particles=new THREE.Points(geometry,particleMaterial);scene.add(particles);
+    coreMaterial=new THREE.MeshStandardMaterial({color:0x2866ff,emissive:0x21e6ff,emissiveIntensity:1.5,metalness:.35,roughness:.22,transparent:true,opacity:.48,wireframe:true});
+    core=new THREE.Mesh(new THREE.IcosahedronGeometry(.79,4),coreMaterial);scene.add(core);
+    glow=new THREE.Mesh(new THREE.SphereGeometry(.88,32,32),new THREE.MeshBasicMaterial({color:0x21e6ff,transparent:true,opacity:.075,side:THREE.BackSide,blending:THREE.AdditiveBlending,depthWrite:false}));scene.add(glow);
+    ringGroup=new THREE.Group();scene.add(ringGroup);
+    for(let i=0;i<3;i++){
+      const ring=new THREE.Mesh(new THREE.TorusGeometry(1.42+i*.16,.004+(i===1?.002:0),8,140),new THREE.MeshBasicMaterial({color:[0x21e6ff,0x8a45ff,0x2866ff][i],transparent:true,opacity:[.62,.34,.22][i],blending:THREE.AdditiveBlending,depthWrite:false}));
+      ring.rotation.set([1.12,.4,1.7][i],[.18,1.1,.7][i],[.2,.8,1.1][i]);
+      ringGroup.add(ring);rings.push(ring);
+    }
+    const orbitGroup=new THREE.Group();scene.add(orbitGroup);
+    for(let i=0;i<28;i++){
+      const dot=new THREE.Mesh(new THREE.SphereGeometry(.018,6,6),new THREE.MeshBasicMaterial({color:i%3===0?0xb4faff:i%3===1?0x6e9dff:0xc5a2ff,transparent:true,opacity:.75}));
+      dot.userData={angle:Math.random()*Math.PI*2,radius:1.5+Math.random()*.45,speed:.15+Math.random()*.4,phase:Math.random()*6.28};
+      orbitGroup.add(dot);orbiters.push(dot);
+    }
+    setFallback(false);
+    observer=new ResizeObserver(resize);observer.observe(root);
+    window.addEventListener("resize",resize,{passive:true});
+    document.addEventListener("visibilitychange",onVisibility);
+    raf=requestAnimationFrame(render);
+  }catch(error){
+    console.error("[HOPE call orb] WebGL initialisation failed",error);
+    setFallback(true);
   }
-  const vertex=compile(gl.VERTEX_SHADER,vertexSource);
-  const fragment=compile(gl.FRAGMENT_SHADER,fragmentSource);
-  if(!vertex||!fragment)return;
-  const program=gl.createProgram();
-  gl.attachShader(program,vertex);
-  gl.attachShader(program,fragment);
-  gl.linkProgram(program);
-  if(!gl.getProgramParameter(program,gl.LINK_STATUS)){
-    console.error("HOPE call orb program failed:",gl.getProgramInfoLog(program));
-    return;
-  }
-  gl.useProgram(program);
-  const buffer=gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
-  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
-  const position=gl.getAttribLocation(program,"a_position");
-  gl.enableVertexAttribArray(position);
-  gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
-  const time=gl.getUniformLocation(program,"u_time");
-  const resolution=gl.getUniformLocation(program,"u_resolution");
-  const state=gl.getUniformLocation(program,"u_state");
-  let currentState=0;
-  const states={listening:0,thinking:1,active:2,idle:3,disconnected:4};
-  window.HopeCallOrb={setState:function(value){
-    if(Object.prototype.hasOwnProperty.call(states,value))currentState=states[value];
-  }};
   function resize(){
-    const ratio=Math.min(window.devicePixelRatio||1,1.5);
-    const width=Math.max(1,Math.floor(canvas.clientWidth*ratio));
-    const height=Math.max(1,Math.floor(canvas.clientHeight*ratio));
-    if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height;}
+    if(!renderer||!camera)return;
+    const width=Math.max(1,root.clientWidth),height=Math.max(1,root.clientHeight);
+    renderer.setSize(width,height,false);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.5));
+    camera.aspect=width/height;camera.updateProjectionMatrix();
   }
   function render(now){
-    resize();
-    gl.viewport(0,0,canvas.width,canvas.height);
-    gl.clearColor(0,0,0,0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.uniform1f(time,now*.001);
-    gl.uniform2f(resolution,canvas.width,canvas.height);
-    gl.uniform1f(state,currentState);
-    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
-    requestAnimationFrame(render);
+    if(disposed||!renderer)return;
+    raf=requestAnimationFrame(render);
+    if(document.hidden)return;
+    const dt=Math.min(.05,lastTime?(now-lastTime)/1000:.016);lastTime=now;elapsed+=dt;
+    const base={idle:.06,ringing:.38,listening:.45,thinking:.38,speaking:.9,active:.58,disconnected:.035}[currentState];
+    const energy=base||.25;
+    particleMaterial.uniforms.uTime.value=elapsed;
+    particleMaterial.uniforms.uEnergy.value=energy;
+    const breath=1+Math.sin(elapsed*(currentState==="speaking"?4.2:1.35))*(.025+energy*.035);
+    particles.scale.setScalar(breath);
+    particles.rotation.y+=dt*(currentState==="thinking"?.38:.12);
+    particles.rotation.x+=dt*.035;
+    core.rotation.y+=dt*.18;core.rotation.x+=dt*.09;
+    core.scale.setScalar(1+Math.sin(elapsed*2.2)*.025+energy*.055);
+    glow.scale.setScalar(1+energy*.16+Math.sin(elapsed*1.8)*.025);
+    glow.material.opacity=currentState==="disconnected"?.025:.045+energy*.075;
+    rings.forEach((ring,index)=>{ring.rotation.z+=dt*(index===1?-.22:.12)*(currentState==="thinking"?2:1);ring.rotation.x+=dt*.025;});
+    orbiters.forEach(dot=>{const data=dot.userData;data.angle+=dt*data.speed*(currentState==="thinking"?2.2:1);dot.position.set(Math.cos(data.angle)*data.radius,Math.sin(data.angle*.72+data.phase)*data.radius*.42,Math.sin(data.angle)*data.radius*.72);dot.scale.setScalar(1+energy*1.4);});
+    if(currentState==="disconnected"){coreMaterial.emissiveIntensity=.2;particles.material.uniforms.uEnergy.value=.035;}
+    else coreMaterial.emissiveIntensity=1.1+energy*1.4;
+    renderer.render(scene,camera);
   }
-  requestAnimationFrame(render);
+  function onVisibility(){if(!document.hidden&&renderer){lastTime=0;resize();}}
 })();
 </script>
 </body>
