@@ -643,6 +643,18 @@ class GeminiLiveWebSocket(
                             })
                         })
 
+                        // 22. take_screenshot
+                        put(JSONObject().apply {
+                            put("name", "take_screenshot")
+                            put(
+                                "description",
+                                "Immediately captures and saves the current device screen when the user explicitly asks for a screenshot (for example: 'take a screenshot', 'screenshot le lo', or 'screen ka screenshot lo'). This only saves the image locally; it does not inspect, send, or upload the screenshot. Requires HOPE Accessibility to be enabled. Android 11+ uses the accessibility screenshot API and saves to Pictures/HOPE. On Android 10 and earlier, a user-approved active Screen Share is required."
+                            )
+                            put("parameters", JSONObject().apply {
+                                put("type", "OBJECT")
+                                put("properties", JSONObject())
+                            })
+                        })
 
                     })
                 }))

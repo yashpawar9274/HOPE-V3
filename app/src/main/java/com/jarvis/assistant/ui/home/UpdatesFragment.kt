@@ -30,6 +30,11 @@ class UpdatesFragment : Fragment() {
     private fun renderFeatureUpdates() {
         val features = listOf(
             FeatureNotice(
+                "HOPE 1.9.1",
+                "Voice command takes a screenshot",
+                "Ask HOPE to take a screenshot or say “screenshot le lo”. On Android 11 and newer, enabled HOPE Accessibility captures and saves it to Pictures/HOPE. On Android 10 and earlier, start Android-approved Screen Share first. The screenshot stays on-device and is not sent to Gemini."
+            ),
+            FeatureNotice(
                 "HOPE 1.9.0",
                 "Real-time notification inbox and safer Auto-Reply",
                 "HOPE now captures actual Android-delivered notifications for apps you monitor, updates inbox entries by Android notification key, tracks read and dismissed state, and applies configurable local retention. Announcements use the shared HOPE speech queue with per-app, quiet-hour, sensitive-content, headphones, and pause controls. Inbox reply previews can be confirmed and spoken without sending. Automatic sending is off by default and requires Notification Access, global and per-app monitoring, an explicitly enabled supported app, a matching AUTHORIZED_AUTO_REPLY rule, and an Android-provided inline reply action."

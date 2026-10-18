@@ -9,7 +9,7 @@ An Android voice assistant built with Kotlin, Gemini Live, on-device voice compo
 - Minimum Android version: Android 8.0 (API 26)
 - Compile and target SDK: 34
 - Java/Kotlin target: 17
-- Current app version: 1.9.0 (version code 146)
+- Current app version: 1.9.1 (version code 147)
 
 ## Getting started
 
@@ -84,6 +84,10 @@ The certificate fingerprint must be calculated from the same key used to sign th
 - [Documentation index](docs/README.md)
 - [Voice architecture research](docs/architecture/voice-architecture-research.md)
 - [Voice issue recordings](docs/diagnostics/voice-videos/README.md)
+
+## HOPE 1.9.1 release notes
+
+- Added a voice screenshot command: ask HOPE to take a screenshot, or say **“screenshot le lo”**. On Android 11 and newer, the enabled HOPE Accessibility service captures the current display and saves it locally in `Pictures/HOPE`. On Android 10 and earlier, a user-approved active Screen Share is required; the image is saved in HOPE's app-specific Pictures folder. The screenshot is not uploaded to Gemini.
 
 ## HOPE 1.9.0 release notes
 

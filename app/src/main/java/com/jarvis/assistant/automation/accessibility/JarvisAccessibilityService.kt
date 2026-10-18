@@ -4,14 +4,17 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
+import android.os.Environment
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.MediaStore
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -19,10 +22,16 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.graphics.Bitmap
 import android.view.Display
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +42,9 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "JarvisAccessibility"
+        private val screenshotExecutor = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "HopeAccessibilityScreenshot").apply { isDaemon = true }
+        }
         private val _uiChanges = MutableStateFlow(UiChange(0L, "", 0, 0L))
         val uiChanges: StateFlow<UiChange> = _uiChanges.asStateFlow()
 
@@ -83,7 +95,7 @@ class JarvisAccessibilityService : AccessibilityService() {
             val s = instance ?: return null
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
             return try {
-                withTimeoutOrNull(1500L) {
+                withTimeoutOrNull(3000L) {
                     suspendCancellableCoroutine { cont ->
                         s.takeScreenCapture { bmp ->
                             if (cont.isActive) {
@@ -95,6 +107,93 @@ class JarvisAccessibilityService : AccessibilityService() {
             } catch (e: Exception) {
                 Log.w(TAG, "captureScreenBitmap timed out or failed: ${e.message}")
                 null
+            }
+        }
+
+        suspend fun captureAndSaveScreenshot(context: Context): Result<String> = withContext(Dispatchers.IO) {
+            val captureManager = com.jarvis.assistant.vision.ScreenCaptureManager.getInstance()
+            val screenshotBytes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && instance != null) {
+                val bitmap = captureScreenBitmap()
+                if (bitmap == null) {
+                    captureManager.captureSnapshotJpeg(94)
+                        ?: return@withContext Result.failure(
+                            IllegalStateException(
+                                "Screenshot capture failed. Confirm HOPE Accessibility is enabled and retry."
+                            )
+                        )
+                } else {
+                    try {
+                        ByteArrayOutputStream().use { stream ->
+                            check(bitmap.compress(Bitmap.CompressFormat.JPEG, 94, stream)) {
+                                "Android could not encode the screenshot."
+                            }
+                            stream.toByteArray()
+                        }
+                    } finally {
+                        bitmap.recycle()
+                    }
+                }
+            } else {
+                captureManager.captureSnapshotJpeg(94)
+                    ?: return@withContext Result.failure(
+                        IllegalStateException(
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                                "Instant screenshots require Android 11 or newer with HOPE Accessibility enabled. On this Android version, start Screen Share first."
+                            } else {
+                                "Screenshot capture failed. Confirm HOPE Accessibility is enabled or that Screen Share has received a frame."
+                            }
+                        )
+                    )
+            }
+            if (screenshotBytes.isEmpty()) {
+                return@withContext Result.failure(IllegalStateException("Android returned an empty screenshot."))
+            }
+
+            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val fileName = "HOPE_Screenshot_$timestamp.jpg"
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                        put(
+                            MediaStore.Images.Media.RELATIVE_PATH,
+                            "${Environment.DIRECTORY_PICTURES}/HOPE"
+                        )
+                        put(MediaStore.Images.Media.IS_PENDING, 1)
+                    }
+                    val resolver = context.applicationContext.contentResolver
+                    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                        ?: throw IllegalStateException("Android could not create a screenshot in Pictures/HOPE.")
+                    try {
+                        val output = resolver.openOutputStream(uri, "w")
+                            ?: throw IllegalStateException("Android could not open the new screenshot file.")
+                        output.use { it.write(screenshotBytes) }
+                        val published = ContentValues().apply {
+                            put(MediaStore.Images.Media.IS_PENDING, 0)
+                        }
+                        check(resolver.update(uri, published, null, null) > 0) {
+                            "Android did not publish the screenshot to your gallery."
+                        }
+                    } catch (error: Exception) {
+                        resolver.delete(uri, null, null)
+                        throw error
+                    }
+                    Result.success("Pictures/HOPE/$fileName")
+                } else {
+                    val pictures = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+                        ?: throw IllegalStateException("App-specific picture storage is unavailable.")
+                    val directory = File(pictures, "HOPE")
+                    check(directory.isDirectory || directory.mkdirs()) {
+                        "Could not create HOPE's screenshot folder."
+                    }
+                    val file = File(directory, fileName)
+                    FileOutputStream(file).use { it.write(screenshotBytes) }
+                    Result.success(file.absolutePath)
+                }
+            } catch (error: Exception) {
+                Log.e(TAG, "Could not save the requested screenshot.", error)
+                Result.failure(error)
             }
         }
 
@@ -143,7 +242,7 @@ class JarvisAccessibilityService : AccessibilityService() {
             try {
                 takeScreenshot(
                     Display.DEFAULT_DISPLAY,
-                    Executors.newSingleThreadExecutor(),
+                    screenshotExecutor,
                     object : AccessibilityService.TakeScreenshotCallback {
                         override fun onSuccess(screenshotResult: AccessibilityService.ScreenshotResult) {
                             try {

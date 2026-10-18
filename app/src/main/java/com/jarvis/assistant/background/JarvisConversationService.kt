@@ -1688,6 +1688,36 @@ class JarvisConversationService : Service() {
                 val result = JSONObject()
 
                 when (name) {
+                    "take_screenshot" -> {
+                        val a11y = com.jarvis.assistant.automation.accessibility.JarvisAccessibilityService.instance
+                        if (a11y == null &&
+                            !com.jarvis.assistant.vision.ScreenCaptureManager.getInstance().isScreenShareActive()
+                        ) {
+                            result.put("success", false)
+                            result.put(
+                                "message",
+                                "Screenshot not taken. Enable HOPE Accessibility in Android Settings and try again. Android 10 and earlier also require user-approved Screen Share."
+                            )
+                        } else {
+                            val captureResult =
+                                com.jarvis.assistant.automation.accessibility.JarvisAccessibilityService
+                                    .captureAndSaveScreenshot(applicationContext)
+                            captureResult.onSuccess { savedLocation ->
+                                result.put("success", true)
+                                result.put("verified", true)
+                                result.put("saved_location", savedLocation)
+                                result.put("message", "Screenshot captured and saved to $savedLocation.")
+                                Log.i("JarvisService", "Saved requested screenshot to $savedLocation")
+                            }.onFailure { error ->
+                                result.put("success", false)
+                                result.put(
+                                    "message",
+                                    error.message ?: "Screenshot capture or saving failed. No success is being reported."
+                                )
+                            }
+                        }
+                    }
+
                     "open_app" -> {
                         val appName = args.optString("app_name", "")
                         val appNumber = if (args.has("app_number")) args.optInt("app_number", 1) else null
