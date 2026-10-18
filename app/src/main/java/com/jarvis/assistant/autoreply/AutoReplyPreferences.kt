@@ -118,9 +118,11 @@ object AutoReplyPolicy {
         text.trim().takeIf(String::isNotBlank)
             ?: incomingMessages.lastOrNull()?.trim().orEmpty()
 
+    private val sensitiveContentPattern = Regex(
+        """\b(?:otp|code|one[- ]time(?: password| code)?|verification|passcode|password|pin(?: code)?|bank(?:ing)?|upi|payment|transaction|credit card|debit card|cvv|security code|security alert|login|sign[- ]?in|authentication|account balance|credited|debited|aadhaar|aadhar|ssn|passport)\b|(?:ओटीपी|बैंक|खाता|लेनदेन|भुगतान|रुपये|सुरक्षा कोड)""",
+        RegexOption.IGNORE_CASE
+    )
+
     fun containsSensitiveContent(text: String): Boolean =
-        Regex(
-            """\b(otp|code|one[- ]time (?:password|code)|verification code|passcode|password|pin(?: code)?|bank(?:ing)?|upi|payment|transaction|credit card|debit card|cvv|security code)\b""",
-            RegexOption.IGNORE_CASE
-        ).containsMatchIn(text)
+        sensitiveContentPattern.containsMatchIn(text)
 }

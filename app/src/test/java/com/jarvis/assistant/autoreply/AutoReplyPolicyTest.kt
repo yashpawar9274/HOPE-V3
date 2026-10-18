@@ -62,7 +62,87 @@ class AutoReplyPolicyTest {
         assertTrue(AutoReplyPolicy.containsSensitiveContent("Your verification code is 584923"))
         assertTrue(AutoReplyPolicy.containsSensitiveContent("Send your UPI payment now"))
         assertTrue(AutoReplyPolicy.containsSensitiveContent("Enter the password"))
+        assertTrue(AutoReplyPolicy.containsSensitiveContent("Your bank account was debited"))
+        assertTrue(AutoReplyPolicy.containsSensitiveContent("Security alert: new login detected"))
+        assertTrue(AutoReplyPolicy.containsSensitiveContent("आपके खाते में रुपये जमा हुए"))
         assertFalse(AutoReplyPolicy.containsSensitiveContent("Are we still meeting for lunch?"))
+    }
+
+    @Test
+    fun onlyAnExplicitAuthorizedReplyRuleCanPermitAutomaticSending() {
+        val suggestion = NotificationRule(
+            name = "Draft only",
+            action = NotificationRuleAction.SUGGEST_REPLY
+        )
+        val authorized = NotificationRule(
+            name = "Explicitly authorized",
+            action = NotificationRuleAction.AUTHORIZED_AUTO_REPLY
+        )
+
+        assertEquals(null, NotificationRuleEngine.authorizedAutoReplyRule(emptyList()))
+        assertEquals(null, NotificationRuleEngine.authorizedAutoReplyRule(listOf(suggestion)))
+        assertEquals(authorized, NotificationRuleEngine.authorizedAutoReplyRule(listOf(suggestion, authorized)))
+    }
+
+    @Test
+    fun notificationUpdatesPreserveReadStateOnlyForUnchangedContent() {
+        val existing = NotificationRecord(
+            id = "stable",
+            packageName = "com.example.chat",
+            appName = "Chat",
+            sender = "Aarav",
+            message = "Hello",
+            receivedAt = 100L,
+            sensitive = false,
+            notificationKey = "notification-key",
+            isRead = true,
+            dismissed = true
+        )
+        val unchanged = NotificationInboxPolicy.upsert(
+            existing,
+            existing.copy(receivedAt = 200L, dismissed = false)
+        )
+        val updatedMessage = NotificationInboxPolicy.upsert(
+            existing,
+            existing.copy(message = "A new message", receivedAt = 300L)
+        )
+
+        assertTrue(unchanged.isRead)
+        assertFalse(unchanged.dismissed)
+        assertFalse(updatedMessage.isRead)
+        assertFalse(updatedMessage.dismissed)
+        assertEquals("Aarav", updatedMessage.sender)
+    }
+
+    @Test
+    fun separateNotificationKeysRemainSeparateInboxEntries() {
+        val first = NotificationRecord(
+            id = "first-id",
+            packageName = "com.example.chat",
+            appName = "Chat",
+            sender = "Aarav",
+            message = "First message",
+            receivedAt = 100L,
+            sensitive = false,
+            notificationKey = "first-key"
+        )
+        val second = first.copy(
+            id = "second-id",
+            sender = "Mira",
+            message = "Second message",
+            notificationKey = "second-key"
+        )
+        val update = first.copy(message = "Updated first message", receivedAt = 300L)
+
+        val history = NotificationInboxPolicy.upsertHistory(
+            NotificationInboxPolicy.upsertHistory(listOf(first), second, 100),
+            update,
+            100
+        )
+
+        assertEquals(2, history.size)
+        assertEquals(listOf("first-key", "second-key"), history.map(NotificationRecord::notificationKey))
+        assertEquals("Updated first message", history.first().message)
     }
 
     @Test

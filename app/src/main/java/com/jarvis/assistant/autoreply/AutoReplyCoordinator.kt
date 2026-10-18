@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -59,8 +60,9 @@ object AutoReplyCoordinator {
         context: Context,
         packageName: String,
         notification: Notification?,
-        replyTemplateOverride: String? = null
+        authorizedRule: NotificationRule?
     ) {
+        if (authorizedRule?.action != NotificationRuleAction.AUTHORIZED_AUTO_REPLY) return
         if (notification == null || !AutoReplyPolicy.isSupportedPackage(packageName, defaultSmsPackage(context))) return
         if (!NotificationIntelligenceStore.isMasterEnabled(context) ||
             NotificationIntelligenceStore.isPaused(context)) return
@@ -164,6 +166,7 @@ object AutoReplyCoordinator {
                     }
                     val apiKey = (context.applicationContext as JarvisApp).preferences.apiKey
                     val useAi = NotificationIntelligenceStore.aiRepliesEnabled(context)
+                    val replyTemplateOverride = authorizedRule.template.takeIf(String::isNotBlank)
                     if (replyTemplateOverride == null && useAi && apiKey.isBlank()) {
                         postStatusNotification(context, packageName, conversation, "Add a Gemini API key to use AI auto-replies.")
                         return@withLock
@@ -228,6 +231,66 @@ object AutoReplyCoordinator {
         notificationManager(context).cancel(notificationId(packageName, conversation))
     }
 
+    fun generateSpokenReplySuggestion(
+        context: Context,
+        packageName: String,
+        sender: String,
+        message: String,
+        onComplete: (Result<String>) -> Unit
+    ) {
+        if (message.isBlank() || AutoReplyPolicy.containsSensitiveContent(message)) {
+            onComplete(Result.failure(IllegalArgumentException(
+                "A spoken reply is unavailable for an empty or sensitive notification."
+            )))
+            return
+        }
+        val safeSender = sender.take(80).ifBlank { appName(packageName) }
+        val safeMessage = message.take(MAX_MESSAGE_LENGTH)
+        scope.launch {
+            val result = try {
+                val suggestion = if (NotificationIntelligenceStore.aiRepliesEnabled(context)) {
+                    val apiKey = (context.applicationContext as JarvisApp).preferences.apiKey
+                    require(apiKey.isNotBlank()) {
+                        "Add a Gemini API key or turn off AI-generated replies to use the saved local template."
+                    }
+                    generateReply(
+                        apiKey,
+                        listOf(Message(safeSender, safeMessage, System.currentTimeMillis())),
+                        NotificationIntelligenceStore.replyLanguage(context)
+                    )
+                } else {
+                    NotificationRuleEngine.renderTemplate(
+                        NotificationIntelligenceStore.replyTemplate(context),
+                        appName(packageName),
+                        safeSender,
+                        safeMessage,
+                        SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+                    ).trim()
+                }
+                require(suggestion.isNotBlank()) { "HOPE generated an empty reply suggestion." }
+                NotificationIntelligenceStore.addExecutionLog(
+                    context,
+                    "Generated spoken reply preview for ${appName(packageName)}"
+                )
+                Result.success(suggestion)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Could not generate a spoken reply suggestion.", error)
+                try {
+                    NotificationIntelligenceStore.addExecutionLog(
+                        context,
+                        "Could not generate a spoken reply preview for ${appName(packageName)}"
+                    )
+                } catch (logError: Exception) {
+                    Log.e(TAG, "Could not update reply suggestion diagnostics.", logError)
+                }
+                Result.failure(error)
+            }
+            withContext(Dispatchers.Main) { onComplete(result) }
+        }
+    }
+
     fun postIntelligenceNotification(context: Context, title: String, sender: String, body: String) {
         ensureNotificationChannel(context)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -256,7 +319,7 @@ object AutoReplyCoordinator {
         else -> packageName
     }
 
-    private fun isAppEnabled(context: Context, packageName: String): Boolean {
+    fun isAppEnabled(context: Context, packageName: String): Boolean {
         val configuredSmsPackage = defaultSmsPackage(context)
         val preferencePackage = when {
             packageName == "com.whatsapp" || packageName == "com.whatsapp.w4b" -> "com.whatsapp"
@@ -266,7 +329,8 @@ object AutoReplyCoordinator {
             else -> return false
         }
         return try {
-            AutoReplyPreferences.isAppEnabled(context, preferencePackage)
+            AutoReplyPreferences.isAppEnabled(context, preferencePackage) ||
+                AutoReplyPreferences.isAppEnabled(context, packageName)
         } catch (e: ClassCastException) {
             Log.e(TAG, "Auto-reply app settings have an invalid stored type", e)
             false

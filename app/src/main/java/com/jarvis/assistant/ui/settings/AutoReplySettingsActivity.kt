@@ -27,6 +27,7 @@ import com.jarvis.assistant.autoreply.NotificationRuleAction
 import com.jarvis.assistant.autoreply.NotificationRuleEngine
 import com.jarvis.assistant.autoreply.NotificationRuleInput
 import com.jarvis.assistant.util.PermissionHelper
+import com.jarvis.assistant.util.HopeSpeech
 import com.jarvis.assistant.util.ThemeManager
 
 class AutoReplySettingsActivity : AppCompatActivity() {
@@ -54,7 +55,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
 
         addText("AI AUTO-REPLY", 23f, bold = true)
         addText(
-            "Replies stay off until you enable the master switch and at least one supported app. After that, HOPE can reply to all conversations in enabled apps—no per-chat approval is needed. Sensitive messages remain blocked.",
+            "Automatic sending requires Notification Access, global and per-app monitoring, the auto-reply master switch, an explicitly selected app, a matching AUTHORIZED_AUTO_REPLY rule, a supported inline-reply action, and a nonsensitive message. Without that rule, HOPE never sends automatically.",
             14f
         )
 
@@ -88,17 +89,17 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         addText("MASTER PRIVACY CONTROL", 12f, bold = true)
         addSettingSwitch(
             "AI Auto Reply master switch",
-            "Emergency OFF stops auto-replies, announcements, and rules. Local history remains controlled separately below.",
+            "Emergency OFF stops automatic message sending. Monitoring, inbox history, rules, and announcements use their separate controls below.",
             NotificationIntelligenceStore.isMasterEnabled(this)
         ) { enabled -> NotificationIntelligenceStore.setMasterEnabled(this, enabled) }
         addSettingSwitch(
             "Read Notifications",
-            "Store supported incoming notifications in the local HOPE dashboard.",
+            "Enable notification monitoring globally; select individual apps in Per-app notification controls.",
             NotificationIntelligenceStore.isReadingEnabled(this)
         ) { enabled -> NotificationIntelligenceStore.setReadingEnabled(this, enabled) }
         addSettingSwitch(
             "Announce notifications aloud",
-            "Use Android Text-to-Speech. Quiet hours and pause state are respected.",
+            "Allow announcements globally. Per-app announcement controls and the intelligence pause switch also apply.",
             NotificationIntelligenceStore.areAnnouncementsEnabled(this)
         ) { enabled -> NotificationIntelligenceStore.setAnnouncementsEnabled(this, enabled) }
         addSettingSwitch(
@@ -111,19 +112,19 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             recreate()
         }
 
-        addText("READ THESE APPS", 12f, bold = true)
-        addReadAppSwitch("WhatsApp", "com.whatsapp")
-        addReadAppSwitch("WhatsApp Business", "com.whatsapp.w4b")
-        addReadAppSwitch("Instagram", "com.instagram.android")
-        addReadAppSwitch("Google Messages", "com.google.android.apps.messaging")
-        addReadAppSwitch("Samsung Messages", "com.samsung.android.messaging")
-        android.provider.Telephony.Sms.getDefaultSmsPackage(this)
-            ?.takeIf { it !in setOf("com.google.android.apps.messaging", "com.samsung.android.messaging") }
-            ?.let { addReadAppSwitch("Default SMS app", it) }
+        addButton("Per-app notification controls and diagnostics") {
+            startActivity(Intent(this, NotificationAppsActivity::class.java))
+        }
+        addButton("Open real notification inbox") {
+            startActivity(Intent(this, NotificationInboxActivity::class.java))
+        }
+        addButton("History retention: ${NotificationIntelligenceStore.historyRetentionDays(this)} days") {
+            chooseHistoryRetention()
+        }
 
         addText("AUTO-REPLY SCOPE & RESPONSE", 12f, bold = true)
         addText(
-            "All conversations in enabled apps are included automatically. Stop replies from specific senders using Excluded contacts / conversations below.",
+            "Automatic replies are off by default. Each send requires an explicitly enabled app and a matching AUTHORIZED_AUTO_REPLY rule. Use SUGGEST_REPLY for draft-only behavior.",
             13f
         )
         replyStatus = addText("", 13f, bold = true)
@@ -154,21 +155,10 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         addButton("Clear notification history") { clearNotificationHistory() }
         addButton("View execution log (message bodies omitted)") { showExecutionLog() }
 
-        addText("ENABLE APPS", 12f, bold = true)
-        addAppSwitch(
-            "WhatsApp",
-            AutoReplyCoordinator.WHATSAPP_SETTING_KEY,
-            "WhatsApp and WhatsApp Business"
-        )
-        addAppSwitch(
-            "Instagram",
-            AutoReplyCoordinator.INSTAGRAM_SETTING_KEY,
-            "Instagram direct messages"
-        )
-        addAppSwitch(
-            "SMS",
-            AutoReplyCoordinator.SMS_SETTING_KEY,
-            "The device's default SMS app"
+        addText("APP-SPECIFIC SETTINGS", 12f, bold = true)
+        addText(
+            "Use Per-app notification controls to select monitoring and announcements. Allow Auto-Reply only for supported messaging apps. Every automatic send also requires a matching, enabled AUTHORIZED_AUTO_REPLY rule; use SUGGEST_REPLY rules for preview/draft mode.",
+            13f
         )
 
         addText(
@@ -183,54 +173,6 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         if (::root.isInitialized) {
             updatePermissionStatus()
         }
-    }
-
-    private fun addAppSwitch(title: String, key: String, description: String) {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(10), dp(8), dp(10))
-            background = getDrawable(R.drawable.bg_jarvis_card)
-        }
-        val labels = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        labels.addView(TextView(this).apply {
-            text = title
-            textSize = 16f
-            setTextColor(themeColor(R.attr.themeTextPrimary))
-        })
-        labels.addView(TextView(this).apply {
-            text = description
-            textSize = 12f
-            setTextColor(themeColor(R.attr.themeTextMuted))
-        })
-        row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
-        val toggle = SwitchCompat(this).apply {
-            isChecked = AutoReplyPreferences.isAppEnabled(this@AutoReplySettingsActivity, key)
-            var restoringAfterSaveFailure = false
-            setOnCheckedChangeListener { _, checked ->
-                if (restoringAfterSaveFailure) return@setOnCheckedChangeListener
-                try {
-                    AutoReplyPreferences.setAppEnabled(this@AutoReplySettingsActivity, key, checked)
-                    if (::replyStatus.isInitialized) updatePermissionStatus()
-                } catch (e: Exception) {
-                    restoringAfterSaveFailure = true
-                    isChecked = !checked
-                    restoringAfterSaveFailure = false
-                    Toast.makeText(this@AutoReplySettingsActivity, e.message, Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-        row.addView(toggle)
-        root.addView(row, matchWidth())
-        root.addView(View(this), LinearLayout.LayoutParams(1, dp(8)))
-    }
-
-    private fun addReadAppSwitch(title: String, packageName: String) {
-        addSettingSwitch(
-            title,
-            "Include notifications in local history and rule processing.",
-            NotificationIntelligenceStore.isAppReadingEnabled(this, packageName)
-        ) { enabled -> NotificationIntelligenceStore.setAppReadingEnabled(this, packageName, enabled) }
     }
 
     private fun addSettingSwitch(title: String, description: String, initial: Boolean, onChange: (Boolean) -> Unit) {
@@ -425,9 +367,19 @@ class AutoReplySettingsActivity : AppCompatActivity() {
                             val actions = NotificationRuleAction.entries
                             AlertDialog.Builder(this).setTitle("Rule action")
                                 .setItems(arrayOf("Ignore", "Announce aloud", "Display", "Suggest reply", "Authorized auto-reply")) { _, actionIndex ->
+                                    val action = actions[actionIndex]
+                                    val replyTemplate = NotificationIntelligenceStore.replyTemplate(this)
                                     promptRuleField(
-                                        "Template: {app_name}, {sender}, {message}, {time}, {suggested_reply}",
-                                        "{app_name} message from {sender}: {message}"
+                                        if (action == NotificationRuleAction.AUTHORIZED_AUTO_REPLY) {
+                                            "Reply template: {app_name}, {sender}, {message}, {time}"
+                                        } else {
+                                            "Notification template: {app_name}, {sender}, {message}, {time}, {suggested_reply}"
+                                        },
+                                        if (action == NotificationRuleAction.AUTHORIZED_AUTO_REPLY) {
+                                            replyTemplate
+                                        } else {
+                                            "{app_name} message from {sender}: {message}"
+                                        }
                                     ) { template ->
                                         promptRuleField("Priority (0–1000; higher runs first)", "0") { priorityText ->
                                             val priority = priorityText.toIntOrNull()
@@ -440,7 +392,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
                                                         packageName = sourcePackages[sourceIndex],
                                                         keyword = keyword,
                                                         sender = sender,
-                                                        action = actions[actionIndex],
+                                                        action = action,
                                                         template = template,
                                                         priority = priority
                                                     )
@@ -559,6 +511,31 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             }.show()
     }
 
+    private fun chooseHistoryRetention() {
+        val days = intArrayOf(1, 7, 30, 90, 180, 365)
+        val labels = days.map { "$it days" }.toTypedArray()
+        val checked = days.indexOf(NotificationIntelligenceStore.historyRetentionDays(this))
+            .coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("Notification history retention")
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                try {
+                    NotificationIntelligenceStore.setHistoryRetentionDays(this, days[which])
+                    dialog.dismiss()
+                    recreate()
+                } catch (error: Exception) {
+                    android.util.Log.e(TAG, "Could not update notification history retention.", error)
+                    Toast.makeText(
+                        this,
+                        "Could not update notification history retention: ${error.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun showExecutionLog() {
         val content = NotificationIntelligenceStore.executionLog(this).take(50).joinToString("\n")
             .ifBlank { "No notification actions logged." }
@@ -571,9 +548,10 @@ class AutoReplySettingsActivity : AppCompatActivity() {
     private fun updatePermissionStatus() {
         val enabled = PermissionHelper.isNotificationListenerEnabled(this)
         serviceStatus.text = if (enabled) {
-            "Incoming notification access: ON (real-time listener connected)"
+            "Android Notification Access: granted • listener: " +
+                if (NotificationIntelligenceStore.isListenerConnected(this)) "connected" else "not connected"
         } else {
-            "Incoming notification access: OFF. Grant HOPE notification access to receive notifications in real time."
+            "Android Notification Access: not granted. Grant access to receive delivered notifications."
         }
         serviceStatus.setTextColor(themeColor(if (enabled) R.attr.themeAccent else R.attr.themeTextMuted))
         val notificationsEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -588,22 +566,33 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         }
         notificationStatus.setTextColor(themeColor(if (notificationsEnabled) R.attr.themeAccent else R.attr.themeTextMuted))
         val masterEnabled = NotificationIntelligenceStore.isMasterEnabled(this)
+        val monitoringEnabled = NotificationIntelligenceStore.isReadingEnabled(this)
+        val monitoredAppCount = NotificationIntelligenceStore.monitoredApps(this).size
         val enabledApps = listOf(
             AutoReplyCoordinator.WHATSAPP_SETTING_KEY,
             AutoReplyCoordinator.INSTAGRAM_SETTING_KEY,
             AutoReplyCoordinator.SMS_SETTING_KEY
         ).count { AutoReplyPreferences.isAppEnabled(this, it) }
         val paused = NotificationIntelligenceStore.isPaused(this)
+        val lastNotificationAt = NotificationIntelligenceStore.lastNotificationAt(this)
+        val lastReceived = if (lastNotificationAt > 0L) {
+            android.text.format.DateFormat.format("MMM d, HH:mm", lastNotificationAt)
+        } else "none received"
+        serviceStatus.text = "${serviceStatus.text}\nLast notification: $lastReceived\n${HopeSpeech.status(this)}"
         replyStatus.text = when {
             !enabled -> "Replies are paused: grant HOPE notification access."
             !masterEnabled -> "Replies are off: turn on the AI Auto Reply master switch."
             enabledApps == 0 -> "Replies are off: enable at least one app below."
+            !monitoringEnabled || monitoredAppCount == 0 ->
+                "Replies are paused: enable global monitoring and monitor the selected app in Per-app notification controls."
             paused -> "Replies are paused. Resume notification intelligence to continue."
-            else -> "Ready: all conversations in $enabledApps enabled app(s) are eligible. Sensitive-message, quiet-hour, exclusion, daily-limit, and Android quick-reply checks still apply."
+            else -> "Monitoring is ready for $enabledApps selected app(s). Automatic sends still require an enabled AUTHORIZED_AUTO_REPLY rule, a supported notification RemoteInput, and all safety checks."
         }
         replyStatus.setTextColor(
             themeColor(
-                if (enabled && masterEnabled && enabledApps > 0 && !paused) {
+                if (enabled && masterEnabled && monitoringEnabled && monitoredAppCount > 0 &&
+                    enabledApps > 0 && !paused
+                ) {
                     R.attr.themeAccent
                 } else {
                     R.attr.themeTextMuted
@@ -641,4 +630,8 @@ class AutoReplySettingsActivity : AppCompatActivity() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private companion object {
+        const val TAG = "AutoReplySettings"
+    }
 }

@@ -14,8 +14,6 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -56,7 +54,6 @@ class IncomingCallActivity : AppCompatActivity() {
     private lateinit var callOrbContainer: FrameLayout
     private lateinit var orbWebView: WebView
     private var orbLoaded = false
-    private var textToSpeech: TextToSpeech? = null
     private var speechRecognizer: SpeechRecognizer? = null
     private var promptStarted = false
     private var speechStarted = false
@@ -431,7 +428,7 @@ class IncomingCallActivity : AppCompatActivity() {
             if (!HopeCallController.hangUp(callId)) showCallActionFailure()
         }
         if (!ringing) {
-            textToSpeech?.stop()
+            HopeSpeech.stop(PROMPT_UTTERANCE)
             stopVoiceRecognition()
         }
         actions.removeAllViews()
@@ -555,37 +552,15 @@ class IncomingCallActivity : AppCompatActivity() {
         } else {
             if (announcement) "Caller announcement is enabled." else ""
         }
-        if (textToSpeech == null) {
-            textToSpeech = TextToSpeech(applicationContext) { status ->
-                if (status == TextToSpeech.SUCCESS) speakPrompt(prompt, language, voiceConfirmation)
-                else runOnUiThread {
-                    instructionView.text = "Text-to-Speech is unavailable. Use the Answer or Reject buttons."
+        if (!HopeSpeech.speak(this, prompt, language, PROMPT_UTTERANCE, queueMode = android.speech.tts.TextToSpeech.QUEUE_FLUSH) { spoken ->
+                if (spoken) {
+                    onPromptFinished(voiceConfirmation)
+                } else {
+                    instructionView.text = "HOPE speech is unavailable. Use the on-screen Answer or Reject controls."
                 }
             }
-        } else {
-            speakPrompt(prompt, language, voiceConfirmation)
-        }
-    }
-
-    private fun speakPrompt(prompt: String, language: String, listenAfterPrompt: Boolean) {
-        val engine = textToSpeech ?: return
-        if (!HopeSpeech.configureLanguage(engine, language, prompt)) {
-            instructionView.text = "The shared Android HOPE announcement voice is unavailable. Use the on-screen call controls."
-            return
-        }
-        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) = Unit
-            override fun onDone(utteranceId: String?) {
-                runOnUiThread { onPromptFinished(listenAfterPrompt) }
-            }
-            @Deprecated("Deprecated in Android")
-            override fun onError(utteranceId: String?) {
-                runOnUiThread { onPromptFinished(listenAfterPrompt) }
-            }
-        })
-        val result = engine.speak(prompt.take(250), TextToSpeech.QUEUE_FLUSH, null, PROMPT_UTTERANCE)
-        if (result == TextToSpeech.ERROR) {
-            instructionView.text = "Text-to-Speech could not announce the caller. Use the on-screen controls."
+        ) {
+            instructionView.text = "HOPE speech is unavailable. Use the on-screen Answer or Reject controls."
         }
     }
 
@@ -837,9 +812,7 @@ class IncomingCallActivity : AppCompatActivity() {
         speechRecognizer?.destroy()
         speechRecognizer = null
         mainHandler.removeCallbacks(recognitionTimeout)
-        textToSpeech?.stop()
-        textToSpeech?.shutdown()
-        textToSpeech = null
+        HopeSpeech.stop(PROMPT_UTTERANCE)
         super.onDestroy()
     }
 

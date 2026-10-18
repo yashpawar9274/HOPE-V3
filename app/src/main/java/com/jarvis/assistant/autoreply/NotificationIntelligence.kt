@@ -7,6 +7,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.security.MessageDigest
 
 enum class NotificationRuleAction {
     IGNORE,
@@ -35,7 +36,10 @@ data class NotificationRecord(
     val sender: String,
     val message: String,
     val receivedAt: Long,
-    val sensitive: Boolean
+    val sensitive: Boolean,
+    val notificationKey: String = id,
+    val isRead: Boolean = false,
+    val dismissed: Boolean = false
 ) {
     val formattedTime: String
         get() = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(receivedAt))
@@ -47,7 +51,14 @@ data class NotificationRuleInput(
     val message: String
 )
 
+object NotificationInboxEvents {
+    const val ACTION_CHANGED = "com.jarvis.assistant.autoreply.NOTIFICATION_INBOX_CHANGED"
+}
+
 object NotificationRuleEngine {
+    fun authorizedAutoReplyRule(rules: List<NotificationRule>): NotificationRule? =
+        rules.firstOrNull { it.action == NotificationRuleAction.AUTHORIZED_AUTO_REPLY }
+
     fun matchingRules(input: NotificationRuleInput, rules: List<NotificationRule>): List<NotificationRule> =
         rules.asSequence()
             .filter(NotificationRule::enabled)
@@ -85,6 +96,31 @@ object NotificationRuleEngine {
         .take(1000)
 }
 
+object NotificationInboxPolicy {
+    fun upsert(existing: NotificationRecord?, incoming: NotificationRecord): NotificationRecord =
+        if (existing == null) {
+            incoming
+        } else {
+            incoming.copy(
+                isRead = existing.isRead &&
+                    existing.sender == incoming.sender && existing.message == incoming.message,
+                dismissed = false
+            )
+        }
+
+    fun upsertHistory(
+        records: List<NotificationRecord>,
+        incoming: NotificationRecord,
+        maxEntries: Int
+    ): List<NotificationRecord> {
+        require(maxEntries > 0) { "Notification history must retain at least one entry." }
+        val existing = records.firstOrNull { it.notificationKey == incoming.notificationKey }
+        return (listOf(upsert(existing, incoming)) +
+            records.filterNot { it.notificationKey == incoming.notificationKey })
+            .take(maxEntries)
+    }
+}
+
 object NotificationIntelligenceStore {
     private const val PREFS = "hope_notification_intelligence"
     private const val KEY_MASTER = "master_enabled"
@@ -108,6 +144,14 @@ object NotificationIntelligenceStore {
     private const val KEY_REPLY_DELAY_SECONDS = "reply_delay_seconds"
     private const val KEY_DAILY_LIMIT = "daily_limit"
     private const val KEY_EXECUTION_LOG = "execution_log"
+    private const val KEY_ANNOUNCEMENT_APPS = "announcement_apps"
+    private const val KEY_ANNOUNCE_MESSAGE = "announce_message_content"
+    private const val KEY_HEADPHONES_ONLY = "announce_headphones_only"
+    private const val KEY_HISTORY_RETENTION_DAYS = "history_retention_days"
+    private const val KEY_OBSERVED_APPS = "observed_notification_apps"
+    private const val KEY_LAST_NOTIFICATION_AT = "last_notification_at"
+    private const val KEY_LISTENER_CONNECTED = "listener_connected"
+    private const val KEY_LAST_SPEECH_STATUS = "last_speech_status"
     private const val MAX_HISTORY = 100
     private const val MAX_PROCESSED = 500
 
@@ -196,6 +240,86 @@ object NotificationIntelligenceStore {
             "Could not save notification app settings."
         }
     }
+
+    fun monitoredApps(context: Context): Set<String> =
+        prefs(context).getStringSet(KEY_READING_APPS, emptySet()).orEmpty().toSet()
+
+    fun isAnnouncementAppEnabled(context: Context, packageName: String): Boolean =
+        prefs(context).getStringSet(KEY_ANNOUNCEMENT_APPS, emptySet()).orEmpty().contains(packageName)
+
+    fun setAnnouncementAppEnabled(context: Context, packageName: String, enabled: Boolean) {
+        val store = prefs(context)
+        val apps = store.getStringSet(KEY_ANNOUNCEMENT_APPS, emptySet()).orEmpty().toMutableSet()
+        if (enabled) apps.add(packageName) else apps.remove(packageName)
+        check(store.edit().putStringSet(KEY_ANNOUNCEMENT_APPS, apps).commit()) {
+            "Could not save per-app announcement settings."
+        }
+    }
+
+    fun announcesMessageContent(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ANNOUNCE_MESSAGE, false)
+
+    fun setAnnouncesMessageContent(context: Context, enabled: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_ANNOUNCE_MESSAGE, enabled).commit()) {
+            "Could not save spoken-message content setting."
+        }
+    }
+
+    fun announcementsHeadphonesOnly(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_HEADPHONES_ONLY, false)
+
+    fun setAnnouncementsHeadphonesOnly(context: Context, enabled: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_HEADPHONES_ONLY, enabled).commit()) {
+            "Could not save headphones-only announcement setting."
+        }
+    }
+
+    fun historyRetentionDays(context: Context): Int =
+        prefs(context).getInt(KEY_HISTORY_RETENTION_DAYS, 30).coerceIn(1, 365)
+
+    fun setHistoryRetentionDays(context: Context, days: Int) {
+        require(days in 1..365) { "History retention must be between 1 and 365 days." }
+        check(prefs(context).edit().putInt(KEY_HISTORY_RETENTION_DAYS, days).commit()) {
+            "Could not save notification history retention."
+        }
+        history(context)
+    }
+
+    fun rememberObservedApp(context: Context, packageName: String, receivedAt: Long) {
+        require(packageName.isNotBlank())
+        val store = prefs(context)
+        val packages = store.getStringSet(KEY_OBSERVED_APPS, emptySet()).orEmpty().toMutableSet()
+        packages.add(packageName)
+        check(store.edit()
+            .putStringSet(KEY_OBSERVED_APPS, packages)
+            .putLong(KEY_LAST_NOTIFICATION_AT, receivedAt)
+            .commit()) { "Could not update notification listener diagnostics." }
+    }
+
+    fun observedApps(context: Context): Set<String> =
+        prefs(context).getStringSet(KEY_OBSERVED_APPS, emptySet()).orEmpty().toSet()
+
+    fun lastNotificationAt(context: Context): Long =
+        prefs(context).getLong(KEY_LAST_NOTIFICATION_AT, 0L)
+
+    fun setListenerConnected(context: Context, connected: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_LISTENER_CONNECTED, connected).commit()) {
+            "Could not update notification listener diagnostics."
+        }
+    }
+
+    fun isListenerConnected(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_LISTENER_CONNECTED, false)
+
+    fun setSpeechStatus(context: Context, status: String) {
+        check(prefs(context).edit().putString(KEY_LAST_SPEECH_STATUS, status.take(160)).commit()) {
+            "Could not save speech diagnostics."
+        }
+    }
+
+    fun speechStatus(context: Context): String =
+        prefs(context).getString(KEY_LAST_SPEECH_STATUS, "No announcement has been played yet.")
+            ?: "No announcement has been played yet."
 
     fun excludedContacts(context: Context): Set<String> =
         prefs(context).getStringSet(KEY_EXCLUDED_CONTACTS, emptySet()).orEmpty().toSet()
@@ -303,11 +427,55 @@ object NotificationIntelligenceStore {
         }
     }
 
+    fun upsertNotification(context: Context, record: NotificationRecord) {
+        synchronized(this) {
+            val store = prefs(context)
+            persistHistory(
+                store,
+                NotificationInboxPolicy.upsertHistory(history(context), record, MAX_HISTORY)
+            )
+        }
+    }
+
+    fun markNotificationRead(context: Context, id: String) = updateNotification(context, id) {
+        it.copy(isRead = true)
+    }
+
+    fun markAllNotificationsRead(context: Context) {
+        synchronized(this) {
+            val store = prefs(context)
+            persistHistory(store, history(context).map { it.copy(isRead = true) })
+        }
+    }
+
+    fun markNotificationDismissed(context: Context, notificationKey: String) =
+        updateNotification(context, notificationKey, matchByNotificationKey = true) {
+            it.copy(dismissed = true)
+        }
+
+    private fun updateNotification(
+        context: Context,
+        id: String,
+        matchByNotificationKey: Boolean = false,
+        update: (NotificationRecord) -> NotificationRecord
+    ) {
+        synchronized(this) {
+            val store = prefs(context)
+            val records = history(context).toMutableList()
+            val index = records.indexOfFirst {
+                if (matchByNotificationKey) it.notificationKey == id else it.id == id
+            }
+            if (index < 0) return
+            records[index] = update(records[index])
+            persistHistory(store, records)
+        }
+    }
+
     fun history(context: Context): List<NotificationRecord> {
         val raw = prefs(context).getString(KEY_HISTORY, "[]") ?: "[]"
         return try {
             val array = JSONArray(raw)
-            buildList {
+            val records = buildList {
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
                     add(NotificationRecord(
@@ -317,10 +485,17 @@ object NotificationIntelligenceStore {
                         sender = item.optString("sender"),
                         message = item.optString("message"),
                         receivedAt = item.optLong("time"),
-                        sensitive = item.optBoolean("sensitive")
+                        sensitive = item.optBoolean("sensitive"),
+                        notificationKey = item.optString("notification_key", item.optString("id")),
+                        isRead = item.optBoolean("read", false),
+                        dismissed = item.optBoolean("dismissed", false)
                     ))
                 }
-            }
+            }.filter { it.receivedAt >= retentionCutoff(context) }
+                .sortedByDescending(NotificationRecord::receivedAt)
+                .take(MAX_HISTORY)
+            if (records.size != array.length()) persistHistory(prefs(context), records)
+            records
         } catch (error: Exception) {
             throw IllegalStateException("Could not read notification history.", error)
         }
@@ -328,6 +503,27 @@ object NotificationIntelligenceStore {
 
     fun clearHistory(context: Context) {
         check(prefs(context).edit().remove(KEY_HISTORY).commit()) { "Could not clear notification history." }
+    }
+
+    private fun retentionCutoff(context: Context): Long =
+        System.currentTimeMillis() - historyRetentionDays(context) * 24L * 60L * 60L * 1000L
+
+    private fun persistHistory(
+        store: android.content.SharedPreferences,
+        records: List<NotificationRecord>
+    ) {
+        val cutoff = System.currentTimeMillis() -
+            store.getInt(KEY_HISTORY_RETENTION_DAYS, 30).coerceIn(1, 365) * 24L * 60L * 60L * 1000L
+        val json = JSONArray().apply {
+            records.asSequence()
+                .filter { it.receivedAt >= cutoff }
+                .sortedByDescending(NotificationRecord::receivedAt)
+                .take(MAX_HISTORY)
+                .forEach { put(it.toJson()) }
+        }
+        check(store.edit().putString(KEY_HISTORY, json.toString()).commit()) {
+            "Could not save notification history."
+        }
     }
 
     fun addExecutionLog(context: Context, description: String) {
@@ -387,6 +583,43 @@ object NotificationIntelligenceStore {
         return false
     }
 
+    fun claimAnnouncement(
+        context: Context,
+        notificationKey: String,
+        message: String,
+        enqueue: () -> Boolean
+    ): Boolean = synchronized(this) {
+        val store = prefs(context)
+        val keys = store.getStringSet(KEY_PROCESSED, emptySet()).orEmpty().toMutableSet()
+        val claim = announcementClaim(notificationKey, message)
+        if (claim in keys) return@synchronized false
+        keys.add(claim)
+        while (keys.size > MAX_PROCESSED) keys.remove(keys.first())
+        check(store.edit().putStringSet(KEY_PROCESSED, keys).commit()) {
+            "Could not persist announcement repeat protection."
+        }
+        if (!enqueue()) {
+            keys.remove(claim)
+            check(store.edit().putStringSet(KEY_PROCESSED, keys).commit()) {
+                "Could not roll back rejected announcement repeat protection."
+            }
+            return@synchronized false
+        }
+        true
+    }
+
+    fun releaseAnnouncement(context: Context, notificationKey: String, message: String) {
+        synchronized(this) {
+            val store = prefs(context)
+            val keys = store.getStringSet(KEY_PROCESSED, emptySet()).orEmpty().toMutableSet()
+            if (keys.remove(announcementClaim(notificationKey, message))) {
+                check(store.edit().putStringSet(KEY_PROCESSED, keys).commit()) {
+                    "Could not release failed announcement repeat protection."
+                }
+            }
+        }
+    }
+
     fun dailyReplyCount(context: Context, day: String): Int {
         val store = prefs(context)
         if (store.getString(KEY_REPLY_DAY, null) != day) {
@@ -414,5 +647,11 @@ object NotificationIntelligenceStore {
     private fun NotificationRecord.toJson() = JSONObject()
         .put("id", id).put("package", packageName).put("app", appName)
         .put("sender", sender).put("message", message).put("time", receivedAt)
-        .put("sensitive", sensitive)
+        .put("sensitive", sensitive).put("notification_key", notificationKey)
+        .put("read", isRead).put("dismissed", dismissed)
+
+    private fun announcementClaim(notificationKey: String, message: String): String =
+        "announcement:$notificationKey:${MessageDigest.getInstance("SHA-256")
+            .digest(message.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte) }}"
 }

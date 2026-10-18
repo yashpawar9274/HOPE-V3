@@ -124,6 +124,16 @@
             android:screenOrientation="portrait" />
 
         <activity
+            android:name=".ui.settings.NotificationInboxActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ui.settings.NotificationAppsActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".ui.settings.IncomingCallSettingsActivity"
             android:exported="false"
             android:screenOrientation="portrait" />

@@ -30,6 +30,11 @@ class UpdatesFragment : Fragment() {
     private fun renderFeatureUpdates() {
         val features = listOf(
             FeatureNotice(
+                "HOPE 1.9.0",
+                "Real-time notification inbox and safer Auto-Reply",
+                "HOPE now captures actual Android-delivered notifications for apps you monitor, updates inbox entries by Android notification key, tracks read and dismissed state, and applies configurable local retention. Announcements use the shared HOPE speech queue with per-app, quiet-hour, sensitive-content, headphones, and pause controls. Inbox reply previews can be confirmed and spoken without sending. Automatic sending is off by default and requires Notification Access, global and per-app monitoring, an explicitly enabled supported app, a matching AUTHORIZED_AUTO_REPLY rule, and an Android-provided inline reply action."
+            ),
+            FeatureNotice(
                 "HOPE 1.8.9",
                 "Call screen refreshed with shader ORB",
                 "Incoming, outgoing, active, held, and disconnected screens now place the HOPE ORB centrally and animate it from the real Android Telecom call state. Call actions remain connected to Telecom."
@@ -46,8 +51,8 @@ class UpdatesFragment : Fragment() {
             ),
             FeatureNotice(
                 "Automatic replies",
-                "All conversations in enabled apps",
-                "No individual chat approval is needed. Turn on the master switch and supported app(s); sensitive-message filters, exclusions, quiet hours, daily limits, and supported notification quick-reply actions still apply."
+                "Explicit app and conversation rules",
+                "Automatic sending requires explicit app selection and a matching AUTHORIZED_AUTO_REPLY rule. SUGGEST_REPLY rules remain draft-only; sensitive messages and notifications without a supported quick-reply action are not sent."
             ),
             FeatureNotice(
                 "Call and notification audio",

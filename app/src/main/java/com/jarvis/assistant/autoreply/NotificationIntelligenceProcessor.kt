@@ -19,47 +19,38 @@ object NotificationIntelligenceProcessor {
     fun process(
         context: Context,
         sbn: StatusBarNotification,
-        announce: (String, String) -> Unit
+        announce: (String, String, (Boolean) -> Unit) -> Boolean
     ) {
         val packageName = sbn.packageName
         if (packageName == context.packageName ||
             sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 ||
-            !AutoReplyPolicy.isSupportedPackage(packageName, defaultSmsPackage(context)) ||
             hasOutgoingLatestMessage(sbn.notification)
         ) return
 
         val (sender, message) = notificationContent(sbn.notification)
-        if (message.isBlank()) return
-        val identity = "${sbn.key}:${sbn.postTime}:$sender:$message"
-        val recordId = identity.toSha256()
-        if (NotificationIntelligenceStore.isDuplicate(context, recordId)) return
 
         val appName = appName(context, packageName)
         val receivedAt = sbn.postTime.takeIf { it > 0L } ?: System.currentTimeMillis()
         val sensitive = AutoReplyPolicy.containsSensitiveContent(message)
         val record = NotificationRecord(
-            id = recordId,
+            id = sbn.key.toSha256(),
             packageName = packageName,
             appName = appName,
             sender = sender,
             message = message.take(MAX_TEXT),
             receivedAt = receivedAt,
-            sensitive = sensitive
+            sensitive = sensitive,
+            notificationKey = sbn.key
         )
 
-        val isPaused = NotificationIntelligenceStore.isPaused(context)
-        if (isPaused) return
+        if (NotificationIntelligenceStore.isPaused(context)) return
 
         val readingEnabled = NotificationIntelligenceStore.isReadingEnabled(context) &&
             NotificationIntelligenceStore.isAppReadingEnabled(context, packageName)
 
         if (readingEnabled) {
             try {
-                NotificationIntelligenceStore.addHistory(context, record)
-                NotificationIntelligenceStore.addExecutionLog(
-                    context,
-                    "Received ${if (sensitive) "sensitive " else ""}notification from $appName"
-                )
+                NotificationIntelligenceStore.upsertNotification(context, record)
             } catch (error: Exception) {
                 Log.e(TAG, "Could not persist local notification history.", error)
             }
@@ -69,11 +60,9 @@ object NotificationIntelligenceProcessor {
         val excludedKeyword = NotificationIntelligenceStore.excludedKeywords(context)
             .any { message.contains(it, ignoreCase = true) }
         val excluded = excludedContact || excludedKeyword
-
         val masterEnabled = NotificationIntelligenceStore.isMasterEnabled(context)
-        val matching = if (masterEnabled && readingEnabled && !excluded &&
-            !NotificationIntelligenceStore.isQuietNow(context, currentMinute())
-        ) {
+        val quiet = NotificationIntelligenceStore.isQuietNow(context, currentMinute())
+        val matching = if (readingEnabled && !excluded && !quiet) {
             try {
                 NotificationRuleEngine.matchingRules(
                     NotificationRuleInput(packageName, sender, message),
@@ -88,32 +77,40 @@ object NotificationIntelligenceProcessor {
                 emptyList()
             }
         } else emptyList()
-        if (masterEnabled && readingEnabled && !excluded &&
-            !NotificationIntelligenceStore.isQuietNow(context, currentMinute())
-        ) {
+        if (readingEnabled && !excluded && !quiet) {
             val ignoreRule = matching.firstOrNull { it.action == NotificationRuleAction.IGNORE }
             if (ignoreRule != null) {
                 NotificationIntelligenceStore.addExecutionLog(context, "Ignored notification by rule ${ignoreRule.name}")
                 return
             }
 
+            val announceAppEnabled = NotificationIntelligenceStore.areAnnouncementsEnabled(context) &&
+                NotificationIntelligenceStore.isAnnouncementAppEnabled(context, packageName)
+            var ruleAnnouncementHandled = false
             matching.forEach { rule ->
                 val announcement = if (rule.template.isBlank()) {
-                    "$appName message from $sender: $message"
+                    announcementText(context, appName, sender, message)
                 } else {
                     NotificationRuleEngine.renderTemplate(
-                        rule.template, appName, sender, message, record.formattedTime
+                        rule.template,
+                        appName,
+                        sender,
+                        if (NotificationIntelligenceStore.announcesMessageContent(context)) message else "",
+                        record.formattedTime
                     )
                 }
                 when (rule.action) {
                     NotificationRuleAction.IGNORE -> return
-                    NotificationRuleAction.ANNOUNCE ->
-                        if (NotificationIntelligenceStore.areAnnouncementsEnabled(context) &&
+                    NotificationRuleAction.ANNOUNCE -> {
+                        if (!ruleAnnouncementHandled && announceAppEnabled &&
                             (!sensitive || NotificationIntelligenceStore.canAnnounceSensitive(context))
                         ) {
-                            announce(announcement, localeForReply(context))
-                            NotificationIntelligenceStore.addExecutionLog(context, "Announced notification by rule ${rule.name}")
+                            queueAnnouncement(
+                                context, appName, announcement, localeForReply(context), sbn.key, announce
+                            )
                         }
+                        ruleAnnouncementHandled = true
+                    }
                     NotificationRuleAction.DISPLAY -> {
                         postRuleNotification(context, appName, sender, announcement)
                         NotificationIntelligenceStore.addExecutionLog(context, "Displayed notification by rule ${rule.name}")
@@ -125,28 +122,88 @@ object NotificationIntelligenceProcessor {
                     NotificationRuleAction.AUTHORIZED_AUTO_REPLY -> Unit
                 }
             }
-            if (matching.isEmpty() &&
-                NotificationIntelligenceStore.areAnnouncementsEnabled(context) &&
+            if (!ruleAnnouncementHandled &&
+                announceAppEnabled &&
                 (!sensitive || NotificationIntelligenceStore.canAnnounceSensitive(context))
             ) {
-                announce("$appName message from $sender: $message", localeForReply(context))
+                queueAnnouncement(
+                    context,
+                    appName,
+                    announcementText(context, appName, sender, message),
+                    localeForReply(context),
+                    sbn.key,
+                    announce
+                )
             }
         }
 
-        val authorizedReplyRule = matching.firstOrNull {
-            it.action == NotificationRuleAction.AUTHORIZED_AUTO_REPLY
-        }
-        val ruleAllowsAutoReply = matching.none { it.action == NotificationRuleAction.IGNORE }
-        if (masterEnabled && ruleAllowsAutoReply && !excluded &&
+        val authorizedReplyRule = NotificationRuleEngine.authorizedAutoReplyRule(matching)
+        if (masterEnabled && readingEnabled && AutoReplyCoordinator.isAppEnabled(context, packageName) &&
+            AutoReplyPolicy.isSupportedPackage(packageName, defaultSmsPackage(context)) &&
+            authorizedReplyRule != null && !excluded && !quiet &&
             !hasOutgoingLatestMessage(sbn.notification)
         ) {
             AutoReplyCoordinator.onNotification(
                 context,
                 packageName,
                 sbn.notification,
-                authorizedReplyRule?.template?.takeIf(String::isNotBlank)
+                authorizedReplyRule
             )
         }
+    }
+
+    private fun announcementText(
+        context: Context,
+        appName: String,
+        sender: String,
+        message: String
+    ): String {
+        val greeting = if (sender.isBlank()) {
+            "HOPE here. You have a new $appName notification."
+        } else {
+            "HOPE here. You have a new $appName message from $sender."
+        }
+        return if (NotificationIntelligenceStore.announcesMessageContent(context) && message.isNotBlank()) {
+            "$greeting $message"
+        } else greeting
+    }
+
+    private fun queueAnnouncement(
+        context: Context,
+        appName: String,
+        announcement: String,
+        language: String,
+        notificationKey: String,
+        announce: (String, String, (Boolean) -> Unit) -> Boolean
+    ): Boolean {
+        if (AutoReplyPolicy.containsSensitiveContent(announcement) &&
+            !NotificationIntelligenceStore.canAnnounceSensitive(context)
+        ) return false
+        val queued = NotificationIntelligenceStore.claimAnnouncement(
+            context,
+            notificationKey,
+            announcement
+        ) {
+            announce(announcement, language) { completed ->
+                if (!completed) {
+                    try {
+                        NotificationIntelligenceStore.releaseAnnouncement(
+                            context,
+                            notificationKey,
+                            announcement
+                        )
+                    } catch (error: Exception) {
+                        Log.e(TAG, "Could not clear failed announcement repeat protection.", error)
+                    }
+                }
+            }
+        }
+        if (!queued) return false
+        NotificationIntelligenceStore.addExecutionLog(
+            context,
+            "Queued voice announcement for $appName"
+        )
+        return queued
     }
 
     private fun notificationContent(notification: Notification): Pair<String, String> {

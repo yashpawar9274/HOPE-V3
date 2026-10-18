@@ -7,9 +7,9 @@ import java.util.Locale
 class HopeSpeechTest {
     @Test
     fun configuredAnnouncementLanguageSelectsSharedLocale() {
-        assertEquals(Locale("hi", "IN"), HopeSpeech.preferredLocale("Hindi", "Caller"))
-        assertEquals(Locale("hi", "IN"), HopeSpeech.preferredLocale("Hinglish", "Caller"))
-        assertEquals(Locale.US, HopeSpeech.preferredLocale("English", "नमस्ते"))
+        assertEquals(Locale("hi", "IN"), HopeSpeechLocale.preferredLocale("Hindi", "Caller"))
+        assertEquals(Locale("hi", "IN"), HopeSpeechLocale.preferredLocale("Hinglish", "Caller"))
+        assertEquals(Locale.US, HopeSpeechLocale.preferredLocale("English", "नमस्ते"))
     }
 
     @Test
@@ -17,11 +17,11 @@ class HopeSpeechTest {
         val currentLocale = Locale.getDefault()
         try {
             Locale.setDefault(Locale.US)
-            assertEquals(Locale("hi", "IN"), HopeSpeech.preferredLocale("Auto", "नमस्ते"))
-            assertEquals(Locale.US, HopeSpeech.preferredLocale("Auto", "Hello caller"))
+            assertEquals(Locale("hi", "IN"), HopeSpeechLocale.preferredLocale("Auto", "नमस्ते"))
+            assertEquals(Locale.US, HopeSpeechLocale.preferredLocale("Auto", "Hello caller"))
 
             Locale.setDefault(Locale("hi", "IN"))
-            assertEquals(Locale("hi", "IN"), HopeSpeech.preferredLocale("Auto", "Hello caller"))
+            assertEquals(Locale("hi", "IN"), HopeSpeechLocale.preferredLocale("Auto", "Hello caller"))
         } finally {
             Locale.setDefault(currentLocale)
         }

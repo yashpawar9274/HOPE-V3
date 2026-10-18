@@ -24,7 +24,6 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.jarvis.assistant.JarvisApp
@@ -39,6 +38,7 @@ import com.jarvis.assistant.data.model.ConversationState
 import com.jarvis.assistant.network.GeminiLiveWebSocket
 import com.jarvis.assistant.ui.home.MainActivity
 import com.jarvis.assistant.util.PermissionHelper
+import com.jarvis.assistant.util.HopeSpeech
 import com.jarvis.assistant.util.PromptGenerator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -487,7 +487,6 @@ class JarvisConversationService : Service() {
 
     // --- Standby / wake-word components (Pure Vosk) ---
     private var voskSpeechService: SpeechService? = null
-    private var tts: TextToSpeech? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
     private var standbyActivatedTime = 0L
@@ -499,7 +498,7 @@ class JarvisConversationService : Service() {
         super.onCreate()
         activeInstance = this
         createChannel()
-        initTts()
+        HopeSpeech.initialize(applicationContext)
         headsetAudioRouter = com.jarvis.assistant.audio.HeadsetAudioRouter(applicationContext)
         taskProgressOverlay = com.jarvis.assistant.ui.agent.TaskProgressOverlay(this)
         taskProgressOverlayJob = serviceScope.launch(Dispatchers.Main.immediate) {
@@ -555,43 +554,6 @@ class JarvisConversationService : Service() {
                 }
             }
         }
-    }
-
-    private fun initTts() {
-        try {
-            tts = TextToSpeech(applicationContext) { status ->
-                if (status == TextToSpeech.SUCCESS) {
-                    tts?.language = Locale.US
-                    tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                        override fun onStart(utteranceId: String?) {
-                            Log.d("JarvisService", "TTS onStart: $utteranceId")
-                        }
-
-                        override fun onDone(utteranceId: String?) {
-                            Log.d("JarvisService", "TTS onDone: $utteranceId")
-                            handleTtsDone(utteranceId)
-                        }
-
-                        @Deprecated("Deprecated in Java")
-                        override fun onError(utteranceId: String?) {
-                            Log.e("JarvisService", "TTS onError: $utteranceId")
-                            handleTtsDone(utteranceId)
-                        }
-
-                        override fun onError(utteranceId: String?, errorCode: Int) {
-                            Log.e("JarvisService", "TTS onError: $utteranceId code: $errorCode")
-                            handleTtsDone(utteranceId)
-                        }
-                    })
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("JarvisService", "Failed to init TTS: ${e.message}")
-        }
-    }
-
-    private fun handleTtsDone(utteranceId: String?) {
-        // Robotic system announcements disabled; all speech is handled via natural Gemini Live neural audio.
     }
 
     private fun ensureMicrophoneForegroundService() {
@@ -1132,12 +1094,15 @@ class JarvisConversationService : Service() {
                             pendingToolCalls.clear()
 
                             if (!lastCompletedTaskSummary.isNullOrBlank()) {
-                                val summaryToSpeak = lastCompletedTaskSummary
+                                val summaryToSpeak = lastCompletedTaskSummary.orEmpty()
                                 lastCompletedTaskSummary = null
                                 val isLive = liveWebSocket?.isSessionReady() == true
                                 if (!preferences.isSilentExecutionMode && !isLive) {
                                     Log.i("JarvisService", "Offline fallback: Speaking confirmation via TTS: '$summaryToSpeak'")
-                                    tts?.speak(summaryToSpeak, TextToSpeech.QUEUE_FLUSH, null, "task_done")
+                                    HopeSpeech.speak(
+                                        applicationContext, summaryToSpeak, "Auto", "task_done",
+                                        queueMode = TextToSpeech.QUEUE_FLUSH
+                                    )
                                 }
                             }
 
@@ -1194,7 +1159,7 @@ class JarvisConversationService : Service() {
                                                 Log.i("JarvisService", "Auto-resume cancelled because the task/session changed or the user spoke")
                                                 return@launch
                                             }
-                                            val playbackActive = audioPlayer?.isPlaying() == true || tts?.isSpeaking == true ||
+                                            val playbackActive = audioPlayer?.isPlaying() == true || HopeSpeech.isSpeaking() ||
                                                 _conversationState.value == ConversationState.SPEAKING
                                             if (playbackActive) {
                                                 quietSince = 0L
@@ -1375,7 +1340,7 @@ class JarvisConversationService : Service() {
                 }
 
                 // Assistant is speaking / AudioTrack or TTS is actively playing:
-                val isSpeakerActive = (audioPlayer?.isPlaying() == true) || (tts?.isSpeaking == true) ||
+                val isSpeakerActive = (audioPlayer?.isPlaying() == true) || HopeSpeech.isSpeaking() ||
                         (_conversationState.value == ConversationState.SPEAKING)
 
                 if (isSpeakerActive) {
@@ -1390,7 +1355,7 @@ class JarvisConversationService : Service() {
                             if (consecutiveVoicedFrames >= 4) {
                                 Log.i("JarvisService", "Headset voice barge-in: user spoke over assistant (amp=$amplitude)")
                                 audioPlayer?.flush()
-                                try { tts?.stop() } catch (_: Exception) {}
+                                try { HopeSpeech.stop() } catch (_: Exception) {}
                                 setConversationState(ConversationState.LISTENING)
                                 lastUserSpeechDetectedTime = now
                                 hasSpeechInCurrentUtterance = true
@@ -2328,7 +2293,10 @@ class JarvisConversationService : Service() {
                                 if (!alreadySpoke && liveWebSocket?.isSessionReady() != true) {
                                     // Offline fallback: speak via TTS only when Gemini Live is offline
                                     lastCompletedTaskSummary = null
-                                    tts?.speak(summary, TextToSpeech.QUEUE_FLUSH, null, "task_done")
+                                    HopeSpeech.speak(
+                                        applicationContext, summary, "Auto", "task_done",
+                                        queueMode = TextToSpeech.QUEUE_FLUSH
+                                    )
                                 }
                             }
                         }
@@ -3416,11 +3384,6 @@ class JarvisConversationService : Service() {
         taskProgressOverlay = null
         stopActiveConversation()
         exitStandbyListening()
-        try {
-            tts?.stop()
-            tts?.shutdown()
-        } catch (_: Exception) {}
-        tts = null
         try {
             voskSpeechService?.stop()
         } catch (_: Exception) {}
