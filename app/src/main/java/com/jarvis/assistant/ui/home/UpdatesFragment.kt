@@ -30,6 +30,11 @@ class UpdatesFragment : Fragment() {
     private fun renderFeatureUpdates() {
         val features = listOf(
             FeatureNotice(
+                "HOPE 1.9.3",
+                "Redesigned incoming and active call screens",
+                "Incoming calls now place the HOPE ORB above caller details with clear Answer and Decline controls. Outgoing and active screens keep the ORB centered and show Android Telecom call states with the existing supported in-call actions. Controls are text-first, and connection status is never simulated."
+            ),
+            FeatureNotice(
                 "HOPE 1.9.2",
                 "New HOPE Phone call ORB",
                 "Call screens now use the supplied particle-style HOPE ORB, rendered with the Three.js library bundled in the app for offline use. Its status follows Android Telecom call states and actual voice recognition; cellular call audio is not captured."

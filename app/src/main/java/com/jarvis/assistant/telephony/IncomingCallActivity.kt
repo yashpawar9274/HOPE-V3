@@ -164,16 +164,22 @@ class IncomingCallActivity : AppCompatActivity() {
     private fun createCallUi() {
         val foreground = Color.rgb(232, 235, 246)
         val accent = Color.rgb(0, 225, 235)
+        val muted = Color.rgb(162, 174, 194)
         val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.rgb(15, 19, 31))
+            setBackground(
+                android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                    intArrayOf(Color.rgb(24, 15, 51), Color.rgb(15, 20, 39), Color.rgb(10, 15, 27))
+                )
+            )
             systemUiVisibility = (
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
                     View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
                     View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 )
         }
-        window.statusBarColor = Color.rgb(15, 19, 31)
-        window.navigationBarColor = Color.rgb(15, 19, 31)
+        window.statusBarColor = Color.rgb(20, 14, 42)
+        window.navigationBarColor = Color.rgb(10, 15, 27)
         androidx.core.view.WindowInsetsControllerCompat(window, root).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
@@ -185,46 +191,43 @@ class IncomingCallActivity : AppCompatActivity() {
         callContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(20), dp(12), dp(20), dp(20))
+            setPadding(dp(20), dp(14), dp(20), dp(20))
         }
         val content = callContent
-        content.addView(TextView(this).apply {
-            text = "HOPE PHONE"
-            textSize = 12f
-            letterSpacing = 0.18f
-            gravity = Gravity.CENTER
-            setTextColor(accent)
-        }, matchWidth())
         screenTitleView = TextView(this).apply {
             text = "Incoming call"
-            textSize = 27f
+            textSize = 1f
             gravity = Gravity.CENTER
-            setTextColor(foreground)
-            setPadding(0, dp(2), 0, dp(8))
+            setTextColor(muted)
+            visibility = View.GONE
         }
         content.addView(screenTitleView, matchWidth())
         stateView = TextView(this).apply {
-            textSize = 12f
+            textSize = 11f
             letterSpacing = 0.08f
             gravity = Gravity.CENTER
             setTextColor(accent)
-            background = roundedBackground(Color.rgb(37, 40, 59), dp(24))
-            setPadding(dp(18), dp(11), dp(18), dp(11))
+            background = roundedBackground(Color.rgb(38, 35, 57), dp(24))
+            setPadding(dp(18), dp(10), dp(18), dp(10))
         }
         content.addView(stateView, matchWidth().apply {
-            leftMargin = dp(14)
-            rightMargin = dp(14)
-            topMargin = dp(2)
+            leftMargin = dp(20)
+            rightMargin = dp(20)
+            topMargin = dp(4)
             bottomMargin = dp(8)
         })
         timerView = TextView(this).apply {
             text = "00:00"
-            textSize = 40f
+            textSize = 15f
             gravity = Gravity.CENTER
             setTextColor(foreground)
-            setPadding(0, dp(2), 0, dp(3))
+            background = roundedBackground(Color.rgb(30, 34, 51), dp(18))
+            setPadding(dp(14), dp(7), dp(14), dp(7))
         }
-        content.addView(timerView, matchWidth())
+        content.addView(timerView, LinearLayout.LayoutParams(-2, -2).apply {
+            gravity = Gravity.CENTER
+            bottomMargin = dp(4)
+        })
         timerView.visibility = View.GONE
         callOrbContainer = FrameLayout(this).apply {
             minimumHeight = dp(300)
@@ -257,7 +260,7 @@ class IncomingCallActivity : AppCompatActivity() {
                 updateOrbState()
             }
         }
-        orbWebView.loadUrl("https://appassets.androidplatform.net/assets/call_orb.html")
+        orbWebView.loadUrl("https://appassets.androidplatform.net/assets/call_orb.html?embedded=1")
         callOrbContainer.addView(orbWebView, FrameLayout.LayoutParams(-1, -1))
         callDetails = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -265,21 +268,22 @@ class IncomingCallActivity : AppCompatActivity() {
             isFocusable = false
             isFocusableInTouchMode = false
             setBackgroundColor(Color.TRANSPARENT)
-            setPadding(0, dp(14), 0, 0)
+            setPadding(0, dp(4), 0, 0)
         }
         callerView = TextView(this).apply {
-            textSize = 26f
+            textSize = 29f
             gravity = Gravity.CENTER
             setTextColor(foreground)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
             maxLines = 2
-            setPadding(0, dp(3), 0, 0)
+            setPadding(0, dp(2), 0, dp(2))
         }
         callDetails.addView(callerView, matchWidth())
         numberView = TextView(this).apply {
             textSize = 15f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(166, 180, 190))
-            setPadding(0, dp(3), 0, dp(8))
+            setTextColor(muted)
+            setPadding(0, dp(2), 0, dp(5))
         }
         callDetails.addView(numberView, matchWidth())
         content.addView(callOrbContainer, LinearLayout.LayoutParams(-1, dp(330)).apply {
@@ -287,43 +291,43 @@ class IncomingCallActivity : AppCompatActivity() {
             bottomMargin = dp(4)
         })
         content.addView(callDetails, matchWidth())
-        val orbHeight = (resources.configuration.screenHeightDp * 0.34f).toInt().coerceIn(220, 330)
+        val orbHeight = (resources.configuration.screenHeightDp * 0.30f).toInt().coerceIn(180, 310)
         callOrbContainer.minimumHeight = dp(orbHeight)
         callOrbContainer.layoutParams =
             (callOrbContainer.layoutParams as LinearLayout.LayoutParams).apply { height = dp(orbHeight) }
         standbyView = TextView(this).apply {
-            textSize = 13f
+            textSize = 12f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(190, 201, 215))
-            background = roundedBackground(Color.rgb(25, 29, 43), dp(18))
-            setPadding(dp(14), dp(11), dp(14), dp(11))
+            setTextColor(muted)
+            background = roundedBackground(Color.rgb(25, 29, 43), dp(14))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
         }
         content.addView(standbyView, matchWidth().apply {
-            topMargin = dp(3)
-            bottomMargin = dp(10)
+            topMargin = dp(4)
+            bottomMargin = dp(5)
         })
         instructionView = TextView(this).apply {
-            textSize = 14f
+            textSize = 13f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(194, 204, 220))
-            background = roundedBackground(Color.rgb(27, 31, 44), dp(18))
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setTextColor(muted)
+            background = roundedBackground(Color.rgb(27, 31, 44), dp(14))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
         }
         content.addView(instructionView, matchWidth().apply {
-            topMargin = dp(5)
-            bottomMargin = dp(14)
+            topMargin = dp(3)
+            bottomMargin = dp(8)
         })
         quickTextButton = Button(this).apply {
             text = "Quick text"
             isAllCaps = false
             textSize = 15f
             setTextColor(foreground)
-            background = roundedBackground(Color.rgb(38, 42, 58), dp(18))
+            background = roundedBackground(Color.rgb(39, 43, 60), dp(24))
             visibility = View.GONE
         }
-        content.addView(quickTextButton, LinearLayout.LayoutParams(-1, dp(48)).apply {
-            leftMargin = dp(48)
-            rightMargin = dp(48)
+        content.addView(quickTextButton, LinearLayout.LayoutParams(-1, dp(46)).apply {
+            leftMargin = dp(36)
+            rightMargin = dp(36)
             bottomMargin = dp(4)
         })
         actions = GridLayout(this).apply {
@@ -332,17 +336,18 @@ class IncomingCallActivity : AppCompatActivity() {
         }
         content.addView(actions, matchWidth())
         endCallButton = Button(this).apply {
-            text = "End Call"
-            textSize = 20f
+            text = "End call"
+            textSize = 17f
             isAllCaps = false
             contentDescription = "End call"
             setTextColor(Color.WHITE)
-            background = roundedBackground(Color.rgb(177, 0, 24), dp(36))
+            background = roundedBackground(Color.rgb(177, 0, 24), dp(30))
         }
-        content.addView(endCallButton, LinearLayout.LayoutParams(-1, dp(62)).apply {
-            topMargin = dp(16)
-            leftMargin = dp(18)
-            rightMargin = dp(18)
+        content.addView(endCallButton, LinearLayout.LayoutParams(-1, dp(72)).apply {
+            topMargin = dp(10)
+            leftMargin = dp(56)
+            rightMargin = dp(56)
+            bottomMargin = dp(8)
         })
         scroll.addView(content, ViewGroup.LayoutParams(-1, -2))
         root.addView(scroll, FrameLayout.LayoutParams(-1, -1))
@@ -375,6 +380,13 @@ class IncomingCallActivity : AppCompatActivity() {
         numberView.text = call.number.takeIf(String::isNotBlank) ?: "Number unavailable"
         timerView.text = formatCallDuration(call)
         val ringing = call.state == android.telecom.Call.STATE_RINGING
+        val orbHeight = (
+            resources.configuration.screenHeightDp * if (ringing) 0.30f else 0.26f
+        ).toInt().coerceIn(170, 310)
+        callOrbContainer.minimumHeight = dp(orbHeight)
+        callOrbContainer.layoutParams = (callOrbContainer.layoutParams as LinearLayout.LayoutParams).apply {
+            height = dp(orbHeight)
+        }
         screenTitleView.text = when (call.state) {
             android.telecom.Call.STATE_RINGING -> "Incoming call"
             android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "Outgoing call"
@@ -382,7 +394,7 @@ class IncomingCallActivity : AppCompatActivity() {
             android.telecom.Call.STATE_ACTIVE -> "Active call"
             else -> "Call"
         }
-        stateView.text = "●  ${callStateLabel(call.state).uppercase(Locale.ROOT)}  •  ANDROID TELECOM"
+        stateView.text = "${callStateLabel(call.state).uppercase(Locale.ROOT)}   |   ANDROID TELECOM"
         timerView.visibility = if (
             call.state == android.telecom.Call.STATE_ACTIVE ||
             call.state == android.telecom.Call.STATE_HOLDING
@@ -509,7 +521,7 @@ class IncomingCallActivity : AppCompatActivity() {
         callerView.text = endedCall.caller
         numberView.text = endedCall.number.takeIf(String::isNotBlank) ?: "Number unavailable"
         screenTitleView.text = "Call ended"
-        stateView.text = "●  DISCONNECTED  •  ANDROID TELECOM"
+        stateView.text = "CALL ENDED   |   ANDROID TELECOM"
         standbyView.text = "The call has ended."
         instructionView.text = "Returning to HOPE Phone…"
         timerView.visibility = View.GONE
@@ -527,7 +539,7 @@ class IncomingCallActivity : AppCompatActivity() {
     private fun moveCallDetails(ringing: Boolean) {
         callContent.removeView(callDetails)
         val orbIndex = callContent.indexOfChild(callOrbContainer)
-        val detailIndex = if (ringing) orbIndex + 1 else orbIndex
+        val detailIndex = if (ringing) orbIndex + 1 else 0
         callContent.addView(callDetails, detailIndex.coerceAtLeast(0), matchWidth())
     }
 
@@ -681,20 +693,11 @@ class IncomingCallActivity : AppCompatActivity() {
         val incomingTile = label == "Decline" || label == "Answer"
         val declineTile = label == "Decline"
         val button = Button(this).apply {
-            text = when (label) {
-                "Decline" -> "☎\nDecline"
-                "Answer" -> "☎\nAnswer"
-                "Mute" -> "◉\nMute"
-                "Unmute" -> "◉\nUnmute"
-                "Keypad" -> "▦\nKeypad"
-                "Speaker" -> "◖))\nSpeaker"
-                "Speaker on" -> "◖))\nSpeaker on"
-                else -> label
-            }
+            text = label
             contentDescription = description
-            textSize = if (incomingTile) 20f else 13f
+            textSize = if (incomingTile) 17f else 13f
             isAllCaps = false
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(dp(8), dp(10), dp(8), dp(10))
             setTextColor(
                 if (incomingTile && !declineTile) Color.rgb(0, 34, 38)
                 else ContextCompat.getColor(
@@ -706,9 +709,9 @@ class IncomingCallActivity : AppCompatActivity() {
                 when {
                     declineTile -> Color.rgb(157, 0, 20)
                     incomingTile -> Color.rgb(0, 222, 230)
-                    else -> Color.rgb(31, 35, 51)
+                    else -> Color.rgb(34, 39, 56)
                 },
-                dp(if (incomingTile) 24 else 20)
+                dp(if (incomingTile) 26 else 18)
             )
             setOnClickListener { onClick() }
         }
@@ -717,7 +720,7 @@ class IncomingCallActivity : AppCompatActivity() {
             GridLayout.spec(GridLayout.UNDEFINED, 1f)
         ).apply {
             width = 0
-            height = dp(if (incomingTile) 104 else 82)
+            height = dp(if (incomingTile) 82 else 62)
             setMargins(dp(5), dp(5), dp(5), dp(5))
         })
     }

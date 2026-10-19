@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.9.2-4169E1" alt="Version 1.9.2">
+  <img src="https://img.shields.io/badge/Version-1.9.3-4169E1" alt="Version 1.9.3">
   <img src="https://img.shields.io/badge/Android-API%2026%2B-3DDC84?logo=android&logoColor=white" alt="Android 8.0+">
   <img src="https://img.shields.io/badge/Package-com.jarvis.assistant-6A5ACD" alt="Android package">
 </p>
@@ -29,6 +29,12 @@ HOPE is an Android voice assistant with conversational voice features, phone and
 - Use supported in-call controls, including mute, speaker, keypad, and hold.
 - See call screens update from Android Telecom’s actual call state.
 - Incoming-call voice confirmation is optional. HOPE does not record or transcribe cellular call audio.
+
+### 📞 Redesigned call screens — new in 1.9.3
+- Incoming calls show the HOPE ORB above the caller name and number, with prominent Answer and Decline controls.
+- Outgoing and active call screens keep the ORB centered, show the real Telecom call state, and retain supported in-call controls.
+- The call screen uses a responsive dark layout and text-first controls without emoji icons.
+- Caller details and call state come from Android Telecom; sample details are used only in the visual preview.
 
 ### ✨ HOPE Call ORB — new in 1.9.2
 - Updated call screens with a particle-style HOPE ORB.
@@ -85,7 +91,7 @@ Download the APK from **Assets** below and install it on a device running Androi
 
 ## 🏷️ Topics
 
-`hope-ai` · `android` · `voice-assistant` · `phone-dialer` · `notifications` · `auto-reply` · `accessibility` · `v1.9.2`
+`hope-ai` · `android` · `voice-assistant` · `phone-dialer` · `notifications` · `auto-reply` · `accessibility` · `v1.9.3`
 
 ---
 
