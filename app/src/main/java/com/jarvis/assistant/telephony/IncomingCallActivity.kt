@@ -50,6 +50,7 @@ class IncomingCallActivity : AppCompatActivity() {
     private lateinit var actions: GridLayout
     private lateinit var endCallButton: Button
     private lateinit var callContent: LinearLayout
+    private lateinit var callActionDock: LinearLayout
     private lateinit var callDetails: LinearLayout
     private lateinit var callOrbContainer: FrameLayout
     private lateinit var orbWebView: WebView
@@ -334,7 +335,6 @@ class IncomingCallActivity : AppCompatActivity() {
             columnCount = 3
             useDefaultMargins = false
         }
-        content.addView(actions, matchWidth())
         endCallButton = Button(this).apply {
             text = "End call"
             textSize = 17f
@@ -343,14 +343,29 @@ class IncomingCallActivity : AppCompatActivity() {
             setTextColor(Color.WHITE)
             background = roundedBackground(Color.rgb(177, 0, 24), dp(30))
         }
-        content.addView(endCallButton, LinearLayout.LayoutParams(-1, dp(72)).apply {
-            topMargin = dp(10)
-            leftMargin = dp(56)
-            rightMargin = dp(56)
-            bottomMargin = dp(8)
+        callActionDock = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(14), dp(8), dp(14), dp(10))
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,
+                intArrayOf(Color.rgb(11, 15, 28), Color.rgb(11, 15, 28), Color.TRANSPARENT)
+            )
+            elevation = dp(8).toFloat()
+        }
+        callActionDock.addView(actions, matchWidth())
+        callActionDock.addView(endCallButton, LinearLayout.LayoutParams(-1, dp(64)).apply {
+            topMargin = dp(6)
+            leftMargin = dp(42)
+            rightMargin = dp(42)
+            bottomMargin = dp(3)
         })
         scroll.addView(content, ViewGroup.LayoutParams(-1, -2))
         root.addView(scroll, FrameLayout.LayoutParams(-1, -1))
+        root.addView(
+            callActionDock,
+            FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM)
+        )
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val bars = insets.getInsets(
                 androidx.core.view.WindowInsetsCompat.Type.systemBars() or
@@ -380,6 +395,10 @@ class IncomingCallActivity : AppCompatActivity() {
         numberView.text = call.number.takeIf(String::isNotBlank) ?: "Number unavailable"
         timerView.text = formatCallDuration(call)
         val ringing = call.state == android.telecom.Call.STATE_RINGING
+        val activeOrHeld = call.state == android.telecom.Call.STATE_ACTIVE ||
+            call.state == android.telecom.Call.STATE_HOLDING
+        val dialing = call.state == android.telecom.Call.STATE_DIALING ||
+            call.state == android.telecom.Call.STATE_CONNECTING
         val orbHeight = (
             resources.configuration.screenHeightDp * if (ringing) 0.30f else 0.26f
         ).toInt().coerceIn(170, 310)
@@ -396,10 +415,15 @@ class IncomingCallActivity : AppCompatActivity() {
         }
         stateView.text = "${callStateLabel(call.state).uppercase(Locale.ROOT)}   |   ANDROID TELECOM"
         timerView.visibility = if (
-            call.state == android.telecom.Call.STATE_ACTIVE ||
-            call.state == android.telecom.Call.STATE_HOLDING
+            activeOrHeld
         ) View.VISIBLE else View.GONE
         moveCallDetails(ringing)
+        callContent.setPadding(
+            dp(20),
+            dp(14),
+            dp(20),
+            dp(if (ringing) 120 else if (activeOrHeld) 240 else if (dialing) 150 else 100)
+        )
         val orbState = when (call.state) {
             android.telecom.Call.STATE_RINGING -> if (speechStarted) "listening" else "ringing"
             android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "thinking"
@@ -424,6 +448,7 @@ class IncomingCallActivity : AppCompatActivity() {
             }
         }
         endCallButton.visibility = if (ringing) View.GONE else View.VISIBLE
+        callActionDock.visibility = View.VISIBLE
         quickTextButton.visibility = if (ringing && call.number.isNotBlank()) View.VISIBLE else View.GONE
         quickTextButton.setOnClickListener {
             if (call.number.isBlank()) return@setOnClickListener
@@ -468,9 +493,7 @@ class IncomingCallActivity : AppCompatActivity() {
                 promptStarted = true
                 speakCallPrompt(call.caller)
             }
-        } else if (call.state == android.telecom.Call.STATE_ACTIVE ||
-            call.state == android.telecom.Call.STATE_HOLDING
-        ) {
+        } else if (activeOrHeld) {
             instructionView.text = "Cellular call via Android Telecom. HOPE does not record or transcribe call audio."
             addAction(if (call.muted) "Unmute" else "Mute", R.color.accent_sapphire, "Toggle microphone mute") {
                 if (!HopeCallController.toggleMute()) showCallActionFailure()
@@ -500,6 +523,25 @@ class IncomingCallActivity : AppCompatActivity() {
                     if (!HopeCallController.mergeCalls(callId)) showCallActionFailure()
                 }
             }
+        } else if (dialing) {
+            instructionView.text = "Calling through Android Telecom. Audio controls are ready; keypad tones are available after connection."
+            addAction("Mute", R.color.accent_sapphire, "Toggle microphone mute") {
+                if (!HopeCallController.toggleMute()) showCallActionFailure()
+            }
+            addAction(
+                if (call.canSpeaker) "Speaker" else "Speaker unavailable",
+                R.color.accent_sapphire,
+                "Toggle speakerphone",
+                enabled = call.canSpeaker
+            ) {
+                if (!HopeCallController.toggleSpeaker()) showCallActionFailure()
+            }
+            addAction(
+                "Keypad",
+                R.color.accent_sapphire,
+                "Keypad tones are available after the call connects",
+                enabled = false
+            ) { }
         } else {
             actions.visibility = View.GONE
             instructionView.text = "Waiting for Android Telecom to connect or disconnect the call."
@@ -527,6 +569,7 @@ class IncomingCallActivity : AppCompatActivity() {
         timerView.visibility = View.GONE
         quickTextButton.visibility = View.GONE
         endCallButton.visibility = View.GONE
+        callActionDock.visibility = View.GONE
         actions.removeAllViews()
         actions.visibility = View.GONE
         updateOrbState("disconnected")
@@ -688,6 +731,7 @@ class IncomingCallActivity : AppCompatActivity() {
         label: String,
         colorRes: Int,
         description: String,
+        enabled: Boolean = true,
         onClick: () -> Unit
     ) {
         val incomingTile = label == "Decline" || label == "Answer"
@@ -697,6 +741,7 @@ class IncomingCallActivity : AppCompatActivity() {
             contentDescription = description
             textSize = if (incomingTile) 17f else 13f
             isAllCaps = false
+            isEnabled = enabled
             setPadding(dp(8), dp(10), dp(8), dp(10))
             setTextColor(
                 if (incomingTile && !declineTile) Color.rgb(0, 34, 38)

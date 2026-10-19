@@ -32,7 +32,7 @@ class UpdatesFragment : Fragment() {
             FeatureNotice(
                 "HOPE 1.9.3",
                 "Redesigned incoming and active call screens",
-                "Incoming calls now place the HOPE ORB above caller details with clear Answer and Decline controls. Outgoing and active screens keep the ORB centered and show Android Telecom call states with the existing supported in-call actions. Controls are text-first, and connection status is never simulated."
+                "Incoming calls now place the HOPE ORB above caller details with clear Answer and Decline controls. Outgoing and active screens keep the ORB centered and show Android Telecom call states with a bottom-pinned control area. Mute and supported Speaker controls are shown while an outgoing call connects; keypad tones become available when Telecom reports the call active. Connection status is never simulated."
             ),
             FeatureNotice(
                 "HOPE 1.9.2",

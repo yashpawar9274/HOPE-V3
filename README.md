@@ -33,6 +33,7 @@ HOPE is an Android voice assistant with conversational voice features, phone and
 ### 📞 Redesigned call screens — new in 1.9.3
 - Incoming calls show the HOPE ORB above the caller name and number, with prominent Answer and Decline controls.
 - Outgoing and active call screens keep the ORB centered, show the real Telecom call state, and retain supported in-call controls.
+- Answer/Decline and in-call controls stay in a bottom-pinned control area instead of scrolling offscreen; outgoing calls show Mute and supported Speaker controls while connecting.
 - The call screen uses a responsive dark layout and text-first controls without emoji icons.
 - Caller details and call state come from Android Telecom; sample details are used only in the visual preview.
 
