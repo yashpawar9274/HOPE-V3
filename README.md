@@ -107,6 +107,7 @@ The HOPE app-lock verifier and encrypted security settings remain on-device. App
 - Added explicit text and voice commands to start, stop, and check WhatsApp auto-reply, with prerequisite checks, persistent opt-in, pending in-process cancellation on stop, duplicate protection, and visible last-result status.
 - Reused HOPE's configured AI router for AI-generated replies, added bounded retries and send-failure reporting, and re-checks permissions, monitoring, rule authorization, quiet hours, and exclusions before submitting a reply action.
 - On notification-listener reconnection, existing active notifications are recorded without being treated as new messages for auto-reply.
+- Improved Hey HOPE conversation entry with an activation-scoped greeting guard, suppression of a synthetic greeting when speech is already underway, transcript overlap merging, reconnect-safe greeting behavior, and concise context-aware language guidance.
 - Updated the app version to **1.9.6** (version code **152**).
 
 ## Previous changes in version 1.9.5

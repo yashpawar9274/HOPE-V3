@@ -53,6 +53,8 @@ class GeminiLiveWebSocket(
     private val isConnected = AtomicBoolean(false)
     private val isSetupComplete = AtomicBoolean(false)
     private val isManuallyStopped = AtomicBoolean(false)
+    private val connectionAttemptActive = AtomicBoolean(false)
+    private val connectionAttempt = AtomicLong(0)
     private var coroutineScope: CoroutineScope? = null
 
     private var sessionRenewalJob: Job? = null
@@ -64,11 +66,18 @@ class GeminiLiveWebSocket(
     fun connect(scope: CoroutineScope) {
         coroutineScope = scope
         isManuallyStopped.set(false)
+        Log.i(TAG, "Opening or reusing the current Gemini Live voice session.")
         initiateConnection()
     }
 
     private fun initiateConnection() {
+        if (!connectionAttemptActive.compareAndSet(false, true)) {
+            Log.i(TAG, "Ignored duplicate Gemini Live connection request; a session attempt is already active.")
+            return
+        }
+        val attempt = connectionAttempt.incrementAndGet()
         if (apiKey.isBlank()) {
+            connectionAttemptActive.set(false)
             Log.e(TAG, "Gemini API Key is empty. Aborting connection.")
             listener.onError("Gemini API Key is missing. Please configure it in Settings.", isFatal = true, errorCode = "API_KEY_MISSING")
             listener.onConnectionStateChanged("OFFLINE")
@@ -76,6 +85,7 @@ class GeminiLiveWebSocket(
         }
 
         listener.onConnectionStateChanged("CONNECTING...")
+        Log.i(TAG, "Starting Gemini Live connection attempt $attempt.")
 
         try {
             val url = "${GeminiConstants.WS_BASE_URL}?key=$apiKey"
@@ -110,6 +120,7 @@ class GeminiLiveWebSocket(
                     Log.d(TAG, "WebSocket closed: $code / $reason")
                     isConnected.set(false)
                     isSetupComplete.set(false)
+                    connectionAttemptActive.set(false)
                     stopTimers()
 
                     val isApiKeyError = reason.contains("API_KEY_INVALID", ignoreCase = true) ||
@@ -162,6 +173,7 @@ class GeminiLiveWebSocket(
                     Log.e(TAG, "WebSocket failure: code=$code, errorMsg=$errorMsg, body=$responseBody", t)
                     isConnected.set(false)
                     isSetupComplete.set(false)
+                    connectionAttemptActive.set(false)
                     stopTimers()
 
                     val isApiKeyError = code == 400 || code == 401 || code == 403 ||
@@ -200,6 +212,7 @@ class GeminiLiveWebSocket(
                 }
             })
         } catch (e: Exception) {
+            connectionAttemptActive.set(false)
             Log.e(TAG, "Error initiating WebSocket connection: ${e.message}", e)
             listener.onError("Connection failed: ${e.message}", isFatal = true, errorCode = "CONNECTION_FAILED")
             listener.onConnectionStateChanged("OFFLINE")
@@ -1012,6 +1025,7 @@ class GeminiLiveWebSocket(
     private fun scheduleReconnect() {
         reconnectJob?.cancel()
         reconnectJob = coroutineScope?.launch(Dispatchers.IO) {
+            Log.i(TAG, "Scheduling Gemini Live session reconnect.")
             delay(500)
             if (!isManuallyStopped.get()) {
                 Log.d(TAG, "Attempting auto-reconnect...")
@@ -1027,6 +1041,7 @@ class GeminiLiveWebSocket(
 
     fun disconnect() {
         isManuallyStopped.set(true)
+        connectionAttemptActive.set(false)
         stopTimers()
         reconnectJob?.cancel()
         reconnectJob = null

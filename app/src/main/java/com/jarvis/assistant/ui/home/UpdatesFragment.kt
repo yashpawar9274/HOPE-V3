@@ -31,6 +31,11 @@ class UpdatesFragment : Fragment() {
         val features = listOf(
             FeatureNotice(
                 "HOPE AI",
+                "Natural voice conversations and single wake greeting",
+                "A wake activation now has one guarded greeting request. If speech is already underway, HOPE answers that request rather than injecting a second greeting. Transcript callbacks that repeat cumulative partial/final text are merged, reconnects do not replay the greeting, and live Gemini audio remains on the existing single playback path. Conversation instructions now favor concise, context-aware responses in the configured language."
+            ),
+            FeatureNotice(
+                "HOPE AI",
                 "Explicit location privacy and one-shot diagnostics",
                 "Enable location awareness separately from sharing approximate locality with Gemini. Approximate or precise permission is requested through Android; HOPE obtains a one-shot fix only when requested, keeps coordinates in a local diagnostic cache, labels stale snapshots, and does not track continuously in the background. Reverse geocoding and sending coordinates to Open-Meteo for live weather each require separate opt-ins. Location is not attached to WhatsApp replies. Notification auto-replies continue to require an authorized rule and an Android-provided inline reply action; an action submission does not confirm delivery, and Android may delay or stop background work."
             ),

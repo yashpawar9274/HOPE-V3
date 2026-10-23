@@ -53,6 +53,10 @@ import com.jarvis.assistant.voice.VoiceClipboardCommandParser
 import com.jarvis.assistant.voice.StandbyCommandPolicy
 import com.jarvis.assistant.voice.DeviceUnlockCommandPolicy
 import com.jarvis.assistant.voice.WakeWordConfidence
+import com.jarvis.assistant.voice.VoiceConversationCoordinator
+import com.jarvis.assistant.voice.VoiceConversationPhase
+import com.jarvis.assistant.voice.VoiceConversationPolicy
+import com.jarvis.assistant.voice.VoiceTranscriptAccumulator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -167,9 +171,10 @@ class JarvisConversationService : Service() {
         fun interruptPlayback() {
             activeInstance?.let { service ->
                 if (_conversationState.value == ConversationState.SPEAKING) {
-                    Log.i("JarvisService", "Manual interruption: stopping audio playback")
+                    Log.i("VoiceConversation", "Manual interruption: cancelling active speech playback.")
                     service.audioPlayer?.flush()
-                    _conversationState.value = ConversationState.LISTENING
+                    com.jarvis.assistant.util.HopeSpeech.stop()
+                    service.setConversationState(ConversationState.LISTENING)
                 }
             }
         }
@@ -263,6 +268,7 @@ class JarvisConversationService : Service() {
     private val currentTurnUserText = StringBuilder()
     private var lastUserSpeechDetectedTime = 0L
     private var lastPlaybackEndTime = 0L
+    @Volatile
     private var hasSpeechInCurrentUtterance = false
     private var hasSignalledUtteranceEnd = false
     private var consecutiveVoicedFrames = 0
@@ -303,6 +309,7 @@ class JarvisConversationService : Service() {
     private var ownerInputAudioSentBytes = 0
     private val preSpeechRingBuffer = java.util.ArrayDeque<ByteArray>(12)
     private val preConnectAudioQueue = java.util.concurrent.ConcurrentLinkedQueue<ByteArray>()
+    private val preConnectAudioLock = Any()
     @Volatile
     private var lastCompletedTaskSummary: String? = null
     @Volatile private var lastVerifiedCompletionAt = 0L
@@ -476,8 +483,19 @@ class JarvisConversationService : Service() {
     }
 
     private fun setConversationState(state: ConversationState) {
-        if (_conversationState.value != state) {
+        val previous = _conversationState.value
+        val phase = when (state) {
+            ConversationState.IDLE -> VoiceConversationPhase.IDLE
+            ConversationState.LISTENING -> VoiceConversationPhase.LISTENING
+            ConversationState.THINKING -> VoiceConversationPhase.THINKING
+            ConversationState.SPEAKING -> VoiceConversationPhase.SPEAKING
+        }
+        if (!voiceConversationCoordinator.transitionTo(phase)) {
+            Log.w("VoiceConversation", "Ignored invalid state transition ${voiceConversationCoordinator.phase} -> $phase")
+        }
+        if (previous != state) {
             _conversationState.value = state
+            Log.d("VoiceConversation", "State transition $previous -> $state")
             updateNotification()
         }
         _voiceAssistantState.value = when {
@@ -488,6 +506,17 @@ class JarvisConversationService : Service() {
             else -> HopeAssistantState.ACTIVE_LISTENING
         }
     }
+
+    private fun mergeCurrentUserTranscript(incomingText: String): String =
+        synchronized(currentTurnUserText) {
+            val merged = VoiceTranscriptAccumulator.merge(
+                currentTurnUserText.toString(),
+                incomingText
+            )
+            currentTurnUserText.setLength(0)
+            currentTurnUserText.append(merged)
+            merged
+        }
 
     /**
      * Immediately aborts all running and pending tool executions, resetting the automation loop.
@@ -543,9 +572,9 @@ class JarvisConversationService : Service() {
     private var wakeListenErrorCount = 0
     private var pendingStandbyAfterReply = false
     private var standbyAfterReplyJob: Job? = null
-    private val wakeTransitionInProgress = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile
-    private var isPendingWakeGreeting = false
+    private var pendingWakeActivationId: Long? = null
+    private val voiceConversationCoordinator = VoiceConversationCoordinator()
     private var headsetAudioRouter: com.jarvis.assistant.audio.HeadsetAudioRouter? = null
 
     override fun onCreate() {
@@ -794,12 +823,14 @@ class JarvisConversationService : Service() {
             )
             prompt + "\n\nSpeaker addressing policy: do not assume a speaker's identity or title. " +
                 "Only use a preferred form of address when explicit per-turn speaker-personalization context is supplied, " +
-                "use it naturally at most once, and treat voice matching as non-authentication that never authorizes actions."
+                "use it naturally at most once, and treat voice matching as non-authentication that never authorizes actions." +
+                "\n\n" + VoiceConversationPolicy.systemInstruction(preferences.language)
         }
     }
 
     private fun beginActiveConversation(wakeTriggered: Boolean = false) {
         if (_isSessionOn.value) return
+        Log.i("VoiceConversation", "Starting a voice session; wakeTriggered=$wakeTriggered")
         com.jarvis.assistant.automation.agent.AgentTaskEngine.resetForSession()
         isAutonomousContinuationTurn = false
         synchronized(autonomousAudioLock) {
@@ -811,7 +842,7 @@ class JarvisConversationService : Service() {
             autonomousSpokenUpdateCount = 0
         }
         exitStandbyListening()
-        isPendingWakeGreeting = wakeTriggered
+        if (!wakeTriggered) pendingWakeActivationId = null
 
         val app = application as JarvisApp
         val preferences = app.preferences
@@ -890,8 +921,10 @@ class JarvisConversationService : Service() {
         audioPlayer = AudioPlayer(
             onPlaybackStateChanged = { isPlaying ->
                 if (isPlaying) {
+                    Log.i("VoiceConversation", "Live response playback started.")
                     setConversationState(ConversationState.SPEAKING)
                 } else {
+                    Log.i("VoiceConversation", "Live response playback stopped or completed.")
                     lastPlaybackEndTime = System.currentTimeMillis()
                     finalizeTurn()
                     if (_isSessionOn.value) {
@@ -928,10 +961,10 @@ class JarvisConversationService : Service() {
                             _connectionStatus.value = status
                             updateNotification()
                             if (status == "LIVE") {
+                                Log.i("VoiceConversation", "Gemini Live session is ready or has reconnected.")
                                 _liveError.value = null
                                 flushSpeakerGatedAudioIfReady()
-                                // Flush any speech chunks captured during the connection handshake
-                                serviceScope.launch(Dispatchers.Default) {
+                                synchronized(preConnectAudioLock) {
                                     while (!preConnectAudioQueue.isEmpty()) {
                                         val chunk = preConnectAudioQueue.poll() ?: break
                                         liveWebSocket?.sendAudioChunk(chunk)
@@ -950,14 +983,21 @@ class JarvisConversationService : Service() {
                                 if (_conversationState.value != ConversationState.SPEAKING && _conversationState.value != ConversationState.THINKING) {
                                     setConversationState(ConversationState.IDLE)
                                 }
-                                if (isPendingWakeGreeting) {
-                                    isPendingWakeGreeting = false
-                                    if (!hasSpeechInCurrentUtterance) {
+                                pendingWakeActivationId?.let { activationId ->
+                                    pendingWakeActivationId = null
+                                    if (!hasSpeechInCurrentUtterance &&
+                                        voiceConversationCoordinator.claimWakeGreeting(activationId)
+                                    ) {
                                         if (speakerProfileData.enabled) pendingWakeSpeakerContext?.let {
                                             liveWebSocket?.sendClientContent(it, turnComplete = false)
                                         }
                                         pendingWakeSpeakerContext = null
+                                        Log.i("VoiceConversation", "Requesting the single greeting for wake activation $activationId.")
                                         liveWebSocket?.sendClientContent("Hey HOPE")
+                                        setConversationState(ConversationState.THINKING)
+                                    } else {
+                                        pendingWakeSpeakerContext = null
+                                        Log.i("VoiceConversation", "Skipped wake greeting because user speech is already in progress or the greeting was claimed.")
                                     }
                                 }
                             }
@@ -993,6 +1033,9 @@ class JarvisConversationService : Service() {
                                 return
                             }
                             audioChunksReceivedInTurn++
+                            if (audioChunksReceivedInTurn == 1) {
+                                Log.d("VoiceConversation", "Gemini audio response received for the single live playback path.")
+                            }
                             if (audioChunksReceivedInTurn % 25 == 1) {
                                 Log.d("JarvisService", "Streaming audio chunk #$audioChunksReceivedInTurn (${pcmData.size} bytes) to AudioPlayer")
                             }
@@ -1002,27 +1045,17 @@ class JarvisConversationService : Service() {
 
                         override fun onAssistantTextReceived(textChunk: String) {
                             if (textChunk.isEmpty()) return
+                            Log.d("VoiceConversation", "Assistant response text received.")
                             thinkingTimeoutJob?.cancel()
                             thinkingTimeoutJob = null
                             lastResponseTimedOut = false
                             synchronized(currentTurnAssistantText) {
-                                val chunkToAppend = if (currentTurnAssistantText.isNotEmpty() && currentTurnAssistantText.last() == ' ') {
-                                    textChunk.trimStart()
-                                } else {
+                                val merged = VoiceTranscriptAccumulator.merge(
+                                    currentTurnAssistantText.toString(),
                                     textChunk
-                                }
-                                if (chunkToAppend.isNotEmpty()) {
-                                    if (currentTurnAssistantText.isNotEmpty()) {
-                                        val lastChar = currentTurnAssistantText.last()
-                                        val firstChar = chunkToAppend.first()
-                                        if (!Character.isWhitespace(lastChar) && !Character.isWhitespace(firstChar)) {
-                                            if (Character.isLetterOrDigit(firstChar) || firstChar == '(' || firstChar == '[') {
-                                                currentTurnAssistantText.append(' ')
-                                            }
-                                        }
-                                    }
-                                    currentTurnAssistantText.append(chunkToAppend)
-                                }
+                                )
+                                currentTurnAssistantText.setLength(0)
+                                currentTurnAssistantText.append(merged)
                             }
                             _liveAssistantResponse.value = currentTurnAssistantText.toString().trim()
                         }
@@ -1030,12 +1063,12 @@ class JarvisConversationService : Service() {
                         override fun onUserTextReceived(textChunk: String) {
                             lastUserSpeechDetectedTime = System.currentTimeMillis()
                             val trimmed = textChunk.trim()
+                            if (trimmed.isNotEmpty()) {
+                                Log.d("VoiceConversation", "User transcript received; processing without logging content.")
+                            }
                             if (trimmed.isNotEmpty() && preferences.isOwnerVoiceEnabled && !isCurrentTurnOwnerVoiceVerified) {
-                                if (currentTurnUserText.isNotEmpty() && !currentTurnUserText.endsWith(" ")) {
-                                    currentTurnUserText.append(" ")
-                                }
-                                currentTurnUserText.append(trimmed)
-                                _liveUserTranscript.value = currentTurnUserText.toString().trim()
+                                val merged = mergeCurrentUserTranscript(trimmed)
+                                _liveUserTranscript.value = merged
                                 if (_conversationState.value == ConversationState.IDLE) {
                                     setConversationState(ConversationState.LISTENING)
                                 }
@@ -1077,11 +1110,8 @@ class JarvisConversationService : Service() {
                                         autonomousTaskGoal = ""
                                     }
                                 }
-                                if (currentTurnUserText.isNotEmpty() && !currentTurnUserText.endsWith(" ")) {
-                                    currentTurnUserText.append(" ")
-                                }
-                                currentTurnUserText.append(trimmed)
-                                _liveUserTranscript.value = currentTurnUserText.toString().trim()
+                                val merged = mergeCurrentUserTranscript(trimmed)
+                                _liveUserTranscript.value = merged
                                 if (_conversationState.value == ConversationState.IDLE) {
                                     setConversationState(ConversationState.LISTENING)
                                 }
@@ -1151,6 +1181,7 @@ class JarvisConversationService : Service() {
                         }
 
                         override fun onTurnCompleted() {
+                            Log.i("VoiceConversation", "Gemini response turn completed.")
                             autoResumeAwaitingResponse = false
                             thinkingTimeoutJob?.cancel()
                             thinkingTimeoutJob = null
@@ -1273,7 +1304,10 @@ class JarvisConversationService : Service() {
                                 val summaryToSpeak = lastCompletedTaskSummary.orEmpty()
                                 lastCompletedTaskSummary = null
                                 val isLive = liveWebSocket?.isSessionReady() == true
-                                if (!preferences.isSilentExecutionMode && !isLive) {
+                                if (!preferences.isSilentExecutionMode &&
+                                    VoiceConversationPolicy.outputPath(isLive, assistantProducedAudio) ==
+                                    com.jarvis.assistant.voice.VoiceResponsePath.LOCAL_TTS
+                                ) {
                                     Log.i("JarvisService", "Offline fallback: Speaking confirmation via TTS: '$summaryToSpeak'")
                                     HopeSpeech.speak(
                                         applicationContext, summaryToSpeak, "Auto", "task_done",
@@ -1424,6 +1458,11 @@ class JarvisConversationService : Service() {
                         }
 
                         override fun onError(message: String, isFatal: Boolean, errorCode: String?) {
+                            if (isFatal) {
+                                voiceConversationCoordinator.transitionTo(VoiceConversationPhase.ERROR)
+                                _voiceAssistantState.value = HopeAssistantState.ERROR
+                                Log.e("VoiceConversation", "Voice session entered ERROR (code=$errorCode).")
+                            }
                             Log.e("JarvisService", "GeminiLive onError: fatal=$isFatal, code=$errorCode, msg=$message")
                             updateNotification()
                             serviceScope.launch { _events.emit(message) }
@@ -1529,7 +1568,7 @@ class JarvisConversationService : Service() {
                         if (amplitude > 0.25f) {
                             consecutiveVoicedFrames++
                             if (consecutiveVoicedFrames >= 4) {
-                                Log.i("JarvisService", "Headset voice barge-in: user spoke over assistant (amp=$amplitude)")
+                                Log.i("VoiceConversation", "Headset barge-in detected; cancelling obsolete speech playback.")
                                 audioPlayer?.flush()
                                 try { HopeSpeech.stop() } catch (_: Exception) {}
                                 setConversationState(ConversationState.LISTENING)
@@ -2683,7 +2722,12 @@ class JarvisConversationService : Service() {
                                 } else {
                                     result.put("system_directive", "TASK COMPLETED: Speak ONE short confirmation sentence to the user in your natural voice: '$summary'. Do NOT repeat if already spoken.")
                                 }
-                                if (!alreadySpoke && liveWebSocket?.isSessionReady() != true) {
+                                if (!alreadySpoke &&
+                                    VoiceConversationPolicy.outputPath(
+                                        isLiveSession = liveWebSocket?.isSessionReady() == true,
+                                        hasGeminiAudio = false
+                                    ) == com.jarvis.assistant.voice.VoiceResponsePath.LOCAL_TTS
+                                ) {
                                     // Offline fallback: speak via TTS only when Gemini Live is offline
                                     lastCompletedTaskSummary = null
                                     HopeSpeech.speak(
@@ -3107,16 +3151,18 @@ class JarvisConversationService : Service() {
             val end = minOf(offset + 16_000, pcmData.size)
             val chunk = if (offset == 0 && end == pcmData.size) pcmData
                 else pcmData.copyOfRange(offset, end)
-            if (liveWebSocket?.isSessionReady() == true) {
-                while (!preConnectAudioQueue.isEmpty()) {
-                    val queued = preConnectAudioQueue.poll() ?: break
-                    liveWebSocket?.sendAudioChunk(queued)
+            synchronized(preConnectAudioLock) {
+                if (liveWebSocket?.isSessionReady() == true) {
+                    while (!preConnectAudioQueue.isEmpty()) {
+                        val queued = preConnectAudioQueue.poll() ?: break
+                        liveWebSocket?.sendAudioChunk(queued)
+                    }
+                    liveWebSocket?.sendAudioChunk(chunk)
+                } else if (preConnectAudioQueue.size < 60) {
+                    preConnectAudioQueue.offer(chunk.copyOf())
+                } else {
+                    Log.w("JarvisService", "Dropping a microphone chunk because the connection warm-up buffer is full.")
                 }
-                liveWebSocket?.sendAudioChunk(chunk)
-            } else if (preConnectAudioQueue.size < 60) {
-                preConnectAudioQueue.offer(chunk.copyOf())
-            } else {
-                Log.w("JarvisService", "Dropping a microphone chunk because the connection warm-up buffer is full.")
             }
             offset = end
         }
@@ -3549,7 +3595,9 @@ class JarvisConversationService : Service() {
 
         currentTurnAssistantText.clear()
         currentTurnUserText.clear()
-        preConnectAudioQueue.clear()
+        synchronized(preConnectAudioLock) {
+            preConnectAudioQueue.clear()
+        }
         hasSpeechInCurrentUtterance = false
         hasSignalledUtteranceEnd = false
 
@@ -3648,7 +3696,8 @@ class JarvisConversationService : Service() {
         isPendingBackgroundTransition = false
         pendingStandbyAfterReply = false
         wakeListenErrorCount = 0
-        wakeTransitionInProgress.set(false)
+        voiceConversationCoordinator.resetForStandby()
+        pendingWakeActivationId = null
         stopActiveConversation()
         releaseWifiLock()
         currentTurnAssistantText.clear()
@@ -3815,7 +3864,8 @@ class JarvisConversationService : Service() {
 
     private fun failStandbyListening(message: String) {
         _isStandby.value = false
-        wakeTransitionInProgress.set(false)
+        voiceConversationCoordinator.transitionTo(VoiceConversationPhase.ERROR)
+        pendingWakeActivationId = null
         val detector = voskSpeechService
         voskSpeechService = null
         try {
@@ -4029,7 +4079,17 @@ class JarvisConversationService : Service() {
     }
 
     private fun onWakeWordDetected() {
-        if (!_isStandby.value || !wakeTransitionInProgress.compareAndSet(false, true)) return
+        if (!_isStandby.value) {
+            Log.i("VoiceConversation", "Ignored wake callback because HOPE is no longer in standby.")
+            return
+        }
+        val activationId = voiceConversationCoordinator.onWakeWordDetected()
+        if (activationId == null) {
+            Log.i("VoiceConversation", "Ignored duplicate wake callback while an activation is already active.")
+            return
+        }
+        pendingWakeActivationId = activationId
+        Log.i("VoiceConversation", "Wake-word event accepted; activation=$activationId.")
         _voiceAssistantState.value = HopeAssistantState.WAKE_WORD_DETECTED
         requestAudioDuckFocus()
         exitStandbyListening()
@@ -4070,6 +4130,8 @@ class JarvisConversationService : Service() {
         pendingStandbyAfterReply = false
         standbyAfterReplyJob?.cancel()
         standbyAfterReplyJob = null
+        voiceConversationCoordinator.resetForStandby()
+        pendingWakeActivationId = null
         stopActiveConversation()
         exitStandbyListening()
         _isStandby.value = false
