@@ -22,6 +22,7 @@ import com.jarvis.assistant.JarvisApp
 import com.jarvis.assistant.data.model.ConversationState
 import com.jarvis.assistant.databinding.FragmentHomeBinding
 import com.jarvis.assistant.ui.memory.MemoryActivity
+import com.jarvis.assistant.ui.settings.HopeLocationActivity
 import com.jarvis.assistant.util.LocationWeatherHelper
 import com.jarvis.assistant.util.PermissionHelper
 import android.content.res.ColorStateList
@@ -51,7 +52,7 @@ class HomeFragment : Fragment() {
         val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
         val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (fineGranted || coarseGranted) {
-            fetchLiveWeather()
+            if (preferences.isWeatherLocationSharingEnabled) fetchLiveWeather()
         } else {
             binding.tvWeatherCondition.text = "Location Permission Needed"
             binding.tvWeatherDetails.text = "Tap here to grant location for accurate weather"
@@ -110,10 +111,15 @@ class HomeFragment : Fragment() {
         binding.btnConversationLanguageQuick.setOnClickListener {
             showLanguageDialog()
         }
+        binding.btnQuickStandby.setOnClickListener {
+            (activity as? MainActivity)?.handleStandbyButtonClick()
+        }
 
         // Weather Card Click -> Refresh or Request Permission
         binding.cardWeather.setOnClickListener {
-            if (!PermissionHelper.hasLocationPermission(requireContext())) {
+            if (!preferences.isWeatherLocationSharingEnabled) {
+                startActivity(Intent(requireContext(), HopeLocationActivity::class.java))
+            } else if (!PermissionHelper.hasLocationPermission(requireContext())) {
                 locationPermissionLauncher.launch(
                     arrayOf(
                         Manifest.permission.ACCESS_FINE_LOCATION,
@@ -238,9 +244,7 @@ class HomeFragment : Fragment() {
         setOrbTheme(preferences.appTheme, preferences.customThemeColor)
         updateHomeHeaderAndVoiceStatus()
 
-        if (PermissionHelper.hasLocationPermission(requireContext())) {
-            fetchLiveWeather()
-        }
+        checkLocationAndFetchWeather()
     }
 
     override fun onPause() {
@@ -268,7 +272,10 @@ class HomeFragment : Fragment() {
     }
 
     private fun checkLocationAndFetchWeather() {
-        if (PermissionHelper.hasLocationPermission(requireContext())) {
+        if (!preferences.isWeatherLocationSharingEnabled) {
+            binding.tvWeatherCondition.text = "Weather location sharing is off"
+            binding.tvWeatherDetails.text = "Tap here to review location-sharing options"
+        } else if (PermissionHelper.hasLocationPermission(requireContext())) {
             fetchLiveWeather()
         } else {
             locationPermissionLauncher.launch(
@@ -281,6 +288,11 @@ class HomeFragment : Fragment() {
     }
 
     private fun fetchLiveWeather() {
+        if (!preferences.isWeatherLocationSharingEnabled) {
+            binding.tvWeatherCondition.text = "Weather location sharing is off"
+            binding.tvWeatherDetails.text = "Tap here to review location-sharing options"
+            return
+        }
         binding.tvWeatherCondition.text = "Locating • Fetching weather..."
         viewLifecycleOwner.lifecycleScope.launch {
             val weather = LocationWeatherHelper.fetchWeather(requireContext())
@@ -363,7 +375,28 @@ class HomeFragment : Fragment() {
                     ) { isOn, isMuted, state, isStandby ->
                         HomeStatusState(isOn, isMuted, state, isStandby)
                     }.collect { status ->
-                        if (!status.isOn) {
+                        binding.btnQuickStandby.visibility =
+                            if (status.isOn || status.isStandby) View.VISIBLE else View.GONE
+                        binding.btnQuickStandby.text = when {
+                            status.isStandby -> "Wake HOPE"
+                            preferences.isWakeWordEnabled -> "Enter standby"
+                            else -> "Stop mic"
+                        }
+                        binding.btnQuickStandby.contentDescription = when {
+                            status.isStandby -> "Wake HOPE and start a voice session"
+                            preferences.isWakeWordEnabled -> "Enter on-device Hey HOPE standby"
+                            else -> "Stop HOPE microphone listening"
+                        }
+                        if (status.isStandby) {
+                            setOrbState("idle")
+                            binding.tvListeningStatus.text = "STANDBY • SAY 'HEY HOPE'"
+                            binding.tvListeningStatus.setTextColor(Color.parseColor("#3B82F6"))
+                            binding.tvHoldHint.visibility = View.VISIBLE
+                            binding.tvHoldHint.text = "On-device wake detection • hold mic to stop listening"
+                            binding.dotStatusGlow.backgroundTintList = ColorStateList.valueOf(
+                                Color.parseColor("#3B82F6")
+                            )
+                        } else if (!status.isOn) {
                             setOrbState("idle")
                             binding.tvListeningStatus.text = "HOPE OFF • TAP TO START"
                             binding.tvListeningStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_subtle))
@@ -380,15 +413,6 @@ class HomeFragment : Fragment() {
                             binding.tvHoldHint.visibility = View.VISIBLE
                             binding.dotStatusGlow.backgroundTintList = ColorStateList.valueOf(
                                 Color.parseColor("#EF4444")
-                            )
-                        } else if (status.isStandby) {
-                            setOrbState("idle")
-                            binding.tvListeningStatus.text = "STANDBY • SAY 'HEY HOPE'"
-                            binding.tvListeningStatus.setTextColor(Color.parseColor("#3B82F6"))
-                            binding.tvHoldHint.text = "Listening for wake word • Hold mic to power off"
-                            binding.tvHoldHint.visibility = View.VISIBLE
-                            binding.dotStatusGlow.backgroundTintList = ColorStateList.valueOf(
-                                Color.parseColor("#3B82F6")
                             )
                         } else {
                             binding.tvHoldHint.visibility = View.VISIBLE

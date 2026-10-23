@@ -43,7 +43,7 @@
     <string name="chat_label_you">YOU</string>
     <string name="chat_label_jarvis">HOPE</string>
 
-    <string name="accessibility_service_desc">Provides hands-free accessibility automation. If enabled, HOPE can inspect WhatsApp, Instagram, and SMS notifications for AI replies that you explicitly enable per app and chat. Reply text is sent to Gemini and sent only through a notification quick-reply action.</string>
+    <string name="accessibility_service_desc">HOPE Accessibility can inspect visible app controls and perform UI actions you explicitly request. Voice clipboard selection, link, paste, and select-all actions run only when you separately enable voice clipboard in Hands-Free settings and issue a voice command. Explicit dictated-text copying uses Android ClipboardManager directly. Clipboard contents are not retained. Enable this service only in Android Accessibility settings if you want UI-targeted actions.</string>
     <string name="memory_title">MEMORY CORE</string>
     <string name="memory_subtitle">Long-Term &amp; Contextual Knowledge</string>
     <string name="search_memories">Search memories&#8230;</string>

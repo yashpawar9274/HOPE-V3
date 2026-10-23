@@ -403,10 +403,39 @@ class MainActivity : AppCompatActivity() {
 
     fun handleHoldMicOrOrb() {
         binding.tabMic.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
-        if (JarvisConversationService.isSessionOn.value) {
+        if (JarvisConversationService.isSessionOn.value ||
+            JarvisConversationService.isStandby.value
+        ) {
             viewModel.turnOffSession()
         } else {
             checkPermissionsAndStart()
+        }
+    }
+
+    fun handleStandbyButtonClick() {
+        if (JarvisConversationService.isStandby.value) {
+            checkPermissionsAndStart()
+            return
+        }
+        if (!JarvisConversationService.isSessionOn.value) return
+
+        if (!com.jarvis.assistant.JarvisApp.instance.preferences.isWakeWordEnabled) {
+            viewModel.turnOffSession()
+            return
+        }
+        try {
+            ContextCompat.startForegroundService(
+                this,
+                Intent(this, JarvisConversationService::class.java)
+                    .setAction(JarvisConversationService.ACTION_ENTER_STANDBY)
+            )
+        } catch (error: Exception) {
+            android.util.Log.e("MainActivity", "Could not enter on-device standby.", error)
+            Toast.makeText(
+                this,
+                "Android could not start standby. Keep HOPE open and try again.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 

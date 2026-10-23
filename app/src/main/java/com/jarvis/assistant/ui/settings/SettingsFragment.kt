@@ -20,6 +20,8 @@ import com.jarvis.assistant.data.model.GeminiConstants
 import com.jarvis.assistant.databinding.FragmentSettingsBinding
 import com.jarvis.assistant.ui.memory.MemoryActivity
 import com.jarvis.assistant.ui.permission.PermissionActivity
+import com.jarvis.assistant.ui.security.AppSecurityActivity
+import com.jarvis.assistant.ui.voice.SpeakerProfilesActivity
 import com.jarvis.assistant.ui.voice.VoiceEnrollmentActivity
 import com.jarvis.assistant.util.AssistantRoleHelper
 
@@ -121,6 +123,7 @@ class SettingsFragment : Fragment() {
 
         // Silent Execution Mode
         binding.switchSilentMode.isChecked = preferences.isSilentExecutionMode
+        binding.switchCriticalThinking.isChecked = preferences.isCriticalThinkingEnabled
         updateAutoReplyStatus()
         updateDefaultAssistantStatus()
 
@@ -160,6 +163,10 @@ class SettingsFragment : Fragment() {
             startActivity(Intent(requireContext(), VoiceEnrollmentActivity::class.java))
         }
 
+        binding.rowSpeakerProfiles.setOnClickListener {
+            startActivity(Intent(requireContext(), SpeakerProfilesActivity::class.java))
+        }
+
         binding.rowLanguage.setOnClickListener {
             showLanguageDialog()
         }
@@ -172,6 +179,19 @@ class SettingsFragment : Fragment() {
             preferences.isSilentExecutionMode = isChecked
             val msg = if (isChecked) "Silent Execution Mode Enabled" else "Silent Execution Mode Disabled"
             Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
+        }
+
+        binding.switchCriticalThinking.setOnCheckedChangeListener { _, isChecked ->
+            preferences.isCriticalThinkingEnabled = isChecked
+            val msg = if (isChecked) {
+                "Critical Thinking enabled for new voice sessions and chat replies"
+            } else {
+                "Critical Thinking disabled"
+            }
+            Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
+        }
+        binding.rowCriticalThinking.setOnClickListener {
+            binding.switchCriticalThinking.isChecked = !binding.switchCriticalThinking.isChecked
         }
 
         // Section 2: System & Intelligence Data
@@ -189,6 +209,10 @@ class SettingsFragment : Fragment() {
 
         binding.rowPermissions.setOnClickListener {
             startActivity(Intent(requireContext(), PermissionActivity::class.java))
+        }
+
+        binding.rowLocationAwareness.setOnClickListener {
+            startActivity(Intent(requireContext(), HopeLocationActivity::class.java))
         }
 
         binding.rowOverlayAvatars.setOnClickListener {
@@ -229,6 +253,10 @@ class SettingsFragment : Fragment() {
 
         binding.rowPrivacyPolicy.setOnClickListener {
             startActivity(Intent(requireContext(), PrivacyShieldActivity::class.java))
+        }
+
+        binding.rowAppLockSecurity.setOnClickListener {
+            startActivity(Intent(requireContext(), AppSecurityActivity::class.java))
         }
 
         binding.rowAppIdentity.setOnClickListener {

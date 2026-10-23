@@ -152,6 +152,7 @@ object NotificationIntelligenceStore {
     private const val KEY_LAST_NOTIFICATION_AT = "last_notification_at"
     private const val KEY_LISTENER_CONNECTED = "listener_connected"
     private const val KEY_LAST_SPEECH_STATUS = "last_speech_status"
+    private const val KEY_LAST_AUTO_REPLY_STATUS = "last_auto_reply_status"
     private const val MAX_HISTORY = 100
     private const val MAX_PROCESSED = 500
 
@@ -320,6 +321,16 @@ object NotificationIntelligenceStore {
     fun speechStatus(context: Context): String =
         prefs(context).getString(KEY_LAST_SPEECH_STATUS, "No announcement has been played yet.")
             ?: "No announcement has been played yet."
+
+    fun setLastAutoReplyStatus(context: Context, status: String) {
+        check(prefs(context).edit().putString(KEY_LAST_AUTO_REPLY_STATUS, status.take(240)).commit()) {
+            "Could not save the latest auto-reply status."
+        }
+    }
+
+    fun lastAutoReplyStatus(context: Context): String =
+        prefs(context).getString(KEY_LAST_AUTO_REPLY_STATUS, "No WhatsApp auto-reply has been processed yet.")
+            ?: "No WhatsApp auto-reply has been processed yet."
 
     fun excludedContacts(context: Context): Set<String> =
         prefs(context).getStringSet(KEY_EXCLUDED_CONTACTS, emptySet()).orEmpty().toSet()
@@ -642,6 +653,18 @@ object NotificationIntelligenceStore {
             "Could not update daily reply count."
         }
         return true
+    }
+
+    @Synchronized
+    fun releaseDailyReply(context: Context, day: String) {
+        val store = prefs(context)
+        if (store.getString(KEY_REPLY_DAY, null) != day) return
+        val count = store.getInt(KEY_DAILY_REPLIES, 0)
+        if (count > 0) {
+            check(store.edit().putInt(KEY_DAILY_REPLIES, count - 1).commit()) {
+                "Could not release the unused daily reply reservation."
+            }
+        }
     }
 
     private fun NotificationRecord.toJson() = JSONObject()

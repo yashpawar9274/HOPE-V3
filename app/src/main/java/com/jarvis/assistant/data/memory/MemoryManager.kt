@@ -20,6 +20,10 @@ class MemoryManager(
     companion object {
         private const val TAG = "MemoryManager"
         private const val MAX_SHORT_TERM_TURNS = 30
+        private val LOCATION_CONTEXT_PATTERN = Regex(
+            """\b(where am i|my current location|coordinates|latitude|longitude|approximate area|location snapshot|near me|local weather|my city|my hometown|my address|i live in|i stay in|i am from)\b""",
+            RegexOption.IGNORE_CASE
+        )
     }
 
     // --- Short-Term Memory (Preloaded with persistent history) ---
@@ -428,9 +432,6 @@ class MemoryManager(
         sb.append("- User's Birthday: ${preferences.userBirthday.ifBlank { "Not specified yet" }}\n")
         sb.append("- User's Known Favorite Song: $favSong\n")
         sb.append("- User's Favorite App: ${preferences.favoriteApp.ifBlank { "YouTube" }}\n")
-        if (preferences.userLocation.isNotBlank()) {
-            sb.append("- User's Location: ${preferences.userLocation}\n")
-        }
         if (preferences.userAge.isNotBlank()) {
             sb.append("- User's Age: ${preferences.userAge} years old\n")
         }
@@ -440,7 +441,10 @@ class MemoryManager(
 
         if (all.isNotEmpty()) {
             sb.append("\n[ALL PERMANENT MEMORIES FROM DATABASE]:\n")
-            all.take(40).forEach { mem ->
+            all.asSequence()
+                .filterNot { it.key.equals("user_location", ignoreCase = true) }
+                .take(40)
+                .forEach { mem ->
                 sb.append("- [${mem.category}] ${mem.rawText}\n")
             }
         }
@@ -453,6 +457,9 @@ class MemoryManager(
             recentTurns.forEach { turn ->
                 val u = turn.userTranscript.trim()
                 val j = turn.jarvisResponse.trim()
+                val locationTurn = LOCATION_CONTEXT_PATTERN.containsMatchIn(u) ||
+                    LOCATION_CONTEXT_PATTERN.containsMatchIn(j)
+                if (locationTurn) return@forEach
                 if (u.isNotBlank() && j.isNotBlank() && u != "(Audio query)" && j != "(Audio response)") {
                     sb.append("User: \"$u\"\n")
                     sb.append("JARVIS: \"$j\"\n")
@@ -462,4 +469,5 @@ class MemoryManager(
 
         return sb.toString()
     }
+
 }

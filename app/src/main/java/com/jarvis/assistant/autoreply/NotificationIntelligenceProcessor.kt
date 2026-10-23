@@ -19,7 +19,8 @@ object NotificationIntelligenceProcessor {
     fun process(
         context: Context,
         sbn: StatusBarNotification,
-        announce: (String, String, (Boolean) -> Unit) -> Boolean
+        announce: (String, String, (Boolean) -> Unit) -> Boolean,
+        allowAutoReply: Boolean = true
     ) {
         val packageName = sbn.packageName
         if (packageName == context.packageName ||
@@ -138,7 +139,8 @@ object NotificationIntelligenceProcessor {
         }
 
         val authorizedReplyRule = NotificationRuleEngine.authorizedAutoReplyRule(matching)
-        if (masterEnabled && readingEnabled && AutoReplyCoordinator.isAppEnabled(context, packageName) &&
+        if (allowAutoReply &&
+            masterEnabled && readingEnabled && AutoReplyCoordinator.isAppEnabled(context, packageName) &&
             AutoReplyPolicy.isSupportedPackage(packageName, defaultSmsPackage(context)) &&
             authorizedReplyRule != null && !excluded && !quiet &&
             !hasOutgoingLatestMessage(sbn.notification)

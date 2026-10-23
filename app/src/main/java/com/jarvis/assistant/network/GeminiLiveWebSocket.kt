@@ -487,10 +487,37 @@ class GeminiLiveWebSocket(
                             })
                         })
 
+                        // 14. voice_clipboard_action
+                        put(JSONObject().apply {
+                            put("name", "voice_clipboard_action")
+                            put("description", "Performs only an explicit voice clipboard command from the user's current utterance. Use copy_selected_text for 'copy this text' or 'copy the selected text'; use copy_text only when the user explicitly dictates content such as 'copy this text: ...'. Also supports 'copy this link', 'paste here', 'paste the copied link', and 'select all'. Set action to exactly one of copy_selected_text, copy_link, copy_text, paste, select_all. The phone independently verifies that the spoken request matches the requested action. Never ask for, include, read, or return clipboard contents. All voice clipboard commands require the user's separate clipboard opt-in. UI-targeted selection, links, paste, and select-all also require the already user-enabled HOPE Accessibility service; unsupported targets must be reported as unverified with manual Android copy/paste instructions.")
+                            put("parameters", JSONObject().apply {
+                                put("type", "OBJECT")
+                                put("properties", JSONObject().apply {
+                                    put("action", JSONObject().apply {
+                                        put("type", "STRING")
+                                        put("enum", JSONArray().put("copy_selected_text").put("copy_link")
+                                            .put("copy_text").put("paste").put("select_all"))
+                                        put("description", "The action explicitly requested in the current user utterance.")
+                                    })
+                                })
+                                put("required", JSONArray().put("action"))
+                            })
+                        })
+
                         // 14. go_to_background
                         put(JSONObject().apply {
                             put("name", "go_to_background")
-                            put("description", "Sends HOPE to the background, minimizes the app to the home screen, and enters standby wake-word listening. Use immediately whenever user says 'go to background', 'go background', 'minimize', 'close', 'background me jao', 'go to home screen', 'go to sleep', or 'enter standby'.")
+                            put("description", "After answering the user's explicit standby request, send HOPE to the background and enter the user's opted-in on-device Hey HOPE standby listener. Use only when the user explicitly requests standby or going to the background.")
+                            put("parameters", JSONObject().apply {
+                                put("type", "OBJECT")
+                                put("properties", JSONObject())
+                            })
+                        })
+
+                        put(JSONObject().apply {
+                            put("name", "request_android_device_unlock")
+                            put("description", "For the exact explicit voice request 'unlock my phone', ask Android to show its supported system keyguard authentication flow using KeyguardManager. Never collect or enter a device credential, never claim authentication succeeded before Android confirms it, and never use this to unlock the HOPE app itself. If HOPE has no visible activity, ask the user to open HOPE first.")
                             put("parameters", JSONObject().apply {
                                 put("type", "OBJECT")
                                 put("properties", JSONObject())
@@ -653,6 +680,38 @@ class GeminiLiveWebSocket(
                             put("parameters", JSONObject().apply {
                                 put("type", "OBJECT")
                                 put("properties", JSONObject())
+                            })
+                        })
+
+                        put(JSONObject().apply {
+                            put("name", "get_current_location")
+                            put(
+                                "description",
+                                "Gets a fresh one-shot device location only when the user explicitly asks where they are or asks for a current location. Requires HOPE location awareness, Android location permission, and explicit Gemini locality-sharing consent. Returns only human-readable locality and timestamp/accuracy; never request or reveal coordinates."
+                            )
+                            put("parameters", JSONObject().apply {
+                                put("type", "OBJECT")
+                                put("properties", JSONObject())
+                            })
+                        })
+
+                        put(JSONObject().apply {
+                            put("name", "manage_whatsapp_auto_reply")
+                            put(
+                                "description",
+                                "Only when the user explicitly asks to start, stop, or check WhatsApp automatic replies, run that control command. Starting verifies Notification Access, global notification monitoring, an enabled WhatsApp AUTHORIZED_AUTO_REPLY rule, and AI configuration, then enables WhatsApp monitoring. Never claim all messages can be replied to: Android must provide an inline reply action, and recipient delivery is not confirmed."
+                            )
+                            put("parameters", JSONObject().apply {
+                                put("type", "OBJECT")
+                                put("properties", JSONObject().put(
+                                    "action",
+                                    JSONObject().apply {
+                                        put("type", "STRING")
+                                        put("enum", JSONArray().put("start").put("stop").put("status"))
+                                        put("description", "The user's explicit requested operation.")
+                                    }
+                                ))
+                                put("required", JSONArray().put("action"))
                             })
                         })
 
@@ -918,7 +977,7 @@ class GeminiLiveWebSocket(
     /**
      * Sends a text prompt to Gemini Live using the client_content turn protocol.
      */
-    fun sendClientContent(text: String) {
+    fun sendClientContent(text: String, turnComplete: Boolean = true) {
         if (!isConnected.get() || !isSetupComplete.get() || text.isBlank()) return
         try {
             val msg = JSONObject().apply {
@@ -929,11 +988,11 @@ class GeminiLiveWebSocket(
                             put("text", text)
                         }))
                     }))
-                    put("turn_complete", true)
+                    put("turn_complete", turnComplete)
                 })
             }
             webSocket?.send(msg.toString())
-            Log.d(TAG, "Sent client_content: $text")
+            Log.d(TAG, "Sent client_content.")
         } catch (e: Exception) {
             Log.e(TAG, "sendClientContent failed: ${e.message}", e)
         }

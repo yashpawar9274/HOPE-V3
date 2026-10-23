@@ -50,18 +50,29 @@ class AppPreferences(context: Context) {
         private const val KEY_AI_MODE = "key_ai_mode"
         private const val KEY_CLOUD_IN_AUTOMATIC = "key_cloud_in_automatic"
         private const val KEY_AI_SYSTEM_INSTRUCTION = "key_ai_system_instruction"
+        private const val KEY_CRITICAL_THINKING_ENABLED = "key_critical_thinking_enabled"
         private const val KEY_GEMMA_BACKEND = "key_gemma_backend"
         private const val KEY_MODEL = "key_model"
         private const val KEY_VOICE = "key_voice"
         private const val KEY_PERSONALITY = "key_personality"
+        private const val KEY_AUTOMATIC_PERSONA_SWITCHING = "key_automatic_persona_switching"
+        private const val KEY_CONFIRM_VOICE_SWITCH = "key_confirm_voice_switch"
+        private const val KEY_VOICE_PERSONA_CUSTOM_PREFIX = "key_voice_persona_custom_"
         private const val KEY_USER_NAME = "key_user_name"
         private const val KEY_MIC_MUTED = "key_mic_muted"
+        private const val KEY_WAKE_WORD_ENABLED = "key_wake_word_enabled"
+        private const val KEY_WAKE_WORD_CONFIDENCE = "key_wake_word_confidence"
+        private const val KEY_VOICE_CLIPBOARD_ENABLED = "key_voice_clipboard_enabled"
         private const val KEY_CHAT_HISTORY = "key_chat_history"
         private const val KEY_FAVORITE_SONG = "key_favorite_song"
         private const val KEY_FAVORITE_APP = "key_favorite_app"
         private const val KEY_SONG_COUNTS = "key_song_counts"
         private const val KEY_USER_BIRTHDAY = "key_user_birthday"
         private const val KEY_USER_LOCATION = "key_user_location"
+        private const val KEY_LOCATION_AWARENESS_ENABLED = "key_location_awareness_enabled"
+        private const val KEY_LOCATION_SHARING_ENABLED = "key_location_sharing_enabled"
+        private const val KEY_LOCATION_GEOCODING_ENABLED = "key_location_geocoding_enabled"
+        private const val KEY_WEATHER_LOCATION_SHARING_ENABLED = "key_weather_location_sharing_enabled"
         private const val KEY_USER_AGE = "key_user_age"
         private const val KEY_DAILY_ROUTINE = "key_daily_routine"
         private const val KEY_OWNER_VOICE_ENABLED = "key_owner_voice_enabled"
@@ -238,6 +249,10 @@ class AppPreferences(context: Context) {
             prefs.edit().putString(KEY_AI_SYSTEM_INSTRUCTION, clean).apply()
         }
 
+    var isCriticalThinkingEnabled: Boolean
+        get() = prefs.getBoolean(KEY_CRITICAL_THINKING_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_CRITICAL_THINKING_ENABLED, value).apply()
+
     private fun migrateApiKeyToEncryptedStorage() {
         val legacyKey = prefs.getString(KEY_API_KEY, null)?.trim().orEmpty()
         if (legacyKey.isEmpty()) return
@@ -290,6 +305,31 @@ class AppPreferences(context: Context) {
     var personality: String
         get() = prefs.getString(KEY_PERSONALITY, GeminiConstants.PERSONALITY_ASSISTANT) ?: GeminiConstants.PERSONALITY_ASSISTANT
         set(value) = prefs.edit().putString(KEY_PERSONALITY, value).apply()
+
+    var isAutomaticPersonaSwitchingEnabled: Boolean
+        get() = prefs.getBoolean(KEY_AUTOMATIC_PERSONA_SWITCHING, true)
+        set(value) = prefs.edit().putBoolean(KEY_AUTOMATIC_PERSONA_SWITCHING, value).apply()
+
+    var confirmBeforeVoiceSwitch: Boolean
+        get() = prefs.getBoolean(KEY_CONFIRM_VOICE_SWITCH, true)
+        set(value) = prefs.edit().putBoolean(KEY_CONFIRM_VOICE_SWITCH, value).apply()
+
+    fun getVoicePersonaCustomization(voice: String, field: String): String {
+        if (voice !in GeminiConstants.SUPPORTED_VOICES) return ""
+        require(field in setOf("name", "expertise", "tone"))
+        return prefs.getString("$KEY_VOICE_PERSONA_CUSTOM_PREFIX${voice.lowercase()}_$field", "").orEmpty()
+    }
+
+    fun setVoicePersonaCustomization(voice: String, field: String, value: String) {
+        require(voice in GeminiConstants.SUPPORTED_VOICES)
+        require(field in setOf("name", "expertise", "tone"))
+        val clean = value.trim()
+        require(clean.length <= 160) { "Persona customization cannot exceed 160 characters." }
+        val editor = prefs.edit()
+        val key = "$KEY_VOICE_PERSONA_CUSTOM_PREFIX${voice.lowercase()}_$field"
+        if (clean.isBlank()) editor.remove(key) else editor.putString(key, clean)
+        editor.apply()
+    }
 
     var userName: String
         get() {
@@ -367,6 +407,32 @@ class AppPreferences(context: Context) {
             prefs.edit().putString(KEY_USER_LOCATION, value.trim()).commit()
         }
 
+    var isLocationAwarenessEnabled: Boolean
+        get() = prefs.getBoolean(KEY_LOCATION_AWARENESS_ENABLED, false)
+        set(value) {
+            prefs.edit()
+                .putBoolean(KEY_LOCATION_AWARENESS_ENABLED, value)
+                .apply()
+            if (!value) isLocationSharingEnabled = false
+        }
+
+    var isLocationSharingEnabled: Boolean
+        get() = prefs.getBoolean(KEY_LOCATION_SHARING_ENABLED, false)
+        set(value) {
+            require(!value || isLocationAwarenessEnabled) {
+                "Enable location awareness before sharing location with AI services."
+            }
+            prefs.edit().putBoolean(KEY_LOCATION_SHARING_ENABLED, value).apply()
+        }
+
+    var isLocationGeocodingEnabled: Boolean
+        get() = prefs.getBoolean(KEY_LOCATION_GEOCODING_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_LOCATION_GEOCODING_ENABLED, value).apply()
+
+    var isWeatherLocationSharingEnabled: Boolean
+        get() = prefs.getBoolean(KEY_WEATHER_LOCATION_SHARING_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_WEATHER_LOCATION_SHARING_ENABLED, value).apply()
+
     var userAge: String
         get() = prefs.getString(KEY_USER_AGE, "") ?: ""
         set(value) {
@@ -394,6 +460,21 @@ class AppPreferences(context: Context) {
     var isMicMuted: Boolean
         get() = prefs.getBoolean(KEY_MIC_MUTED, false)
         set(value) = prefs.edit().putBoolean(KEY_MIC_MUTED, value).apply()
+
+    var isWakeWordEnabled: Boolean
+        get() = prefs.getBoolean(KEY_WAKE_WORD_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_WAKE_WORD_ENABLED, value).apply()
+
+    var wakeWordConfidenceThreshold: Float
+        get() = prefs.getFloat(KEY_WAKE_WORD_CONFIDENCE, 0.80f).coerceIn(0.50f, 0.95f)
+        set(value) {
+            require(value.isFinite()) { "Wake-word confidence threshold must be finite." }
+            prefs.edit().putFloat(KEY_WAKE_WORD_CONFIDENCE, value.coerceIn(0.50f, 0.95f)).apply()
+        }
+
+    var isVoiceClipboardEnabled: Boolean
+        get() = prefs.getBoolean(KEY_VOICE_CLIPBOARD_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_VOICE_CLIPBOARD_ENABLED, value).apply()
 
     var isSilentExecutionMode: Boolean
         get() = prefs.getBoolean(KEY_SILENT_EXECUTION_MODE, false)

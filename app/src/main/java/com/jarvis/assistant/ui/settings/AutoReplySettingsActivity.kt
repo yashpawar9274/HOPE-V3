@@ -58,6 +58,10 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             "Automatic sending requires Notification Access, global and per-app monitoring, the auto-reply master switch, an explicitly selected app, a matching AUTHORIZED_AUTO_REPLY rule, a supported inline-reply action, and a nonsensitive message. Without that rule, HOPE never sends automatically.",
             14f
         )
+        addText(
+            "Personal WhatsApp has no universal send API in this app. HOPE can submit a reply only through an Android-provided notification quick-reply action when WhatsApp exposes one; sending is not guaranteed, and recipient delivery cannot be confirmed. Notification processing may be delayed or stopped by Android when the app process is killed or network access is unavailable. Location is never added to an automatic reply.",
+            13f
+        )
 
         serviceStatus = addText("", 13f)
         addButton("Grant HOPE notification access") {
@@ -587,7 +591,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
                 "Replies are paused: enable global monitoring and monitor the selected app in Per-app notification controls."
             paused -> "Replies are paused. Resume notification intelligence to continue."
             else -> "Monitoring is ready for $enabledApps selected app(s). Automatic sends still require an enabled AUTHORIZED_AUTO_REPLY rule, a supported notification RemoteInput, and all safety checks."
-        }
+        } + "\nLast auto-reply result: ${NotificationIntelligenceStore.lastAutoReplyStatus(this)}"
         replyStatus.setTextColor(
             themeColor(
                 if (enabled && masterEnabled && monitoringEnabled && monitoredAppCount > 0 &&

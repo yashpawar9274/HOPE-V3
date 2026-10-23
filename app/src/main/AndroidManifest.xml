@@ -66,6 +66,12 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".ui.security.AppSecurityActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".ui.memory.MemoryActivity"
             android:exported="false"
             android:screenOrientation="portrait"
@@ -75,6 +81,11 @@
             android:name=".ui.voice.VoiceEnrollmentActivity"
             android:exported="false"
             android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ui.voice.SpeakerProfilesActivity"
+            android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
         <activity
@@ -120,6 +131,9 @@
 
         <activity
             android:name=".ui.settings.AutoReplySettingsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.settings.HopeLocationActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
 

@@ -7,6 +7,34 @@ import org.junit.Test
 
 class AutoReplyPolicyTest {
     @Test
+    fun explicitWhatsappAutoReplyCommandsAreRecognized() {
+        assertEquals(
+            WhatsAppAutoReplyCommand.START,
+            WhatsAppAutoReplyCommandPolicy.detect(
+                "HOPE, WhatsApp par mere incoming messages check karo aur unka reply khud se do"
+            )
+        )
+        assertEquals(
+            WhatsAppAutoReplyCommand.START,
+            WhatsAppAutoReplyCommandPolicy.detect("WhatsApp auto-reply start karo")
+        )
+        assertEquals(
+            WhatsAppAutoReplyCommand.STOP,
+            WhatsAppAutoReplyCommandPolicy.detect("WhatsApp auto-reply band karo")
+        )
+        assertEquals(
+            WhatsAppAutoReplyCommand.STATUS,
+            WhatsAppAutoReplyCommandPolicy.detect("Auto-reply status batao")
+        )
+    }
+
+    @Test
+    fun ordinaryWhatsappMessagesDoNotTriggerAutoReplyControl() {
+        assertEquals(null, WhatsAppAutoReplyCommandPolicy.detect("Send a WhatsApp message to Mom"))
+        assertEquals(null, WhatsAppAutoReplyCommandPolicy.detect("How does WhatsApp auto-reply work?"))
+    }
+
+    @Test
     fun onlySupportedMessagingPackagesAreAccepted() {
         assertTrue(AutoReplyPolicy.isSupportedPackage("com.whatsapp", null))
         assertTrue(AutoReplyPolicy.isSupportedPackage("com.whatsapp.w4b", null))
@@ -64,6 +92,8 @@ class AutoReplyPolicyTest {
         assertTrue(AutoReplyPolicy.containsSensitiveContent("Enter the password"))
         assertTrue(AutoReplyPolicy.containsSensitiveContent("Your bank account was debited"))
         assertTrue(AutoReplyPolicy.containsSensitiveContent("Security alert: new login detected"))
+        assertTrue(AutoReplyPolicy.containsSensitiveContent("I need legal advice about this court case"))
+        assertTrue(AutoReplyPolicy.containsSensitiveContent("Can you recommend a prescription medicine?"))
         assertTrue(AutoReplyPolicy.containsSensitiveContent("आपके खाते में रुपये जमा हुए"))
         assertFalse(AutoReplyPolicy.containsSensitiveContent("Are we still meeting for lunch?"))
     }

@@ -7,11 +7,19 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.jarvis.assistant.JarvisApp
 import com.jarvis.assistant.ai.AiRouter
+import com.jarvis.assistant.ai.CriticalThinkingInstructions
+import com.jarvis.assistant.ai.CapabilityRegistry
+import com.jarvis.assistant.ai.VoicePersonaRegistry
 import com.jarvis.assistant.background.JarvisConversationService
+import com.jarvis.assistant.autoreply.AutoReplyCoordinator
+import com.jarvis.assistant.autoreply.WhatsAppAutoReplyCommandPolicy
+import com.jarvis.assistant.autoreply.WhatsAppAutoReplyControl
 import com.jarvis.assistant.data.model.ChatTurn
 import com.jarvis.assistant.data.model.ConversationState
 import com.jarvis.assistant.data.preferences.AppPreferences
 import com.jarvis.assistant.util.PermissionHelper
+import com.jarvis.assistant.util.LocationQuestionPolicy
+import com.jarvis.assistant.util.LocationRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -133,12 +141,84 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         chatGenerationJob = viewModelScope.launch {
             _isGeneratingChatReply.value = true
             try {
+                val autoReplyCommand = WhatsAppAutoReplyCommandPolicy.detect(prompt)
+                if (autoReplyCommand != null) {
+                    val result = WhatsAppAutoReplyControl.execute(getApplication(), autoReplyCommand)
+                    chatRepository.addTurn(prompt, result.message, "On-device WhatsApp auto-reply control")
+                    return@launch
+                }
                 val context = chatRepository.turns.value.takeLast(8).joinToString("\n") { turn ->
                     "User: ${turn.userTranscript}\nHOPE: ${turn.jarvisResponse}"
                 }
+                val personaTaskContext = "$context\n$prompt"
+                val voice = preferences.voice
+                if (LocationQuestionPolicy.isCurrentLocationQuestion(prompt)) {
+                    val localReply = if (!preferences.isLocationAwarenessEnabled) {
+                        "Location awareness is off. Enable it in Settings > Location Awareness & Privacy to request a one-shot location fix."
+                    } else {
+                        val snapshot = LocationRepository(getApplication())
+                            .getCurrentLocation(preferences.isLocationGeocodingEnabled)
+                        val approximate = snapshot.locality
+                        if (approximate.isNullOrBlank()) {
+                            "I obtained a fresh device location fix, but cannot identify the area name because external geocoding is off or unavailable. Enable external geocoding in Settings > Location Awareness & Privacy to get a named locality. I won't guess."
+                        } else {
+                            val precision = if (!snapshot.hasKnownAccuracy) {
+                                " Reported accuracy is unavailable."
+                            } else if (snapshot.isPoorAccuracy) {
+                                " The reported accuracy is limited (${snapshot.accuracyMeters.toInt()} metres)."
+                            } else {
+                                " Accuracy is about ${snapshot.accuracyMeters.toInt()} metres."
+                            }
+                            val coordinates = if (prompt.contains("coordinate", ignoreCase = true)) {
+                                " Coordinates: ${snapshot.latitude}, ${snapshot.longitude}."
+                            } else {
+                                ""
+                            }
+                            "Your approximate area is $approximate.$precision Location was obtained at ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(snapshot.updatedAtMillis))}.$coordinates"
+                        }
+                    }
+                    chatRepository.addTurn(prompt, localReply, "On-device location")
+                    return@launch
+                }
+                val locationRelevant = LocationQuestionPolicy.isLocationRelevant(prompt)
+                val locationGuidance = if (locationRelevant) {
+                    if (!preferences.isLocationAwarenessEnabled || !preferences.isLocationSharingEnabled) {
+                        "The user's location has not been shared with Gemini for this request. Do not infer or disclose their location; explain that location sharing is off if needed."
+                    } else {
+                        try {
+                            "For this location-relevant request, use this fresh approximate location snapshot only: ${
+                                LocationRepository(getApplication())
+                                    .getCurrentLocation(preferences.isLocationGeocodingEnabled)
+                                    .sharedContext()
+                            } Coordinates are not included."
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            "A fresh location could not be obtained for this request (${error.message ?: "location unavailable"}). Do not infer location from old memories or claim a current location."
+                        }
+                    }
+                } else {
+                    ""
+                }
                 val result = aiRouter.generate(
                     mode = preferences.aiMode,
-                    systemInstruction = preferences.aiSystemInstruction,
+                    systemInstruction = listOf(
+                        CriticalThinkingInstructions.forText(
+                            preferences.aiSystemInstruction,
+                            preferences.isCriticalThinkingEnabled
+                        ),
+                        locationGuidance,
+                        CapabilityRegistry.promptGuidance(),
+                        VoicePersonaRegistry.promptFor(
+                            selectedVoice = voice,
+                            task = personaTaskContext,
+                            automaticSwitchingEnabled = preferences.isAutomaticPersonaSwitchingEnabled,
+                            customName = preferences.getVoicePersonaCustomization(voice, "name"),
+                            customExpertise = preferences.getVoicePersonaCustomization(voice, "expertise"),
+                            customTone = preferences.getVoicePersonaCustomization(voice, "tone")
+                        ),
+                        if (preferences.isAutomaticPersonaSwitchingEnabled) VoicePersonaRegistry.routingGuide() else ""
+                    ).filter(String::isNotBlank).joinToString("\n\n"),
                     context = context,
                     prompt = prompt
                 )

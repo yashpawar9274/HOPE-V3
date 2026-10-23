@@ -9,7 +9,6 @@ import com.jarvis.assistant.ai.GemmaModelManager
 import com.jarvis.assistant.ai.GemmaTextGeneration
 import com.jarvis.assistant.ai.GeminiTextGeneration
 import com.jarvis.assistant.security.SecurityManager
-import com.jarvis.assistant.audio.VoskModelManager
 import com.jarvis.assistant.automation.command.CommandExecutor
 import com.jarvis.assistant.automation.contacts.ContactResolver
 import com.jarvis.assistant.automation.phone.PhoneControlManager
@@ -78,6 +77,7 @@ class JarvisApp : Application() {
         super.onCreate()
         SecurityManager.verify(this)
         instance = this
+        com.jarvis.assistant.security.AppLockManager.initialize(this)
         preferences = AppPreferences(this)
         chatRepository = ChatRepository(preferences)
         gemmaModelManager = GemmaModelManager(this)
@@ -110,8 +110,6 @@ class JarvisApp : Application() {
             whatsappAssistant = whatsAppAssistant,
             memoryManager = memoryManager
         )
-
-        VoskModelManager.init(this, CoroutineScope(Dispatchers.Default))
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             private var startedActivities = 0

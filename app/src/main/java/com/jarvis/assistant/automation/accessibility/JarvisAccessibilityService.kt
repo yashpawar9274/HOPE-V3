@@ -3,6 +3,7 @@ package com.jarvis.assistant.automation.accessibility
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
@@ -19,6 +20,7 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.text.InputType
 import android.graphics.Bitmap
 import android.view.Display
 import java.io.ByteArrayOutputStream
@@ -29,12 +31,18 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.jarvis.assistant.voice.VoiceClipboardAction
+import com.jarvis.assistant.voice.VoiceClipboardCommand
+import com.jarvis.assistant.voice.VoiceClipboardCommandParser
+import com.jarvis.assistant.voice.VoiceClipboardResult
+import com.jarvis.assistant.security.AppLockManager
 
 class JarvisAccessibilityService : AccessibilityService() {
 
@@ -92,6 +100,7 @@ class JarvisAccessibilityService : AccessibilityService() {
         }
 
         suspend fun captureScreenBitmap(): Bitmap? {
+            if (AppLockManager.isCredentialEntryVisible) return null
             val s = instance ?: return null
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
             return try {
@@ -111,6 +120,11 @@ class JarvisAccessibilityService : AccessibilityService() {
         }
 
         suspend fun captureAndSaveScreenshot(context: Context): Result<String> = withContext(Dispatchers.IO) {
+            if (AppLockManager.isCredentialEntryVisible) {
+                return@withContext Result.failure(
+                    IllegalStateException("Screen capture is disabled while HOPE credentials are being entered.")
+                )
+            }
             val captureManager = com.jarvis.assistant.vision.ScreenCaptureManager.getInstance()
             val screenshotBytes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && instance != null) {
                 val bitmap = captureScreenBitmap()
@@ -304,25 +318,10 @@ class JarvisAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         Log.i(TAG, "JarvisAccessibilityService connected and active")
-        ensureJarvisServiceActive()
-    }
-
-    private fun ensureJarvisServiceActive() {
-        try {
-            if (!com.jarvis.assistant.background.JarvisConversationService.isSessionOn.value &&
-                !com.jarvis.assistant.background.JarvisConversationService.isStandby.value) {
-                val intent = Intent(this, com.jarvis.assistant.background.JarvisConversationService::class.java).apply {
-                    action = com.jarvis.assistant.background.JarvisConversationService.ACTION_ENTER_STANDBY
-                }
-                androidx.core.content.ContextCompat.startForegroundService(this, intent)
-                Log.i(TAG, "JarvisAccessibilityService ensured JarvisConversationService is running in standby")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start JarvisConversationService from accessibility service: ${e.message}")
-        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (AppLockManager.isCredentialEntryVisible) return
         event ?: return
         val pkg = event.packageName?.toString().orEmpty()
         if (event.eventType in setOf(
@@ -794,7 +793,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     private fun attemptClickFirstYouTubeVideo(attempt: Int): Boolean {
-        val rootNode = rootInActiveWindow ?: return false
+        val rootNode = getActiveRootNode() ?: return false
 
         val videoViewIds = listOf(
             "com.google.android.youtube:id/thumbnail",
@@ -841,7 +840,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     private fun attemptYouTubeSubscribe(): Boolean {
-        val rootNode = rootInActiveWindow ?: return false
+        val rootNode = getActiveRootNode() ?: return false
 
         val subIds = listOf(
             "com.google.android.youtube:id/subscribe_button",
@@ -915,7 +914,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     private fun attemptYouTubeFullscreen(attempt: Int): Boolean {
-        val rootNode = rootInActiveWindow ?: return false
+        val rootNode = getActiveRootNode() ?: return false
 
         val fsIds = listOf(
             "com.google.android.youtube:id/fullscreen_button",
@@ -1114,6 +1113,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     private fun longPressAt(x: Float, y: Float) {
+        if (AppLockManager.isCredentialEntryVisible) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
                 val path = Path().apply { moveTo(x, y) }
@@ -1132,6 +1132,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     // -------------------------------------------------------------
 
     fun clickNodeAndTap(node: AccessibilityNodeInfo): Boolean {
+        if (AppLockManager.isCredentialEntryVisible) return false
         // Step 1: Attempt programmatic accessibility click on the node directly
         if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
             Log.d(TAG, "Programmatic ACTION_CLICK succeeded on node")
@@ -1162,6 +1163,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     fun clickAt(x: Float, y: Float): Boolean {
+        if (AppLockManager.isCredentialEntryVisible) return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
                 val path = Path().apply { moveTo(x, y) }
@@ -1194,7 +1196,7 @@ class JarvisAccessibilityService : AccessibilityService() {
      * video (NOT the "Subscribe" button).
      */
     fun openChannel(): Boolean {
-        val root = rootInActiveWindow ?: return false
+        val root = getActiveRootNode() ?: return false
         val candidates = mutableListOf<AccessibilityNodeInfo>()
         collectByResourceId(root, "channel", candidates)
         val target = candidates
@@ -1211,7 +1213,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     fun toggleFullscreen(): Boolean {
         if (clickNodeMatching("full screen", "fullscreen")) return true
 
-        val root = rootInActiveWindow ?: return false
+        val root = getActiveRootNode() ?: return false
         val candidates = mutableListOf<AccessibilityNodeInfo>()
         collectByResourceId(root, "fullscreen", candidates)
         val target = candidates.firstOrNull { it.isClickable } ?: return false
@@ -1220,7 +1222,7 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     /** Auto-clicks first video result when YouTube search opens. */
     fun clickFirstVideoResult(): Boolean {
-        val root = rootInActiveWindow ?: return false
+        val root = getActiveRootNode() ?: return false
         val candidates = mutableListOf<AccessibilityNodeInfo>()
         collectClickableVideoNodes(root, candidates)
         if (candidates.isNotEmpty()) {
@@ -1245,7 +1247,7 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     private fun clickNodeMatching(vararg keywords: String, exclude: String? = null): Boolean {
         return try {
-            val root = rootInActiveWindow ?: return false
+            val root = getActiveRootNode() ?: return false
             val lowerKeywords = keywords.map { it.lowercase() }
             val lowerExclude = exclude?.lowercase()
 
@@ -1319,7 +1321,7 @@ class JarvisAccessibilityService : AccessibilityService() {
         mainHandler.postDelayed(object : Runnable {
             var attempts = 0
             override fun run() {
-                val root = rootInActiveWindow
+                val root = getActiveRootNode()
                 if (root != null) {
                     val sendNode = findWhatsAppSendButton(root)
                     if (sendNode != null) {
@@ -1362,7 +1364,7 @@ class JarvisAccessibilityService : AccessibilityService() {
             var callButtonTapped = false
 
             override fun run() {
-                val root = rootInActiveWindow
+                val root = getActiveRootNode()
                 if (root != null) {
                     if (!callButtonTapped) {
                         val callNode = findWhatsAppCallButton(root, isVideo)
@@ -1490,17 +1492,17 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     fun tapAtAbsoluteCoordinates(x: Float, y: Float): Boolean {
-        clickAt(x, y)
-        return true
+        return clickAt(x, y)
     }
 
     fun clickNodeWithText(text: String): Boolean {
-        val root = rootInActiveWindow ?: return false
+        val root = getActiveRootNode() ?: return false
         return clickFirstMatchingText(root, text)
     }
 
     fun typeText(textToType: String): Boolean {
-        val root = rootInActiveWindow ?: return false
+        if (AppLockManager.isCredentialEntryVisible) return false
+        val root = getActiveRootNode() ?: return false
         val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
         if (focused != null && focused.isEditable) {
             val args = Bundle().apply {
@@ -1512,6 +1514,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     fun getActiveRootNode(): AccessibilityNodeInfo? {
+        if (AppLockManager.isCredentialEntryVisible) return null
         // Prefer Android's active-window root. If unavailable, only accept a window
         // that Android explicitly marks focused/active; never guess with an arbitrary
         // application window because dialogs, keyboards, and split-screen can reorder it.
@@ -1542,7 +1545,285 @@ class JarvisAccessibilityService : AccessibilityService() {
         return getActiveRootNode()
     }
 
+    suspend fun performVoiceClipboardAction(command: VoiceClipboardCommand): VoiceClipboardResult =
+        withContext(Dispatchers.Main.immediate) {
+            val root = getActiveRootNode()
+                ?: return@withContext VoiceClipboardResult(
+                    false, false, "No active app window is available. Focus the target app and try again."
+                )
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+            when (command.action) {
+                VoiceClipboardAction.COPY_TEXT -> {
+                    val text = command.value.orEmpty()
+                    if (text.isBlank()) {
+                        return@withContext VoiceClipboardResult(
+                            false, false, "There is no dictated text to copy."
+                        )
+                    }
+                    if (VoiceClipboardCommandParser.isSensitive(text)) {
+                        return@withContext sensitiveClipboardResult()
+                    }
+                    copyToClipboard(clipboard, text, "HOPE text")
+                }
+
+                VoiceClipboardAction.COPY_SELECTED_TEXT -> {
+                    val selectedNode = findSelectedTextNode(root)
+                        ?: return@withContext VoiceClipboardResult(
+                            false, false, "I could not find a selected text range. Select text in the app first."
+                        )
+                    val selectedText = selectedNode.text?.toString().orEmpty()
+                    val start = selectedNode.textSelectionStart
+                    val end = selectedNode.textSelectionEnd
+                    if (selectedNode.isPassword) {
+                        return@withContext sensitiveClipboardResult()
+                    }
+                    if (start < 0 || end <= start || end > selectedText.length) {
+                        return@withContext VoiceClipboardResult(
+                            false, false, "The selected text is no longer available. Select it again and retry."
+                        )
+                    }
+                    val context = sensitiveNodeContext(selectedNode)
+                    val text = selectedText.substring(start, end)
+                    if (VoiceClipboardCommandParser.isSensitive(text, context)) {
+                        return@withContext sensitiveClipboardResult()
+                    }
+                    copyToClipboard(clipboard, text, "HOPE selected text")
+                }
+
+                VoiceClipboardAction.COPY_LINK -> {
+                    val explicit = command.value
+                    val nodeValue = if (explicit.isNullOrBlank()) {
+                        val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                            ?: root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
+                        val text = focused?.text?.toString().orEmpty()
+                        val start = focused?.textSelectionStart ?: -1
+                        val end = focused?.textSelectionEnd ?: -1
+                        if (start >= 0 && end > start && end <= text.length) {
+                            text.substring(start, end)
+                        } else {
+                            text
+                        }
+                    } else {
+                        explicit
+                    }
+                    val url = nodeValue.trim()
+                    if (!VoiceClipboardCommandParser.isValidHttpUrl(url)) {
+                        return@withContext VoiceClipboardResult(
+                            false,
+                            false,
+                            "I could not verify a complete web link. Focus the browser address bar or select the full HTTPS/HTTP URL, then try again."
+                        )
+                    }
+                    if (VoiceClipboardCommandParser.isSensitive(url)) {
+                        return@withContext sensitiveClipboardResult()
+                    }
+                    copyToClipboard(clipboard, url, "HOPE link")
+                }
+
+                VoiceClipboardAction.SELECT_ALL -> {
+                    val target = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                        ?: return@withContext VoiceClipboardResult(
+                            false, false, "There is no focused editable field to select."
+                        )
+                    if (!target.isEditable || target.isPassword) {
+                        return@withContext VoiceClipboardResult(
+                            false, false, "Select all is unavailable for this field."
+                        )
+                    }
+                    val length = target.text?.length ?: 0
+                    if (length == 0) {
+                        return@withContext VoiceClipboardResult(
+                            false, false, "The focused field has no text to select."
+                        )
+                    }
+                    val selection = Bundle().apply {
+                        putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
+                        putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, length)
+                    }
+                    val accepted = target.performAction(
+                        AccessibilityNodeInfo.ACTION_SET_SELECTION,
+                        selection
+                    )
+                    val refreshed = getActiveRootNode()?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                    val verified = accepted &&
+                        refreshed?.textSelectionStart == 0 &&
+                        refreshed.textSelectionEnd == length
+                    if (verified) {
+                        VoiceClipboardResult(true, true, "All text in the focused field is selected.")
+                    } else {
+                        VoiceClipboardResult(
+                            false, false, "The field did not confirm a select-all action."
+                        )
+                    }
+                }
+
+                VoiceClipboardAction.PASTE -> pasteFromClipboard(root, clipboard)
+            }
+        }
+
+    private suspend fun pasteFromClipboard(
+        root: AccessibilityNodeInfo,
+        clipboard: ClipboardManager
+    ): VoiceClipboardResult {
+        val target = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            ?: return VoiceClipboardResult(
+                false, false, "No focused text field or cursor was found. Tap the target field, then try again."
+            )
+        if (!target.isEditable || isSensitiveNode(target)) {
+            return VoiceClipboardResult(
+                false, false, "Voice paste is unavailable in this field. Use the target app's own Paste control."
+            )
+        }
+        val before = target.text?.toString()
+            ?: return VoiceClipboardResult(false, false, "This field does not expose text for safe verification.")
+        val selectionStart = target.textSelectionStart
+        val selectionEnd = target.textSelectionEnd
+        if (selectionStart < 0 || selectionEnd < selectionStart || selectionEnd > before.length) {
+            return VoiceClipboardResult(
+                false, false, "The field did not expose a valid cursor or selection. Place the cursor and retry."
+            )
+        }
+
+        val description = try {
+            clipboard.primaryClipDescription
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Clipboard metadata is not readable for paste safety.", error)
+            null
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            description?.extras?.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE) == true
+        ) {
+            return sensitiveClipboardResult()
+        }
+        val clip = try {
+            clipboard.primaryClip
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Clipboard contents are not readable for paste verification.", error)
+            null
+        }
+        val value = try {
+            clip?.getItemAt(0)?.coerceToText(this)?.toString()
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Clipboard text could not be read for paste verification.", error)
+            null
+        }
+        if (!value.isNullOrEmpty() &&
+            VoiceClipboardCommandParser.isSensitive(value, sensitiveNodeContext(target))
+        ) {
+            return sensitiveClipboardResult()
+        }
+
+        val accepted = try {
+            target.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        } catch (error: SecurityException) {
+            Log.w(TAG, "The target app rejected the accessibility paste action.", error)
+            false
+        }
+        if (!accepted) {
+            return VoiceClipboardResult(
+                false, false, "The target app did not accept the paste action. Use its own Paste control."
+            )
+        }
+
+        delay(180L)
+        val afterNode = getActiveRootNode()?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        val after = afterNode?.text?.toString()
+        if (value.isNullOrEmpty()) {
+            return VoiceClipboardResult(
+                false,
+                false,
+                "Android accepted a paste request, but HOPE could not read the clipboard to verify the result. Check the field or use the app's Paste control."
+            )
+        }
+        val insertionStart = selectionStart.coerceAtMost(selectionEnd)
+        val expected = before.substring(0, insertionStart) + value + before.substring(selectionEnd)
+        val verified = after == expected
+        return if (verified) {
+            VoiceClipboardResult(true, true, "Text was pasted into the focused field and verified.")
+        } else {
+            VoiceClipboardResult(
+                false,
+                false,
+                "Android accepted the paste request, but the target app did not confirm the exact text. Check the field or paste manually."
+            )
+        }
+    }
+
+    private fun findSelectedTextNode(
+        node: AccessibilityNodeInfo,
+        depth: Int = 0
+    ): AccessibilityNodeInfo? {
+        if (depth > 30) return null
+        val start = node.textSelectionStart
+        val end = node.textSelectionEnd
+        val textLength = node.text?.length ?: 0
+        if (start >= 0 && end > start && end <= textLength) return node
+        for (index in 0 until node.childCount) {
+            val child = node.getChild(index) ?: continue
+            findSelectedTextNode(child, depth + 1)?.let { return it }
+        }
+        return null
+    }
+
+    private fun copyToClipboard(
+        clipboard: ClipboardManager,
+        text: String,
+        label: String
+    ): VoiceClipboardResult {
+        if (text.isBlank()) {
+            return VoiceClipboardResult(false, false, "There is no text to copy.")
+        }
+        return try {
+            clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+            VoiceClipboardResult(true, true, "Copied to Android clipboard.")
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Android rejected the clipboard write.", error)
+            VoiceClipboardResult(
+                false, false, "Android denied clipboard access. Copy it manually in the target app."
+            )
+        }
+    }
+
+    private fun isSensitiveNode(node: AccessibilityNodeInfo): Boolean {
+        if (node.isPassword) return true
+        val variation = node.inputType and InputType.TYPE_MASK_VARIATION
+        if (variation in setOf(
+                InputType.TYPE_TEXT_VARIATION_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+                InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
+                InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            )
+        ) return true
+        return VoiceClipboardCommandParser.isSensitive(node.text?.toString().orEmpty(), sensitiveNodeContext(node))
+    }
+
+    private fun sensitiveNodeContext(node: AccessibilityNodeInfo): String {
+        val context = StringBuilder()
+        var current: AccessibilityNodeInfo? = node
+        repeat(3) {
+            val item = current ?: return@repeat
+            context.append(' ')
+                .append(item.hintText?.toString().orEmpty())
+                .append(' ')
+                .append(item.contentDescription?.toString().orEmpty())
+                .append(' ')
+                .append(item.viewIdResourceName.orEmpty())
+                .append(' ')
+                .append(item.text?.toString().orEmpty())
+            current = item.parent
+        }
+        return context.toString()
+    }
+
+    private fun sensitiveClipboardResult() = VoiceClipboardResult(
+        false,
+        false,
+        "I won't copy or paste a password, one-time code, or payment detail by voice. Use the target app's own controls."
+    )
+
     fun performClickAtRect(rect: Rect): Boolean {
+        if (AppLockManager.isCredentialEntryVisible) return false
         if (rect.width() <= 0 || rect.height() <= 0) return false
         val cx = rect.exactCenterX()
         val cy = rect.exactCenterY()
@@ -1569,6 +1850,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     fun performSmartScroll(direction: String, distance: String = "small"): Boolean {
+        if (AppLockManager.isCredentialEntryVisible) return false
         val dm = resources.displayMetrics
         val width = dm.widthPixels.toFloat()
         val height = dm.heightPixels.toFloat()
@@ -1779,6 +2061,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     private fun performLongPressAndPaste(targetRect: Rect): Boolean {
+        if (AppLockManager.isCredentialEntryVisible) return false
         val clickX = targetRect.centerX().toFloat()
         val clickY = targetRect.centerY().toFloat()
         val path = Path().apply { moveTo(clickX, clickY) }
@@ -2060,6 +2343,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     fun performSystemGesture(gesture: String): Boolean {
+        if (AppLockManager.isCredentialEntryVisible) return false
         return when (gesture.lowercase()) {
             "home" -> performGlobalAction(GLOBAL_ACTION_HOME)
             "back" -> performGlobalAction(GLOBAL_ACTION_BACK)

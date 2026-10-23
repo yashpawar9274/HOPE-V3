@@ -30,6 +30,36 @@ class UpdatesFragment : Fragment() {
     private fun renderFeatureUpdates() {
         val features = listOf(
             FeatureNotice(
+                "HOPE AI",
+                "Explicit location privacy and one-shot diagnostics",
+                "Enable location awareness separately from sharing approximate locality with Gemini. Approximate or precise permission is requested through Android; HOPE obtains a one-shot fix only when requested, keeps coordinates in a local diagnostic cache, labels stale snapshots, and does not track continuously in the background. Reverse geocoding and sending coordinates to Open-Meteo for live weather each require separate opt-ins. Location is not attached to WhatsApp replies. Notification auto-replies continue to require an authorized rule and an Android-provided inline reply action; an action submission does not confirm delivery, and Android may delay or stop background work."
+            ),
+            FeatureNotice(
+                "HOPE AI",
+                "Eight voice-linked expert personas",
+                "Each Gemini Live voice currently supported by the app has a distinct instruction profile. Optional automatic expertise routing can adjust the problem-solving approach for a request while preserving the selected audio voice. Customize a voice persona's name, expertise, and tone in AI Persona settings. Capability guidance distinguishes integrated features from those requiring runtime permissions and unavailable services; web research, calendar access, and a separate Gemini voice preview are not currently integrated."
+            ),
+            FeatureNotice(
+                "HOPE AI",
+                "Critical thinking and honest responses",
+                "Voice and text responses now share core guidance to assess claims independently, correct important errors respectfully, distinguish facts from assumptions, and state uncertainty without exposing chain-of-thought. Spoken answers stay concise while text can provide fuller reasoning and practical trade-offs. Enable or disable the behavior in Settings; changes apply to new chat replies and newly configured voice sessions. Tool permissions and action verification remain governed by their existing systems."
+            ),
+            FeatureNotice(
+                "HOPE 1.9.6",
+                "Multi-speaker profiles and personalized addressing",
+                "Enroll consenting speakers with three on-device Vosk/Kaldi x-vector samples. Voice embeddings and profile details are AES-GCM encrypted with an Android Keystore key; raw recordings are discarded. Profile changes require Android device authentication, and matching can return UNKNOWN when confidence is low or profiles are ambiguous. Recognition is for personalization only, never authorization. When explicitly enabled, the selected form of address and language are sent as context to the configured AI service; HOPE's existing generated voice is unchanged. Replay resistance and recognition accuracy have not been validated on target devices."
+            ),
+            FeatureNotice(
+                "HOPE 1.9.5",
+                "HOPE-only Security Manager",
+                "Protect app screens with a separate PIN, 3×3 pattern, or alphanumeric password. Credentials use a salted PBKDF2-HMAC-SHA256 verifier and a Keystore-backed AES-GCM encrypted record. Set a background timeout, enable Android BiometricPrompt, change or disable the app credential after verification, or recover through Android system authentication. “Unlock my phone” asks Android to show its own keyguard flow; HOPE never reads or enters the phone credential. The app lock is separate from Android's device lock."
+            ),
+            FeatureNotice(
+                "HOPE 1.9.4",
+                "Voice clipboard and local Hey HOPE standby",
+                "Voice clipboard is separately opt-in and supports explicit copy-selected-text, copy-link, paste, and select-all commands through Android Accessibility. HOPE does not save clipboard history, blocks common sensitive-data patterns, and reports paste as unverified when Android or the target app cannot confirm it. Hey HOPE standby is also opt-in and uses the bundled Vosk recognizer locally; only the exact wake phrase with the configured confidence can start the existing conversation service. A foreground notification discloses listening, and Stop listening is always available. Background listening can still be restricted by Android or device firmware."
+            ),
+            FeatureNotice(
                 "HOPE 1.9.3",
                 "Redesigned incoming and active call screens",
                 "Incoming calls now place the HOPE ORB above caller details with clear Answer and Decline controls. Outgoing and active screens keep the ORB centered and show Android Telecom call states with a bottom-pinned control area. Mute and supported Speaker controls are shown while an outgoing call connects; keypad tones become available when Telecom reports the call active. Connection status is never simulated."
@@ -47,7 +77,7 @@ class UpdatesFragment : Fragment() {
             FeatureNotice(
                 "HOPE 1.9.0",
                 "Real-time notification inbox and safer Auto-Reply",
-                "HOPE now captures actual Android-delivered notifications for apps you monitor, updates inbox entries by Android notification key, tracks read and dismissed state, and applies configurable local retention. Announcements use the shared HOPE speech queue with per-app, quiet-hour, sensitive-content, headphones, and pause controls. Inbox reply previews can be confirmed and spoken without sending. Automatic sending is off by default and requires Notification Access, global and per-app monitoring, an explicitly enabled supported app, a matching AUTHORIZED_AUTO_REPLY rule, and an Android-provided inline reply action."
+                "HOPE now captures actual Android-delivered notifications for apps you monitor, updates inbox entries by Android notification key, tracks read and dismissed state, and applies configurable local retention. Announcements use the shared HOPE speech queue with per-app, quiet-hour, sensitive-content, headphones, and pause controls. Inbox reply previews can be confirmed and spoken without sending. You can ask HOPE by text or voice to start, stop, or check WhatsApp auto-reply; starting checks required access, monitoring, an authorized rule, and AI configuration. Automatic sending remains off by default and requires an Android-provided inline reply action; action submission does not confirm recipient delivery."
             ),
             FeatureNotice(
                 "HOPE 1.8.9",

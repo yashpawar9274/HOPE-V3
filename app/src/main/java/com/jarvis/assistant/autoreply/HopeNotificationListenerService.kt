@@ -23,7 +23,21 @@ class HopeNotificationListenerService : NotificationListenerService() {
         super.onListenerConnected()
         updateConnectionState(true)
         try {
-            activeNotifications.orEmpty().forEach(::onNotificationPosted)
+            activeNotifications.orEmpty().forEach { sbn ->
+                if (sbn.packageName == packageName) return@forEach
+                NotificationIntelligenceStore.rememberObservedApp(
+                    applicationContext,
+                    sbn.packageName,
+                    sbn.postTime.takeIf { it > 0L } ?: System.currentTimeMillis()
+                )
+                NotificationIntelligenceProcessor.process(
+                    applicationContext,
+                    sbn,
+                    ::announce,
+                    allowAutoReply = false
+                )
+            }
+            publishInboxChanged()
         } catch (error: Exception) {
             Log.e(TAG, "Could not load currently active notifications after listener reconnect.", error)
         }

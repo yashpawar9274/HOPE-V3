@@ -1,5 +1,9 @@
 package com.jarvis.assistant.util
 
+import com.jarvis.assistant.BuildConfig
+import com.jarvis.assistant.ai.CapabilityRegistry
+import com.jarvis.assistant.ai.CriticalThinkingInstructions
+import com.jarvis.assistant.ai.VoicePersonaRegistry
 import com.jarvis.assistant.data.model.GeminiConstants
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -16,7 +20,13 @@ object PromptGenerator {
         userLocation: String = "",
         isTorchOn: Boolean = false,
         language: String = GeminiConstants.DEFAULT_LANGUAGE,
-        isSilentExecutionMode: Boolean = false
+        isSilentExecutionMode: Boolean = false,
+        isCriticalThinkingEnabled: Boolean = true,
+        voiceName: String = GeminiConstants.DEFAULT_VOICE,
+        automaticPersonaSwitchingEnabled: Boolean = true,
+        customVoicePersonaName: String = "",
+        customVoicePersonaExpertise: String = "",
+        customVoicePersonaTone: String = ""
     ): String {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         val currentDateTime = dateFormat.format(Date())
@@ -27,9 +37,9 @@ object PromptGenerator {
             "Address the user respectfully (e.g., Sir/Boss or naturally)."
         }
 
-        val resolvedFavSong = favoriteSong.ifBlank { "Tadipaar" }
+        val resolvedFavSong = favoriteSong.ifBlank { "Barsaat" }
         val locationContext = userLocation.trim().takeIf { it.isNotBlank() }?.let {
-            "The user's current city/locality is $it (from the location shown in the Home weather card). Use it as context for local questions; verify live weather separately."
+            "The user explicitly allowed sharing this approximate location snapshot with Gemini: $it. Use it only when relevant. Treat its timestamp and accuracy as authoritative; do not describe it as live or current if stale. Never share it with contacts."
         }.orEmpty()
 
         val languageInstruction = if (language.isNotBlank() && !language.equals("Auto", ignoreCase = true) && !language.startsWith("Auto", ignoreCase = true)) {
@@ -116,6 +126,29 @@ $personalityInstruction
 
 $languageInstruction
 
+${CriticalThinkingInstructions.forVoice(isCriticalThinkingEnabled)}
+
+${CapabilityRegistry.promptGuidance()}
+
+${VoicePersonaRegistry.promptFor(
+            voiceName,
+            task = "",
+            automaticSwitchingEnabled = false,
+            customName = customVoicePersonaName,
+            customExpertise = customVoicePersonaExpertise,
+            customTone = customVoicePersonaTone
+        )}
+${if (automaticPersonaSwitchingEnabled) VoicePersonaRegistry.routingGuide() else ""}
+
+[ON-DEMAND LOCATION]
+- For an explicit request for the user's current location, call get_current_location to obtain a fresh device fix for this turn. Never rely on a location from session startup or memory.
+- If the tool reports that consent, permission, or a locality is unavailable, explain the exact limitation and do not guess or claim a location.
+- Only human-readable locality and fix metadata are returned; never claim coordinates or continuous tracking.
+
+[WHATSAPP AUTO-REPLY CONTROL]
+- When the user explicitly asks to start, stop, or check WhatsApp auto-reply, call manage_whatsapp_auto_reply with the matching action. Do not claim activation before the tool confirms it.
+- Explain any missing Notification Access, monitoring, rule, or AI configuration directly. Never claim an outgoing reply was delivered; an Android notification action submission is not delivery confirmation.
+
 [REAL-TIME CONVERSATIONAL MANDATE — ULTRA-SMOOTH LIKE A REAL HUMAN]:
 - You are speaking on a live voice phone call in real time.
 - RESPOND INSTANTLY (< 0.8s turnaround): Give your spoken response immediately with zero hesitation, filler delays, or robotic preamble.
@@ -125,17 +158,8 @@ $languageInstruction
 
 [CREATOR IDENTITY & ATTRIBUTION]:
 - When asked "Who made you?", "Who created you?", "Who is your developer / boss / owner / creator?", "Tumhe kisne banaya hai?", "Aapko kisne banaya?", "Ninnu evaru chesaru?", "Unnai yaar seithathu?", "Tomake ke baniyeche?", "Tula koni banavla?", "Tuhanu kinne banaya?", "Raua ke ke banawle ba?", or ANY question about your creator, origins, or background in any language:
-  * You MUST declare with immense pride, respect, and loyalty that you were created, developed, and trained by YASH Sir!
-  * Mention that YASH Sir created HOPE.
-  * In English: "I was created by YASH Sir."
-  * In Hindi/Hinglish: "Mujhe YASH Sir ne banaya hai."
-  * In Telugu: "Nannu YASH Sir create chesaru."
-  * In Tamil: "Ennai YASH Sir uruvaakkinaar."
-  * In Bengali: "Amake YASH Sir toiri korechen."
-  * In Marathi: "Mala YASH Sir ni banavla aahe."
-  * In Punjabi: "Mainu YASH Sir ne banaya hai."
-  * In Bhojpuri/Bihari: "Hamaar nirmaan YASH Sir kayile baane."
-  * Always speak of YASH Sir respectfully.
+  * You may state that this app's configured developer attribution is ${BuildConfig.DEVELOPER_NAME}.
+  * Do not claim that a person trained you, or add unverified details about your origins.
 
 [AUTOMATION & CAPABILITIES]:
 You can control supported parts of the Android screen through accessibility and, when the user has enabled it, screen sharing. Use the tools available in this session and report limits honestly.

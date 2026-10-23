@@ -23,6 +23,9 @@ object VoskModelManager {
     private val _isSpeakerModelReady = MutableStateFlow(false)
     val isSpeakerModelReady: StateFlow<Boolean> = _isSpeakerModelReady.asStateFlow()
 
+    private val _initializationError = MutableStateFlow<String?>(null)
+    val initializationError: StateFlow<String?> = _initializationError.asStateFlow()
+
     @Volatile
     var model: Model? = null
         private set
@@ -32,60 +35,68 @@ object VoskModelManager {
         private set
 
     private val isInitializing = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile
+    private var speakerModelRequested = false
 
-    fun init(context: Context, scope: CoroutineScope) {
-        if (model != null && speakerModel != null) return
+    fun init(context: Context, scope: CoroutineScope, includeSpeakerModel: Boolean = true) {
+        if (includeSpeakerModel) speakerModelRequested = true
+        if (model != null && (!speakerModelRequested || speakerModel != null)) return
         if (!isInitializing.compareAndSet(false, true)) return
+        _initializationError.value = null
 
         scope.launch(Dispatchers.IO) {
             try {
-                // 1. Unpack & load speech recognition model
-                val targetDir = File(context.filesDir, "vosk-model")
-                val markerFile = File(targetDir, "am/final.mdl")
+                if (model == null) {
+                    val targetDir = File(context.filesDir, "vosk-model")
+                    val markerFile = File(targetDir, "am/final.mdl")
 
-                if (!markerFile.exists() || markerFile.length() == 0L) {
-                    Log.i(TAG, "Unpacking Vosk model to internal storage: ${targetDir.absolutePath}")
-                    targetDir.deleteRecursively()
-                    targetDir.mkdirs()
-                    copyAssetFolder(context.assets, "model-en-us", targetDir)
-                    Log.i(TAG, "Vosk model unpacked successfully.")
-                } else {
-                    Log.i(TAG, "Vosk model already unpacked at: ${targetDir.absolutePath}")
-                }
-
-                val loadedModel = Model(targetDir.absolutePath)
-                model = loadedModel
-                _isModelReady.value = true
-                Log.i(TAG, "Vosk Model ready in memory!")
-
-                // 2. Unpack & load speaker recognition model (x-vector extractor)
-                try {
-                    val spkTargetDir = File(context.filesDir, "vosk-spk-model")
-                    val spkMarkerFile = File(spkTargetDir, "final.ext.raw")
-
-                    if (!spkMarkerFile.exists() || spkMarkerFile.length() == 0L) {
-                        Log.i(TAG, "Unpacking Vosk Speaker model to: ${spkTargetDir.absolutePath}")
-                        spkTargetDir.deleteRecursively()
-                        spkTargetDir.mkdirs()
-                        copyAssetFolder(context.assets, "model-spk", spkTargetDir)
-                        Log.i(TAG, "Vosk Speaker model unpacked successfully.")
-                    } else {
-                        Log.i(TAG, "Vosk Speaker model already unpacked at: ${spkTargetDir.absolutePath}")
+                    if (!markerFile.exists() || markerFile.length() == 0L) {
+                        Log.i(TAG, "Unpacking the offline English model for an explicitly requested voice feature.")
+                        targetDir.deleteRecursively()
+                        targetDir.mkdirs()
+                        copyAssetFolder(context.assets, "model-en-us", targetDir)
+                        check(markerFile.exists() && markerFile.length() > 0L) {
+                            "The bundled offline English model is incomplete."
+                        }
                     }
 
-                    val loadedSpk = SpeakerModel(spkTargetDir.absolutePath)
-                    speakerModel = loadedSpk
-                    _isSpeakerModelReady.value = true
-                    Log.i(TAG, "Vosk SpeakerModel ready in memory!")
-                } catch (e: Throwable) {
-                    Log.e(TAG, "Failed to load Vosk SpeakerModel: ${e.message}", e)
+                    model = Model(targetDir.absolutePath)
+                    _isModelReady.value = true
+                    Log.i(TAG, "Offline English Vosk model is ready.")
                 }
 
-                isInitializing.set(false)
+                if (speakerModelRequested && speakerModel == null) {
+                    loadSpeakerModel(context)
+                }
             } catch (e: Throwable) {
-                isInitializing.set(false)
+                _initializationError.value = e.message ?: "The offline speech model could not be initialized."
                 Log.e(TAG, "FATAL: Failed to load Vosk model: ${e.message}", e)
+            } finally {
+                isInitializing.set(false)
             }
+        }
+    }
+
+    private fun loadSpeakerModel(context: Context) {
+        try {
+            val targetDir = File(context.filesDir, "vosk-spk-model")
+            val markerFile = File(targetDir, "final.ext.raw")
+
+            if (!markerFile.exists() || markerFile.length() == 0L) {
+                targetDir.deleteRecursively()
+                targetDir.mkdirs()
+                copyAssetFolder(context.assets, "model-spk", targetDir)
+                check(markerFile.exists() && markerFile.length() > 0L) {
+                    "The bundled speaker model is incomplete."
+                }
+            }
+
+            speakerModel = SpeakerModel(targetDir.absolutePath)
+            _isSpeakerModelReady.value = true
+            Log.i(TAG, "Optional speaker verification model is ready.")
+        } catch (error: Exception) {
+            _initializationError.value = error.message ?: "The optional speaker verification model could not be loaded."
+            Log.e(TAG, "The optional speaker verification model could not be loaded.", error)
         }
     }
 
