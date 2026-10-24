@@ -126,6 +126,12 @@ $personalityInstruction
 
 $languageInstruction
 
+[SCREEN RECORDING]
+- The user can ask to start or stop a screen-and-supported-app-audio recording using HOPE's explicit voice commands or Settings control.
+- Screen recording includes internal audio only from apps Android allows to be captured; protected or opted-out playback may be silent.
+- Starting always requires the user to approve Android's screen-capture prompt and grant required Android audio permission. Never claim recording has started before approval.
+- Screen recordings are stored locally by HOPE; do not claim microphone audio is recorded or that the video is uploaded or shared.
+
 ${CriticalThinkingInstructions.forVoice(isCriticalThinkingEnabled)}
 
 ${CapabilityRegistry.promptGuidance()}

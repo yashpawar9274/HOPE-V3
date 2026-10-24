@@ -355,9 +355,9 @@ class HomeFragment : Fragment() {
                     combine(screenCapture.isSharing, screenCapture.hasReceivedFrame) { sharing, hasFrame -> sharing to hasFrame }
                         .collect { (sharing, hasFrame) ->
                         binding.tvQuickScreenShareStatus.text = when {
-                            !sharing -> "Share screen"
+                            !sharing -> "Share"
                             !hasFrame -> "Starting…"
-                            else -> "Stop sharing"
+                            else -> "Stop"
                         }
                         binding.tvQuickScreenShareStatus.setTextColor(
                             if (sharing && hasFrame) Color.parseColor("#10B981")

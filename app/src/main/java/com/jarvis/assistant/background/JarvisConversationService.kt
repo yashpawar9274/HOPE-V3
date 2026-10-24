@@ -164,6 +164,13 @@ class JarvisConversationService : Service() {
         private val _wakeEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
         val wakeEvents: SharedFlow<Unit> = _wakeEvents.asSharedFlow()
 
+        private val _screenRecordingRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        val screenRecordingRequests: SharedFlow<Unit> = _screenRecordingRequests.asSharedFlow()
+
+        fun requestScreenRecordingFromVoice(): Boolean =
+            _screenRecordingRequests.subscriptionCount.value > 0 &&
+                _screenRecordingRequests.tryEmit(Unit)
+
         fun setMicMuted(muted: Boolean) {
             activeInstance?.audioRecorder?.setMuted(muted)
         }
@@ -3243,7 +3250,14 @@ class JarvisConversationService : Service() {
             return
         }
 
-        if (cleanSpeech.lowercase(Locale.ROOT).matches(Regex(".*\\b(stop|cancel task|cancel automation|bas karo|ruk jao)\\b.*"))) {
+        val isScreenRecordingStop = com.jarvis.assistant.automation.command.CommandParser
+            .parse(cleanSpeech).command ==
+            com.jarvis.assistant.automation.command.JarvisCommand.StopScreenRecording
+        if (!isScreenRecordingStop &&
+            cleanSpeech.lowercase(Locale.ROOT).matches(
+                Regex(".*\\b(stop|cancel task|cancel automation|bas karo|ruk jao)\\b.*")
+            )
+        ) {
             com.jarvis.assistant.automation.agent.AgentTaskEngine.requestCancellation()
             autonomousLoopJob?.cancel()
             activeToolJobs.forEach { it.cancel() }
@@ -3498,6 +3512,38 @@ class JarvisConversationService : Service() {
     }
 
     private fun executeDetectedCommand(command: com.jarvis.assistant.automation.command.JarvisCommand, source: String) {
+        when (command) {
+            com.jarvis.assistant.automation.command.JarvisCommand.StartScreenRecording -> {
+                hasExecutedCommandInCurrentTurn = true
+                lastCommandExecutionTime = System.currentTimeMillis()
+                when (com.jarvis.assistant.vision.ScreenRecordingService.state.value) {
+                    com.jarvis.assistant.vision.ScreenRecordingState.RECORDING,
+                    com.jarvis.assistant.vision.ScreenRecordingState.STARTING ->
+                        announce("Screen recording is already active or starting.")
+                    else -> if (requestScreenRecordingFromVoice()) {
+                        announce("Please approve Android's screen-capture prompt to begin recording.")
+                    } else {
+                        announce("Please open HOPE, then ask me to start recording so Android can show its approval prompt.")
+                    }
+                }
+                return
+            }
+            com.jarvis.assistant.automation.command.JarvisCommand.StopScreenRecording -> {
+                hasExecutedCommandInCurrentTurn = true
+                lastCommandExecutionTime = System.currentTimeMillis()
+                val state = com.jarvis.assistant.vision.ScreenRecordingService.state.value
+                if (state == com.jarvis.assistant.vision.ScreenRecordingState.RECORDING ||
+                    state == com.jarvis.assistant.vision.ScreenRecordingState.STARTING
+                ) {
+                    com.jarvis.assistant.vision.ScreenRecordingService.stop(this)
+                    announce("Stopping the screen recording now. The video will be saved on this device.")
+                } else {
+                    announce("There is no active screen recording to stop.")
+                }
+                return
+            }
+            else -> Unit
+        }
         if (command is com.jarvis.assistant.automation.command.JarvisCommand.GoToBackground) {
             val explicit = isExplicitStandbyCommand(currentTurnUserText.toString())
             if (!explicit) {

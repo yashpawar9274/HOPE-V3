@@ -13,6 +13,9 @@ import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.jarvis.assistant.JarvisApp
 import com.jarvis.assistant.R
@@ -24,6 +27,7 @@ import com.jarvis.assistant.ui.security.AppSecurityActivity
 import com.jarvis.assistant.ui.voice.SpeakerProfilesActivity
 import com.jarvis.assistant.ui.voice.VoiceEnrollmentActivity
 import com.jarvis.assistant.util.AssistantRoleHelper
+import kotlinx.coroutines.launch
 
 class SettingsFragment : Fragment() {
 
@@ -58,6 +62,27 @@ class SettingsFragment : Fragment() {
 
         loadUserData()
         setupClickListeners()
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                com.jarvis.assistant.vision.ScreenRecordingService.state.collect { state ->
+                    binding.tvScreenRecordingStatus.text = when (state) {
+                        com.jarvis.assistant.vision.ScreenRecordingState.IDLE ->
+                            com.jarvis.assistant.vision.ScreenRecordingService.lastSavedName.value
+                                .takeIf { it.isNotBlank() }
+                                ?.let { "Saved locally: ${it.substringAfterLast('/')}" }
+                                ?: "Screen + supported app audio"
+                        com.jarvis.assistant.vision.ScreenRecordingState.STARTING -> "Preparing recording…"
+                        com.jarvis.assistant.vision.ScreenRecordingState.RECORDING -> "Recording — tap to stop"
+                        com.jarvis.assistant.vision.ScreenRecordingState.STOPPING -> "Saving recording…"
+                        com.jarvis.assistant.vision.ScreenRecordingState.ERROR ->
+                            com.jarvis.assistant.vision.ScreenRecordingService.lastError.value
+                                .takeIf { it.isNotBlank() }
+                                ?.let { "Failed: $it" }
+                                ?: "Recording failed — tap to retry"
+                    }
+                }
+            }
+        }
     }
 
     override fun onResume() {
@@ -209,6 +234,10 @@ class SettingsFragment : Fragment() {
 
         binding.rowPermissions.setOnClickListener {
             startActivity(Intent(requireContext(), PermissionActivity::class.java))
+        }
+
+        binding.rowScreenRecording.setOnClickListener {
+            (activity as? com.jarvis.assistant.ui.home.MainActivity)?.toggleScreenRecording()
         }
 
         binding.rowLocationAwareness.setOnClickListener {

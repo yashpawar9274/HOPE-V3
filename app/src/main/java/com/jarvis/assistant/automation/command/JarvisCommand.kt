@@ -12,6 +12,8 @@ sealed class JarvisCommand {
     data class Brightness(val level: Int, val isRelative: Boolean = false, val delta: Int = 0) : JarvisCommand()
     data class Volume(val level: Int, val isRelative: Boolean = false, val delta: Int = 0) : JarvisCommand()
     data class Flash(val enabled: Boolean) : JarvisCommand()
+    object StartScreenRecording : JarvisCommand()
+    object StopScreenRecording : JarvisCommand()
     data class Remember(val text: String) : JarvisCommand()
     data class Forget(val query: String) : JarvisCommand()
     object WhatDoYouRemember : JarvisCommand()

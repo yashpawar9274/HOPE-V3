@@ -80,6 +80,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val screenRecordingAudioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            requestScreenRecordingConsent()
+        } else {
+            Toast.makeText(
+                this,
+                "Android requires the audio permission for internal app-audio capture; HOPE does not record microphone audio.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     private val mediaProjectionManager by lazy {
         getSystemService(MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
     }
@@ -129,10 +143,39 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val screenRecordingConsentLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == RESULT_OK && data != null) {
+            try {
+                com.jarvis.assistant.vision.ScreenRecordingService.start(
+                    this,
+                    result.resultCode,
+                    data
+                )
+                Toast.makeText(this, "Starting screen recording with supported app audio.", Toast.LENGTH_LONG).show()
+            } catch (error: Exception) {
+                android.util.Log.e("MainActivity", "Could not start screen recording service.", error)
+                Toast.makeText(this, "Could not start screen recording: ${error.message}", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            Toast.makeText(this, "Screen recording was not started.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private var appliedThemeKey: String = ""
     private var appliedCustomHex: String = ""
 
     fun toggleScreenShare() {
+        val recordingState = com.jarvis.assistant.vision.ScreenRecordingService.state.value
+        if (recordingState == com.jarvis.assistant.vision.ScreenRecordingState.RECORDING ||
+            recordingState == com.jarvis.assistant.vision.ScreenRecordingState.STARTING ||
+            recordingState == com.jarvis.assistant.vision.ScreenRecordingState.STOPPING
+        ) {
+            Toast.makeText(this, "Stop screen recording before starting screen sharing.", Toast.LENGTH_LONG).show()
+            return
+        }
         if (com.jarvis.assistant.vision.ScreenCaptureManager.getInstance().isSharing.value) {
             JarvisConversationService.stopScreenCapture()
             Toast.makeText(this, "Screen sharing stopped.", Toast.LENGTH_SHORT).show()
@@ -142,6 +185,58 @@ class MainActivity : AppCompatActivity() {
                 return
             }
             screenCaptureLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
+        }
+    }
+
+    fun toggleScreenRecording() {
+        when (com.jarvis.assistant.vision.ScreenRecordingService.state.value) {
+            com.jarvis.assistant.vision.ScreenRecordingState.RECORDING,
+            com.jarvis.assistant.vision.ScreenRecordingState.STARTING -> {
+                com.jarvis.assistant.vision.ScreenRecordingService.stop(this)
+            }
+            com.jarvis.assistant.vision.ScreenRecordingState.STOPPING -> {
+                Toast.makeText(this, "Screen recording is stopping.", Toast.LENGTH_SHORT).show()
+            }
+            else -> requestScreenRecordingConsent()
+        }
+    }
+
+    private fun requestScreenRecordingConsent() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            Toast.makeText(
+                this,
+                "Internal app audio recording requires Android 10 or newer.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        if (com.jarvis.assistant.vision.ScreenCaptureManager.getInstance().isSharing.value) {
+            Toast.makeText(this, "Stop screen sharing before starting a screen recording.", Toast.LENGTH_LONG).show()
+            return
+        }
+        when (com.jarvis.assistant.vision.ScreenRecordingService.state.value) {
+            com.jarvis.assistant.vision.ScreenRecordingState.RECORDING,
+            com.jarvis.assistant.vision.ScreenRecordingState.STARTING -> {
+                Toast.makeText(this, "Screen recording is already active.", Toast.LENGTH_SHORT).show()
+                return
+            }
+            com.jarvis.assistant.vision.ScreenRecordingState.STOPPING -> {
+                Toast.makeText(this, "Wait for the current recording to finish saving.", Toast.LENGTH_SHORT).show()
+                return
+            }
+            else -> Unit
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            screenRecordingAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        try {
+            screenRecordingConsentLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
+        } catch (error: Exception) {
+            android.util.Log.e("MainActivity", "Could not request screen-capture approval.", error)
+            Toast.makeText(this, "Android could not open screen-capture approval.", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -204,6 +299,13 @@ class MainActivity : AppCompatActivity() {
         setupNavigationDock()
         selectTab(currentTab)
         observeViewModel()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                JarvisConversationService.screenRecordingRequests.collect {
+                    requestScreenRecordingConsent()
+                }
+            }
+        }
         if (intent?.getBooleanExtra(
                 HopeVoiceInteractionSessionService.EXTRA_START_ASSISTANT_VOICE_SESSION,
                 false

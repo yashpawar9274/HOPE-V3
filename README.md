@@ -42,6 +42,7 @@ HOPE is an Android voice assistant with conversational voice features, phone and
 
 ### 🎙️ Voice assistant
 - Talk with HOPE using the app’s voice controls and supported live voice experience.
+- Live conversations use a consistent, original feminine-presenting assistant style; the selected Gemini voice setting continues to control the generated audio voice.
 - Configure the assistant persona and available voice settings.
 - Use HOPE as Android’s default digital assistant after selecting it through Android Settings.
 - Voice features depend on device support, permissions, network access, and Gemini configuration.
@@ -87,6 +88,14 @@ HOPE is an Android voice assistant with conversational voice features, phone and
 - Ask HOPE to take a screenshot, including **“screenshot le lo”**.
 - Screenshot capture depends on Android version and the required Accessibility or user-approved Screen Share access.
 - Screenshots are saved locally; the feature does not send them to Gemini.
+
+### 🎥 Screen recording
+- Start or stop from **Settings → Screen Recording**, say **“Hey HOPE, start screen recording”** or **“stop screen recording”**, or use **Stop** in the ongoing recording notification.
+- Android's screen-capture approval prompt is required for every recording and cannot be automatically accepted or hidden. Android 10+ and its `RECORD_AUDIO` permission are required for internal playback capture.
+- Recordings include screen video and supported internal app audio; microphone audio is not recorded. Android blocks protected playback and apps that opt out of audio capture, so some video sections may be silent.
+- Videos are saved locally in **Movies/HOPE**. HOPE does not upload them.
+- Android may hide protected content, and the user can stop recording at any time through the persistent notification.
+- **Experimental / needs help:** Screen recording still has bugs and needs more fixes and real-device testing, especially across Android versions, device vendors, and apps with restricted audio capture. If you can help diagnose or fix it, contributions are welcome. I’ll add specific problems to the GitHub Issues tracker as I identify them; please include your Android version, device model, and steps to reproduce when reporting a bug.
 
 ### 🤖 On-screen tasks
 - HOPE can assist with supported app and screen tasks using Android Accessibility and visual assistance features.

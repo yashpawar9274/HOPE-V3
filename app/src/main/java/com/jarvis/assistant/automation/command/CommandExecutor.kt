@@ -37,6 +37,10 @@ class CommandExecutor(
 
             // Phone Controls
             is JarvisCommand.Flash -> phoneManager.setFlashlight(command.enabled)
+            is JarvisCommand.StartScreenRecording ->
+                "Open HOPE Settings and ask me to start screen recording so Android can show its required approval prompt."
+            is JarvisCommand.StopScreenRecording ->
+                "Use the HOPE Settings recording control or its notification to stop screen recording."
             is JarvisCommand.Brightness -> {
                 if (command.isRelative) {
                     phoneManager.adjustBrightness(command.delta > 0)

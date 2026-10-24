@@ -45,9 +45,33 @@ object CommandParser {
             .replace(Regex("[.,!?:;\"'\\s]+$"), "")
             .trim()
             .lowercase(Locale.ROOT)
+        val prefix = "^(?:please\\s+|can you\\s+|could you\\s+|just\\s+)?"
 
         if (clean.isBlank()) {
             return ParsedCommandResult(null, 0.0f)
+        }
+
+        if (clean.matches(
+                Regex(
+                    "$prefix(?:start\\s+(?:a\\s+)?(?:screen\\s+)?recording|" +
+                        "begin\\s+(?:screen\\s+)?recording|record\\s+(?:the\\s+)?screen|" +
+                        "screen\\s+record(?:ing)?|screen\\s+recording\\s+(?:start|shuru\\s+karo)|" +
+                        "screen\\s+record(?:ing)?\\s+(?:karo|kar\\s+do))$"
+                )
+            )
+        ) {
+            return ParsedCommandResult(JarvisCommand.StartScreenRecording, 0.97f, "SCREEN_RECORDING_START")
+        }
+        if (clean.matches(
+                Regex(
+                    "$prefix(?:stop\\s+(?:(?:the\\s+)?(?:screen\\s+)?recording|screen)|" +
+                        "end\\s+(?:the\\s+)?screen\\s+recording|finish\\s+(?:the\\s+)?screen\\s+recording|" +
+                        "screen\\s+recording\\s+(?:stop|band\\s+karo)|" +
+                        "recording\\s+band\\s+(?:karo|kar\\s+do))$"
+                )
+            )
+        ) {
+            return ParsedCommandResult(JarvisCommand.StopScreenRecording, 0.97f, "SCREEN_RECORDING_STOP")
         }
 
         // 1. Confirmations & Cancellations (Priority when awaiting confirmation)
@@ -64,8 +88,6 @@ object CommandParser {
         if (isAwaitingDisambiguation) {
             return ParsedCommandResult(JarvisCommand.DisambiguationChoice(clean), 0.95f, "DISAMBIGUATION")
         }
-
-        val prefix = "^(?:please\\s+|can you\\s+|could you\\s+|just\\s+)?"
 
         // 3. Flashlight / Torch Commands (Strict Anchoring & Natural Variations across Indian languages)
         val flashWords = "(?:flash\\s*light|flash\\s*lite|flashlight|flash|torch|light|batti)"

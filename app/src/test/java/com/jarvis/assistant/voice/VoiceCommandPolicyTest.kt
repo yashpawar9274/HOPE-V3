@@ -1,5 +1,7 @@
 package com.jarvis.assistant.voice
 
+import com.jarvis.assistant.automation.command.CommandParser
+import com.jarvis.assistant.automation.command.JarvisCommand
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -104,5 +106,27 @@ class VoiceCommandPolicyTest {
         assertTrue(DeviceUnlockCommandPolicy.isExplicitCommand("unlock the device"))
         assertFalse(DeviceUnlockCommandPolicy.isExplicitCommand("How do I unlock my phone?"))
         assertFalse(DeviceUnlockCommandPolicy.isExplicitCommand("unlock the HOPE app"))
+    }
+
+    @Test
+    fun screenRecordingCommandsRequireExplicitStartOrStopIntent() {
+        assertEquals(
+            JarvisCommand.StartScreenRecording,
+            CommandParser.parse("Hey HOPE, start screen recording").command
+        )
+        assertEquals(
+            JarvisCommand.StartScreenRecording,
+            CommandParser.parse("screen record karo").command
+        )
+        assertEquals(
+            JarvisCommand.StopScreenRecording,
+            CommandParser.parse("stop the screen recording").command
+        )
+        assertEquals(
+            JarvisCommand.StopScreenRecording,
+            CommandParser.parse("recording band karo").command
+        )
+        assertNull(CommandParser.parse("stop").command)
+        assertNull(CommandParser.parse("can you record this conversation").command)
     }
 }
