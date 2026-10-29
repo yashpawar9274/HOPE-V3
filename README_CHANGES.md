@@ -48,7 +48,7 @@ HOPE ka voice-confirmation ("answer" / "decline" bolna) pehle jaisa hi kaam kart
 * Same chat mein **20 sec cooldown**, **6 reply / ghanta**, aur daily limit.
 * Quiet hours, excluded contacts/keywords, duplicate-protection pehle jaise kaam karte hain.
 * Reply sirf messaging app ke apne quick-reply action se jaata hai (app kholke Send tap nahi karta).
-* Agar aap koi custom rule + template banate ho, to wo us message ke liye Smart Auto-Reply ko override karta hai.
+* Smart Auto-Reply on hone par **koi bhi template (rule ka ya global) use nahi hota** — har reply us message ke hisaab se AI likhta hai.
 * Voice command "WhatsApp auto-reply start karo" ab rule na hone par bhi kaam karta hai (smart mode on kar deta hai).
 
 **Auto-Reply screen redesign:** iOS Settings jaisa — bada title, hero card + green switch, rounded grouped lists, setup status (notification access, notifications, background running). Purane saare advanced controls "ADVANCED CONTROLS" ke neeche safe hain.
@@ -65,6 +65,27 @@ HOPE ka voice-confirmation ("answer" / "decline" bolna) pehle jaisa hi kaam kart
 
 ---
 
+### D. Fix (update 2): "auto reply on hai par reply nahi ja raha"
+
+**Asli wajah:** cloud AI ka model naam `gemini-3.1-flash` galat tha — Google ki official model list mein ye ID hai hi nahi, isliye har AI call 404 se fail hoti thi aur (offline model install na hone se) reply chupchap nahi jata tha.
+
+**Fix:**
+* `ai/GeminiTextGeneration.kt`: ab valid models ki list try hoti hai — `gemini-3.5-flash` → `gemini-3.1-flash-lite` → `gemini-2.5-flash` (jo chal jaye use yaad rakhta hai). Galat/blocked API key (401/403) par saaf error batata hai.
+* WhatsApp 1:1 chat ko galti se "group" na maane (group tabhi jab title aur likhne wale ka naam alag ho).
+* Smart mode mein rule/global **template ab bilkul ignore** hota hai.
+* **Reason dikhta hai:** ab har skip/fail ka reason **Auto-Reply screen → "Last auto-reply result"** mein likha aata hai (jaise "Skipped: group chat", "Gemini (gemini-3.5-flash) returned HTTP 403: API key not valid"). Agar phir bhi reply na jaye to wahan jo likha ho wo mujhe bhej do.
+
+### E. Update 3: chhote replies, pehle reply mein HOPE ka intro, repeat nahi
+
+* **Bahut chhota reply:** ab 1 line (max 2), ~200 characters. Lamba aaye to code sentence ke end par kaat deta hai.
+* **Pehla reply (us chat mein):** HOPE feminine mein apna parichay deti hai aur usi message mein jawab bhi — jaise *"Hi, main HOPE hoon, YASH ki assistant, unki taraf se aapse baat kar rahi hoon. Haan boliye, kya baat hai?"*
+* **Uske baad ke replies:** intro/naam dobara **nahi**; seedha sender ke latest message ka jawab. Agar sender sirf "Hi" dobara bheje to alag tarah se jawab deti hai.
+* **Repeat nahi:** HOPE ko us chat ke apne pichhle 5 replies bataye jaate hain ("inhe repeat mat karo"). Phir bhi naya reply purane jaisa nikle to code use pakadta hai (70% se zyada milta-julta), ek baar dobara likhwata hai, aur phir bhi same ho to bhejta hi nahi.
+* Intro ka time **save** rehta hai, isliye app restart/band hone ke baad bhi wahi chat mein dobara intro nahi aata (12 ghante baad hi naya intro).
+* Test: `SmartReplyLogic` ke ab 52 checks real compiler par pass; naye JUnit tests bhi `SmartReplyLogicTest.kt` mein.
+
+---
+
 ## 2. Directory / files
 
 ```
@@ -74,6 +95,7 @@ HOPE-V3-main/
 └── app/src/
     ├── main/
     │   ├── java/com/jarvis/assistant/
+    │   │   ├── ai/GeminiTextGeneration.kt  ← FIX: valid Gemini model IDs + fallback + clear errors
     │   │   ├── telephony/
     │   │   │   ├── IosCallStyle.kt         ← NAYA: iOS colours, round buttons, avatar, keypad letters
     │   │   │   ├── HopeDialerActivity.kt   ← REWRITE (UI): keypad / contacts / recents + tab bar
@@ -139,7 +161,7 @@ APK: `app\build\outputs\apk\debug\app-debug.apk`
 ## 5. Testing — kya hua, kya baaki
 
 **Ho chuka (is sandbox mein):**
-* `SmartReplyLogic` ko real Kotlin compiler se compile karke **38 checks pass**: Hi/Hello/hii bhai/Good morning → greeting, "kya karu" → what-to-do (greeting par bhi jeet-ta hai), kaise ho, thanks, bye, sawaal, sirf photo/emoji, prompt mein HOPE naam + safety rules, HOPE-naam enforcement, 500 char limit, auto-responder/loop detection, 20s cooldown, 6/ghanta cap, 12 ghante intro window.
+* `SmartReplyLogic` ko real Kotlin compiler se compile karke **52 checks pass**: Hi/Hello/hii bhai/Good morning → greeting, "kya karu" → what-to-do (greeting par bhi jeet-ta hai), kaise ho, thanks, bye, sawaal, sirf photo/emoji, prompt mein HOPE naam + safety rules, HOPE-naam enforcement, 500 char limit, auto-responder/loop detection, 20s cooldown, 6/ghanta cap, 12 ghante intro window.
 * Whole project ka Kotlin type-check (Android SDK jar + chhote stubs): meri nayi/badli files mein koi type/syntax error nahi.
 * Saare XML well-formed; har `@drawable/@layout/@color/R.id/ItemXBinding` reference maujood.
 * Naye icons render karke dekhe (sab shape sahi).
