@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Thin wrapper around the YouTube Data API v3 search endpoint.
- * Used so JARVIS can jump straight to the right video instead of
+ * Used so HOPE can jump straight to the right video instead of
  * relying on typing into YouTube's own search box.
  */
 object YouTubeApiClient {

@@ -301,7 +301,7 @@ class HomeFragment : Fragment() {
                 binding.tvWeatherCondition.text = weather.condition
                 binding.tvWeatherDetails.text = weather.details
                 binding.ivWeatherIcon.setImageResource(weather.iconResId)
-                // Keep Jarvis's context aligned with the city shown on Home.
+                // Keep HOPE's context aligned with the city shown on Home.
                 preferences.userLocation = weather.cityName
             } else if (_binding != null) {
                 binding.tvWeatherCondition.text = "Live Weather • Tap to retry"

@@ -44,17 +44,17 @@
     <color name="jarvis_chip_bg">#F1F5F9</color>
 
     <!-- Legacy compatibility aliases -->
-    <color name="naira_red">#2563EB</color>
-    <color name="naira_red_bright">#2563EB</color>
-    <color name="naira_red_dark">#1D4ED8</color>
-    <color name="naira_red_glow">#332563EB</color>
-    <color name="naira_card_bg">#FFFFFF</color>
-    <color name="naira_card_border">#E2E8F0</color>
-    <color name="naira_dock_bg">#FFFFFF</color>
-    <color name="naira_dock_border">#E2E8F0</color>
-    <color name="naira_text_pink">#475569</color>
-    <color name="naira_text_muted">#64748B</color>
-    <color name="naira_avatar_bg">#EFF6FF</color>
-    <color name="naira_input_bg">#FFFFFF</color>
-    <color name="naira_chip_bg">#F1F5F9</color>
+    <color name="hope_red">#2563EB</color>
+    <color name="hope_red_bright">#2563EB</color>
+    <color name="hope_red_dark">#1D4ED8</color>
+    <color name="hope_red_glow">#332563EB</color>
+    <color name="hope_card_bg">#FFFFFF</color>
+    <color name="hope_card_border">#E2E8F0</color>
+    <color name="hope_dock_bg">#FFFFFF</color>
+    <color name="hope_dock_border">#E2E8F0</color>
+    <color name="hope_text_pink">#475569</color>
+    <color name="hope_text_muted">#64748B</color>
+    <color name="hope_avatar_bg">#EFF6FF</color>
+    <color name="hope_input_bg">#FFFFFF</color>
+    <color name="hope_chip_bg">#F1F5F9</color>
 </resources>

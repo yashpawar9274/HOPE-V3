@@ -4,6 +4,6 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:fillColor="@color/naira_red_bright"
+        android:fillColor="@color/hope_red_bright"
         android:pathData="M12,3v18h2V3h-2zM8,6v12h2V6H8zM4,9v6h2V9H4zM16,6v12h2V6h-2zM20,9v6h2V9h-2z" />
 </vector>

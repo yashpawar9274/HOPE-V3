@@ -46,15 +46,14 @@ class IncomingCallActivity : AppCompatActivity() {
     private lateinit var timerView: TextView
     private lateinit var standbyView: TextView
     private lateinit var instructionView: TextView
-    private lateinit var quickTextButton: Button
+    private lateinit var quickTextButton: LinearLayout
     private lateinit var actions: GridLayout
-    private lateinit var endCallButton: Button
+    private lateinit var incomingBar: LinearLayout
+    private lateinit var endCallButton: LinearLayout
+    private lateinit var listeningView: TextView
     private lateinit var callContent: LinearLayout
     private lateinit var callActionDock: LinearLayout
     private lateinit var callDetails: LinearLayout
-    private lateinit var callOrbContainer: FrameLayout
-    private lateinit var orbWebView: WebView
-    private var orbLoaded = false
     private var speechRecognizer: SpeechRecognizer? = null
     private var promptStarted = false
     private var speechStarted = false
@@ -138,7 +137,6 @@ class IncomingCallActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::orbWebView.isInitialized) orbWebView.onResume()
         val filter = IntentFilter(HopeCallController.ACTION_CALL_CHANGED)
         ContextCompat.registerReceiver(this, callUpdates, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         refreshCall(allowPrompt = !promptStarted)
@@ -153,7 +151,6 @@ class IncomingCallActivity : AppCompatActivity() {
     override fun onPause() {
         stopVoiceRecognition()
         mainHandler.removeCallbacks(callTimerTick)
-        if (::orbWebView.isInitialized) orbWebView.onPause()
         try {
             unregisterReceiver(callUpdates)
         } catch (_: IllegalArgumentException) {
@@ -163,14 +160,14 @@ class IncomingCallActivity : AppCompatActivity() {
     }
 
     private fun createCallUi() {
-        val foreground = Color.rgb(232, 235, 246)
-        val accent = Color.rgb(0, 225, 235)
-        val muted = Color.rgb(162, 174, 194)
+        val white = Color.WHITE
+        val soft = Color.argb(190, 255, 255, 255)
+        val faint = Color.argb(140, 255, 255, 255)
         val root = FrameLayout(this).apply {
             setBackground(
                 android.graphics.drawable.GradientDrawable(
-                    android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                    intArrayOf(Color.rgb(24, 15, 51), Color.rgb(15, 20, 39), Color.rgb(10, 15, 27))
+                    android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(Color.rgb(62, 68, 92), Color.rgb(30, 32, 44), Color.rgb(8, 8, 12))
                 )
             )
             systemUiVisibility = (
@@ -179,193 +176,134 @@ class IncomingCallActivity : AppCompatActivity() {
                     View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 )
         }
-        window.statusBarColor = Color.rgb(20, 14, 42)
-        window.navigationBarColor = Color.rgb(10, 15, 27)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
         androidx.core.view.WindowInsetsControllerCompat(window, root).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
         }
-        val scroll = ScrollView(this).apply {
-            isFillViewport = true
-            isVerticalScrollBarEnabled = false
-        }
         callContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(20), dp(14), dp(20), dp(20))
+            setPadding(dp(24), dp(56), dp(24), dp(16))
         }
         val content = callContent
-        screenTitleView = TextView(this).apply {
-            text = "Incoming call"
-            textSize = 1f
-            gravity = Gravity.CENTER
-            setTextColor(muted)
-            visibility = View.GONE
-        }
-        content.addView(screenTitleView, matchWidth())
-        stateView = TextView(this).apply {
-            textSize = 11f
-            letterSpacing = 0.08f
-            gravity = Gravity.CENTER
-            setTextColor(accent)
-            background = roundedBackground(Color.rgb(38, 35, 57), dp(24))
-            setPadding(dp(18), dp(10), dp(18), dp(10))
-        }
-        content.addView(stateView, matchWidth().apply {
-            leftMargin = dp(20)
-            rightMargin = dp(20)
-            topMargin = dp(4)
-            bottomMargin = dp(8)
-        })
-        timerView = TextView(this).apply {
-            text = "00:00"
-            textSize = 15f
-            gravity = Gravity.CENTER
-            setTextColor(foreground)
-            background = roundedBackground(Color.rgb(30, 34, 51), dp(18))
-            setPadding(dp(14), dp(7), dp(14), dp(7))
-        }
-        content.addView(timerView, LinearLayout.LayoutParams(-2, -2).apply {
-            gravity = Gravity.CENTER
-            bottomMargin = dp(4)
-        })
-        timerView.visibility = View.GONE
-        callOrbContainer = FrameLayout(this).apply {
-            minimumHeight = dp(300)
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            clipToPadding = false
-        }
-        orbWebView = WebView(this).apply {
-            setBackgroundColor(Color.TRANSPARENT)
-            setLayerType(View.LAYER_TYPE_HARDWARE, null)
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = false
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
-        }
-        val assetLoader = WebViewAssetLoader.Builder()
-            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
-            .build()
-        orbWebView.webViewClient = object : WebViewClientCompat() {
-            override fun shouldInterceptRequest(
-                view: WebView,
-                request: WebResourceRequest
-            ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
-
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-                request.url.host != "appassets.androidplatform.net"
-
-            override fun onPageFinished(view: WebView?, url: String?) {
-                super.onPageFinished(view, url)
-                orbLoaded = true
-                updateOrbState()
-            }
-        }
-        orbWebView.loadUrl("https://appassets.androidplatform.net/assets/call_orb.html?embedded=1")
-        callOrbContainer.addView(orbWebView, FrameLayout.LayoutParams(-1, -1))
+        screenTitleView = TextView(this).apply { visibility = View.GONE }
+        content.addView(screenTitleView, LinearLayout.LayoutParams(0, 0))
         callDetails = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            isFocusable = false
-            isFocusableInTouchMode = false
-            setBackgroundColor(Color.TRANSPARENT)
-            setPadding(0, dp(4), 0, 0)
+            gravity = Gravity.CENTER_HORIZONTAL
         }
         callerView = TextView(this).apply {
-            textSize = 29f
+            textSize = 34f
             gravity = Gravity.CENTER
-            setTextColor(foreground)
+            setTextColor(white)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             maxLines = 2
-            setPadding(0, dp(2), 0, dp(2))
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
         callDetails.addView(callerView, matchWidth())
-        numberView = TextView(this).apply {
-            textSize = 15f
+        stateView = TextView(this).apply {
+            textSize = 19f
             gravity = Gravity.CENTER
-            setTextColor(muted)
-            setPadding(0, dp(2), 0, dp(5))
+            setTextColor(soft)
+            setPadding(0, dp(4), 0, 0)
+        }
+        callDetails.addView(stateView, matchWidth())
+        timerView = TextView(this).apply {
+            text = "00:00"
+            textSize = 19f
+            gravity = Gravity.CENTER
+            setTextColor(soft)
+            setPadding(0, dp(4), 0, 0)
+            visibility = View.GONE
+        }
+        callDetails.addView(timerView, matchWidth())
+        numberView = TextView(this).apply {
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(faint)
+            setPadding(0, dp(6), 0, 0)
         }
         callDetails.addView(numberView, matchWidth())
-        content.addView(callOrbContainer, LinearLayout.LayoutParams(-1, dp(330)).apply {
-            topMargin = dp(8)
-            bottomMargin = dp(4)
-        })
         content.addView(callDetails, matchWidth())
-        val orbHeight = (resources.configuration.screenHeightDp * 0.30f).toInt().coerceIn(180, 310)
-        callOrbContainer.minimumHeight = dp(orbHeight)
-        callOrbContainer.layoutParams =
-            (callOrbContainer.layoutParams as LinearLayout.LayoutParams).apply { height = dp(orbHeight) }
+        content.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+
+        listeningView = TextView(this).apply {
+            text = "\u25CF  HOPE is listening\u2026"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(IosCallStyle.GREEN)
+            visibility = View.GONE
+        }
+        content.addView(listeningView, matchWidth().apply { bottomMargin = dp(6) })
         standbyView = TextView(this).apply {
             textSize = 12f
             gravity = Gravity.CENTER
-            setTextColor(muted)
-            background = roundedBackground(Color.rgb(25, 29, 43), dp(14))
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setTextColor(faint)
         }
-        content.addView(standbyView, matchWidth().apply {
-            topMargin = dp(4)
-            bottomMargin = dp(5)
-        })
+        content.addView(standbyView, matchWidth().apply { bottomMargin = dp(4) })
         instructionView = TextView(this).apply {
             textSize = 13f
             gravity = Gravity.CENTER
-            setTextColor(muted)
-            background = roundedBackground(Color.rgb(27, 31, 44), dp(14))
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setTextColor(soft)
         }
-        content.addView(instructionView, matchWidth().apply {
-            topMargin = dp(3)
-            bottomMargin = dp(8)
+        content.addView(instructionView, matchWidth().apply { bottomMargin = dp(14) })
+
+        // iPhone "Message" shortcut shown above Decline / Accept.
+        quickTextButton = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(18), dp(10), dp(18), dp(10))
+            background = roundedBackground(Color.argb(70, 255, 255, 255), dp(22))
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Reply with a message"
+            visibility = View.GONE
+            addView(IosCallStyle.icon(this@IncomingCallActivity, R.drawable.ic_ios_message, white, 18))
+            addView(TextView(this@IncomingCallActivity).apply {
+                text = "Message"
+                textSize = 15f
+                setTextColor(white)
+                setPadding(dp(8), 0, 0, 0)
+            })
+        }
+        content.addView(quickTextButton, LinearLayout.LayoutParams(-2, -2).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(22)
         })
-        quickTextButton = Button(this).apply {
-            text = "Quick text"
-            isAllCaps = false
-            textSize = 15f
-            setTextColor(foreground)
-            background = roundedBackground(Color.rgb(39, 43, 60), dp(24))
+
+        incomingBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
             visibility = View.GONE
         }
-        content.addView(quickTextButton, LinearLayout.LayoutParams(-1, dp(46)).apply {
-            leftMargin = dp(36)
-            rightMargin = dp(36)
-            bottomMargin = dp(4)
-        })
         actions = GridLayout(this).apply {
             columnCount = 3
             useDefaultMargins = false
         }
-        endCallButton = Button(this).apply {
-            text = "End call"
-            textSize = 17f
-            isAllCaps = false
+        endCallButton = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = true
             contentDescription = "End call"
-            setTextColor(Color.WHITE)
-            background = roundedBackground(Color.rgb(177, 0, 24), dp(30))
+            background = IosCallStyle.rippleCircle(IosCallStyle.RED)
+            setPadding(dp(20), dp(20), dp(20), dp(20))
+            addView(IosCallStyle.icon(this@IncomingCallActivity, R.drawable.ic_ios_call_end, white, 36))
         }
         callActionDock = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(14), dp(8), dp(14), dp(10))
-            background = android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,
-                intArrayOf(Color.rgb(11, 15, 28), Color.rgb(11, 15, 28), Color.TRANSPARENT)
-            )
-            elevation = dp(8).toFloat()
         }
+        callActionDock.addView(incomingBar, matchWidth())
         callActionDock.addView(actions, matchWidth())
-        callActionDock.addView(endCallButton, LinearLayout.LayoutParams(-1, dp(64)).apply {
-            topMargin = dp(6)
-            leftMargin = dp(42)
-            rightMargin = dp(42)
-            bottomMargin = dp(3)
+        callActionDock.addView(endCallButton, LinearLayout.LayoutParams(dp(78), dp(78)).apply {
+            topMargin = dp(18)
+            bottomMargin = dp(6)
         })
-        scroll.addView(content, ViewGroup.LayoutParams(-1, -2))
-        root.addView(scroll, FrameLayout.LayoutParams(-1, -1))
-        root.addView(
-            callActionDock,
-            FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM)
-        )
+        content.addView(callActionDock, matchWidth())
+        root.addView(content, FrameLayout.LayoutParams(-1, -1))
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val bars = insets.getInsets(
                 androidx.core.view.WindowInsetsCompat.Type.systemBars() or
@@ -392,20 +330,15 @@ class IncomingCallActivity : AppCompatActivity() {
         mainHandler.removeCallbacks(disconnectFinish)
         callId = call.id
         callerView.text = call.caller
-        numberView.text = call.number.takeIf(String::isNotBlank) ?: "Number unavailable"
+        val shownNumber = call.number.takeIf(String::isNotBlank)
+        numberView.text = if (shownNumber != null && shownNumber != call.caller) shownNumber else ""
+        numberView.visibility = if (numberView.text.isEmpty()) View.GONE else View.VISIBLE
         timerView.text = formatCallDuration(call)
         val ringing = call.state == android.telecom.Call.STATE_RINGING
-        val activeOrHeld = call.state == android.telecom.Call.STATE_ACTIVE ||
-            call.state == android.telecom.Call.STATE_HOLDING
+        val holding = call.state == android.telecom.Call.STATE_HOLDING
+        val activeOrHeld = call.state == android.telecom.Call.STATE_ACTIVE || holding
         val dialing = call.state == android.telecom.Call.STATE_DIALING ||
             call.state == android.telecom.Call.STATE_CONNECTING
-        val orbHeight = (
-            resources.configuration.screenHeightDp * if (ringing) 0.30f else 0.26f
-        ).toInt().coerceIn(170, 310)
-        callOrbContainer.minimumHeight = dp(orbHeight)
-        callOrbContainer.layoutParams = (callOrbContainer.layoutParams as LinearLayout.LayoutParams).apply {
-            height = dp(orbHeight)
-        }
         screenTitleView.text = when (call.state) {
             android.telecom.Call.STATE_RINGING -> "Incoming call"
             android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "Outgoing call"
@@ -413,57 +346,37 @@ class IncomingCallActivity : AppCompatActivity() {
             android.telecom.Call.STATE_ACTIVE -> "Active call"
             else -> "Call"
         }
-        stateView.text = "${callStateLabel(call.state).uppercase(Locale.ROOT)}   |   ANDROID TELECOM"
-        timerView.visibility = if (
-            activeOrHeld
-        ) View.VISIBLE else View.GONE
-        moveCallDetails(ringing)
-        callContent.setPadding(
-            dp(20),
-            dp(14),
-            dp(20),
-            dp(if (ringing) 120 else if (activeOrHeld) 240 else if (dialing) 150 else 100)
-        )
-        val orbState = when (call.state) {
-            android.telecom.Call.STATE_RINGING -> if (speechStarted) "listening" else "ringing"
-            android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "thinking"
-            android.telecom.Call.STATE_ACTIVE -> "active"
-            android.telecom.Call.STATE_HOLDING -> "idle"
-            else -> "idle"
+        // iPhone wording: "mobile" while ringing, "calling…" while dialing, the timer once connected.
+        stateView.text = when {
+            ringing -> "mobile"
+            dialing -> "calling\u2026"
+            holding -> "on hold"
+            else -> ""
         }
+        stateView.visibility = if (stateView.text.isEmpty()) View.GONE else View.VISIBLE
+        timerView.visibility = if (activeOrHeld) View.VISIBLE else View.GONE
         standbyView.text = if (ringing) {
             when {
                 IncomingCallPreferences.isVoiceConfirmationEnabled(this) ->
-                    "Voice confirmation enabled • use Answer / Decline anytime"
+                    "Voice confirmation on \u2022 say \u201Canswer\u201D or \u201Cdecline\u201D"
                 IncomingCallPreferences.isAnnouncementEnabled(this) ->
-                    "Caller announcement enabled • call audio is not accessed"
-                else -> "Voice controls are off • call audio is not accessed"
+                    "HOPE announces the caller \u2022 call audio is not accessed"
+                else -> ""
             }
-        } else {
-            when (call.state) {
-                android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING ->
-                    "Calling through Android Telecom • waiting for call state"
-                android.telecom.Call.STATE_HOLDING -> "Call is held by Android Telecom"
-                else -> "Connected through Android Telecom"
-            }
-        }
-        endCallButton.visibility = if (ringing) View.GONE else View.VISIBLE
-        callActionDock.visibility = View.VISIBLE
+        } else ""
         quickTextButton.visibility = if (ringing && call.number.isNotBlank()) View.VISIBLE else View.GONE
         quickTextButton.setOnClickListener {
             if (call.number.isBlank()) return@setOnClickListener
             try {
                 startActivity(
-                    Intent(
-                        Intent.ACTION_SENDTO,
-                        android.net.Uri.fromParts("smsto", call.number, null)
-                    )
+                    Intent(Intent.ACTION_SENDTO, android.net.Uri.fromParts("smsto", call.number, null))
                 )
             } catch (error: Exception) {
                 android.util.Log.w(TAG, "Could not open the SMS composer for the incoming caller.", error)
                 Toast.makeText(this, "No messaging app is available.", Toast.LENGTH_SHORT).show()
             }
         }
+        endCallButton.visibility = if (ringing) View.GONE else View.VISIBLE
         endCallButton.setOnClickListener {
             if (!HopeCallController.hangUp(callId)) showCallActionFailure()
         }
@@ -471,21 +384,25 @@ class IncomingCallActivity : AppCompatActivity() {
             HopeSpeech.stop(PROMPT_UTTERANCE)
             stopVoiceRecognition()
         }
+        callActionDock.visibility = View.VISIBLE
         actions.removeAllViews()
-        actions.visibility = View.VISIBLE
-        actions.columnCount = if (ringing) 2 else 3
+        incomingBar.removeAllViews()
+        incomingBar.visibility = if (ringing) View.VISIBLE else View.GONE
+        actions.visibility = if (ringing) View.GONE else View.VISIBLE
         if (ringing) {
-            instructionView.text = if (IncomingCallPreferences.isVoiceConfirmationEnabled(this)) {
-                "Say “answer” or “decline”, or tap a button."
-            } else {
-                "Choose whether to answer or decline."
+            instructionView.text = ""
+            val decline = IosCallStyle.RoundAction(this, R.drawable.ic_ios_call_end, "Decline", 78).apply {
+                setFill(IosCallStyle.RED)
+                contentDescription = "Decline incoming call"
+                setOnClickListener { if (!HopeCallController.reject(callId)) showCallActionFailure() }
             }
-            addAction("Decline", R.color.status_red, "Decline incoming call") {
-                if (!HopeCallController.reject(callId)) showCallActionFailure()
+            val accept = IosCallStyle.RoundAction(this, R.drawable.ic_ios_call, "Accept", 78).apply {
+                setFill(IosCallStyle.GREEN)
+                contentDescription = "Answer incoming call"
+                setOnClickListener { if (!HopeCallController.answer(callId)) showCallActionFailure() }
             }
-            addAction("Answer", R.color.status_green, "Answer incoming call") {
-                if (!HopeCallController.answer(callId)) showCallActionFailure()
-            }
+            incomingBar.addView(decline, LinearLayout.LayoutParams(0, -2, 1f))
+            incomingBar.addView(accept, LinearLayout.LayoutParams(0, -2, 1f))
             if (allowPrompt && !promptStarted &&
                 (IncomingCallPreferences.isAnnouncementEnabled(this) ||
                     IncomingCallPreferences.isVoiceConfirmationEnabled(this))
@@ -494,59 +411,54 @@ class IncomingCallActivity : AppCompatActivity() {
                 speakCallPrompt(call.caller)
             }
         } else if (activeOrHeld) {
-            instructionView.text = "Cellular call via Android Telecom. HOPE does not record or transcribe call audio."
-            addAction(if (call.muted) "Unmute" else "Mute", R.color.accent_sapphire, "Toggle microphone mute") {
-                if (!HopeCallController.toggleMute()) showCallActionFailure()
-            }
-            addAction("Keypad", R.color.accent_sapphire, "Open in-call keypad") {
-                showKeypad()
-            }
-            addAction(if (call.speakerOn) "Speaker on" else "Speaker", R.color.accent_sapphire, "Toggle speakerphone") {
-                if (!call.canSpeaker || !HopeCallController.toggleSpeaker()) showCallActionFailure()
-            }
-            val holding = call.state == android.telecom.Call.STATE_HOLDING
+            instructionView.text = ""
             addAction(
-                if (!call.canHold) "Hold unavailable" else if (holding) "Resume" else "Hold",
-                R.color.accent_sapphire,
-                if (!call.canHold) "Hold is not supported by this call" else "Hold or resume call"
-            ) {
-                if (!call.canHold || !HopeCallController.toggleHold(callId)) showCallActionFailure()
-            }
-            addAction("Add call", R.color.accent_sapphire, "Start another call") {
-                if (!HopeCallController.addCall(this, callId)) showCallActionFailure()
-            }
-            addAction("Recording unavailable", R.color.status_amber, "Call recording unavailable") {
-                showRecordingUnavailable()
-            }
+                "mute", R.drawable.ic_ios_mic_off, "Toggle microphone mute", active = call.muted
+            ) { if (!HopeCallController.toggleMute()) showCallActionFailure() }
+            addAction("keypad", R.drawable.ic_ios_keypad, "Open in-call keypad") { showKeypad() }
+            addAction(
+                "speaker", R.drawable.ic_ios_speaker, "Toggle speakerphone",
+                active = call.speakerOn, enabled = call.canSpeaker
+            ) { if (!call.canSpeaker || !HopeCallController.toggleSpeaker()) showCallActionFailure() }
+            addAction(
+                "add call", R.drawable.ic_ios_add, "Start another call"
+            ) { if (!HopeCallController.addCall(this, callId)) showCallActionFailure() }
+            addAction(
+                if (holding) "resume" else "hold", R.drawable.ic_ios_pause,
+                "Hold or resume call", active = holding, enabled = call.canHold
+            ) { if (!call.canHold || !HopeCallController.toggleHold(callId)) showCallActionFailure() }
             if (call.canMerge) {
-                addAction("Merge", R.color.accent_sapphire, "Merge supported calls into conference") {
+                addAction("merge", R.drawable.ic_ios_merge, "Merge supported calls into conference") {
                     if (!HopeCallController.mergeCalls(callId)) showCallActionFailure()
+                }
+            } else {
+                addAction("contacts", R.drawable.ic_ios_contacts, "Open contacts") {
+                    try {
+                        startActivity(Intent(this, HopeDialerActivity::class.java)
+                            .putExtra(HopeDialerActivity.EXTRA_START_PAGE, "contacts"))
+                    } catch (error: Exception) {
+                        showCallActionFailure()
+                    }
                 }
             }
         } else if (dialing) {
-            instructionView.text = "Calling through Android Telecom. Audio controls are ready; keypad tones are available after connection."
-            addAction("Mute", R.color.accent_sapphire, "Toggle microphone mute") {
+            instructionView.text = ""
+            addAction("mute", R.drawable.ic_ios_mic_off, "Toggle microphone mute", active = call.muted) {
                 if (!HopeCallController.toggleMute()) showCallActionFailure()
             }
             addAction(
-                if (call.canSpeaker) "Speaker" else "Speaker unavailable",
-                R.color.accent_sapphire,
-                "Toggle speakerphone",
-                enabled = call.canSpeaker
-            ) {
-                if (!HopeCallController.toggleSpeaker()) showCallActionFailure()
-            }
-            addAction(
-                "Keypad",
-                R.color.accent_sapphire,
-                "Keypad tones are available after the call connects",
-                enabled = false
+                "keypad", R.drawable.ic_ios_keypad,
+                "Keypad tones are available after the call connects", enabled = false
             ) { }
+            addAction(
+                "speaker", R.drawable.ic_ios_speaker, "Toggle speakerphone",
+                active = call.speakerOn, enabled = call.canSpeaker
+            ) { if (!HopeCallController.toggleSpeaker()) showCallActionFailure() }
         } else {
             actions.visibility = View.GONE
-            instructionView.text = "Waiting for Android Telecom to connect or disconnect the call."
+            instructionView.text = "Waiting for the call to connect\u2026"
         }
-        updateOrbState(orbState)
+        updateOrbState()
     }
 
     private val disconnectFinish = Runnable {
@@ -561,29 +473,24 @@ class IncomingCallActivity : AppCompatActivity() {
         val endedCall = call ?: lastCallSnapshot!!
         lastCallSnapshot = endedCall
         callerView.text = endedCall.caller
-        numberView.text = endedCall.number.takeIf(String::isNotBlank) ?: "Number unavailable"
+        numberView.visibility = View.GONE
         screenTitleView.text = "Call ended"
-        stateView.text = "CALL ENDED   |   ANDROID TELECOM"
-        standbyView.text = "The call has ended."
-        instructionView.text = "Returning to HOPE Phone…"
+        stateView.text = "Call Ended"
+        stateView.visibility = View.VISIBLE
+        standbyView.text = ""
+        instructionView.text = ""
         timerView.visibility = View.GONE
         quickTextButton.visibility = View.GONE
         endCallButton.visibility = View.GONE
+        incomingBar.visibility = View.GONE
         callActionDock.visibility = View.GONE
         actions.removeAllViews()
         actions.visibility = View.GONE
         updateOrbState("disconnected")
         if (!disconnectFinishScheduled) {
             disconnectFinishScheduled = true
-            mainHandler.postDelayed(disconnectFinish, 2_000L)
+            mainHandler.postDelayed(disconnectFinish, 1_500L)
         }
-    }
-
-    private fun moveCallDetails(ringing: Boolean) {
-        callContent.removeView(callDetails)
-        val orbIndex = callContent.indexOfChild(callOrbContainer)
-        val detailIndex = if (ringing) orbIndex + 1 else 0
-        callContent.addView(callDetails, detailIndex.coerceAtLeast(0), matchWidth())
     }
 
     private fun speakCallPrompt(caller: String) {
@@ -729,59 +636,53 @@ class IncomingCallActivity : AppCompatActivity() {
 
     private fun addAction(
         label: String,
-        colorRes: Int,
+        iconRes: Int,
         description: String,
+        active: Boolean = false,
         enabled: Boolean = true,
         onClick: () -> Unit
     ) {
-        val incomingTile = label == "Decline" || label == "Answer"
-        val declineTile = label == "Decline"
-        val button = Button(this).apply {
-            text = label
+        val tile = IosCallStyle.RoundAction(this, iconRes, label, 72).apply {
             contentDescription = description
-            textSize = if (incomingTile) 17f else 13f
-            isAllCaps = false
+            setActive(active)
             isEnabled = enabled
-            setPadding(dp(8), dp(10), dp(8), dp(10))
-            setTextColor(
-                if (incomingTile && !declineTile) Color.rgb(0, 34, 38)
-                else ContextCompat.getColor(
-                    this@IncomingCallActivity,
-                    if (declineTile) android.R.color.white else colorRes
-                )
-            )
-            background = roundedBackground(
-                when {
-                    declineTile -> Color.rgb(157, 0, 20)
-                    incomingTile -> Color.rgb(0, 222, 230)
-                    else -> Color.rgb(34, 39, 56)
-                },
-                dp(if (incomingTile) 26 else 18)
-            )
             setOnClickListener { onClick() }
         }
-        actions.addView(button, GridLayout.LayoutParams(
+        actions.addView(tile, GridLayout.LayoutParams(
             GridLayout.spec(GridLayout.UNDEFINED, 1f),
             GridLayout.spec(GridLayout.UNDEFINED, 1f)
         ).apply {
             width = 0
-            height = dp(if (incomingTile) 82 else 62)
-            setMargins(dp(5), dp(5), dp(5), dp(5))
+            height = ViewGroup.LayoutParams.WRAP_CONTENT
+            setGravity(Gravity.CENTER)
+            setMargins(0, dp(8), 0, dp(8))
         })
     }
 
     private fun showKeypad() {
+        val typed = TextView(this).apply {
+            textSize = 30f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(8), 0, dp(12))
+            minHeight = dp(48)
+        }
         val grid = GridLayout(this).apply {
             columnCount = 3
             setPadding(dp(8), dp(4), dp(8), dp(4))
         }
-        listOf('1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#').forEach { digit ->
-            grid.addView(Button(this).apply {
-                text = digit.toString()
-                textSize = 22f
+        listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#").forEach { digit ->
+            val key = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                background = IosCallStyle.rippleCircle(Color.argb(64, 255, 255, 255))
+                isClickable = true
+                isFocusable = true
                 contentDescription = "Send DTMF $digit"
                 setOnClickListener {
-                    if (!HopeCallController.sendDtmf(callId, digit)) {
+                    if (HopeCallController.sendDtmf(callId, digit[0])) {
+                        typed.text = (typed.text.toString() + digit).takeLast(16)
+                    } else {
                         Toast.makeText(
                             this@IncomingCallActivity,
                             "Android could not send that keypad tone.",
@@ -789,20 +690,48 @@ class IncomingCallActivity : AppCompatActivity() {
                         ).show()
                     }
                 }
-            }, GridLayout.LayoutParams(
+            }
+            key.addView(TextView(this).apply {
+                text = digit
+                textSize = 28f
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                includeFontPadding = false
+            })
+            val letters = IosCallStyle.lettersFor(digit)
+            if (letters.isNotEmpty()) {
+                key.addView(TextView(this).apply {
+                    text = letters
+                    textSize = 9f
+                    letterSpacing = 0.15f
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.WHITE)
+                    includeFontPadding = false
+                })
+            }
+            grid.addView(key, GridLayout.LayoutParams(
                 GridLayout.spec(GridLayout.UNDEFINED, 1f),
                 GridLayout.spec(GridLayout.UNDEFINED, 1f)
             ).apply {
-                width = 0
-                height = dp(58)
-                setMargins(dp(3), dp(3), dp(3), dp(3))
+                width = dp(72)
+                height = dp(72)
+                setGravity(Gravity.CENTER)
+                setMargins(dp(8), dp(6), dp(8), dp(6))
             })
         }
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("In-call keypad")
-            .setView(grid)
-            .setNegativeButton("Close", null)
-            .show()
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(8))
+            addView(typed, matchWidth())
+            addView(grid, matchWidth())
+        }
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setView(panel)
+            .setNegativeButton("Hide", null)
+            .create()
+        dialog.window?.setBackgroundDrawable(roundedBackground(Color.rgb(36, 38, 48), dp(28)))
+        dialog.show()
+        dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE)?.setTextColor(IosCallStyle.BLUE)
     }
 
     private fun formatCallDuration(call: HopeCallSnapshot): String {
@@ -811,17 +740,13 @@ class IncomingCallActivity : AppCompatActivity() {
         return String.format(Locale.US, "%02d:%02d", seconds / 60, seconds % 60)
     }
 
+    /** Shows a small "HOPE is listening" line while voice confirmation is capturing a command. */
     private fun updateOrbState(forceState: String? = null) {
-        if (!orbLoaded || !::orbWebView.isInitialized) return
+        if (!::listeningView.isInitialized) return
         val snapshot = HopeCallController.currentCall(this, callId)
-        val state = forceState ?: when (snapshot?.state) {
-            android.telecom.Call.STATE_RINGING -> if (speechStarted) "listening" else "ringing"
-            android.telecom.Call.STATE_DIALING, android.telecom.Call.STATE_CONNECTING -> "thinking"
-            android.telecom.Call.STATE_ACTIVE -> "active"
-            android.telecom.Call.STATE_HOLDING -> "idle"
-            else -> "disconnected"
-        }
-        orbWebView.evaluateJavascript("window.HopeCallOrb && window.HopeCallOrb.setState('$state');", null)
+        val listening = forceState == null && speechStarted &&
+            snapshot?.state == android.telecom.Call.STATE_RINGING
+        listeningView.visibility = if (listening) View.VISIBLE else View.GONE
     }
 
     private fun roundedBackground(color: Int, radius: Int) =
@@ -859,10 +784,6 @@ class IncomingCallActivity : AppCompatActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
-        if (::orbWebView.isInitialized) {
-            orbWebView.stopLoading()
-            orbWebView.destroy()
-        }
         speechRecognizer?.cancel()
         speechRecognizer?.destroy()
         speechRecognizer = null

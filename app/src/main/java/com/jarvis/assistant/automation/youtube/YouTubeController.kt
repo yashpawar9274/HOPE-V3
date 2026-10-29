@@ -10,7 +10,7 @@ import com.jarvis.assistant.automation.accessibility.JarvisAccessibilityService
 import com.jarvis.assistant.util.ActivityLauncherHelper
 
 /**
- * Everything JARVIS needs to actually control YouTube:
+ * Everything HOPE needs to actually control YouTube:
  *  - search + jump straight to a video (deep link, skips typing in-app)
  *  - play/pause/skip via standard Android media key events (works because
  *    YouTube registers a MediaSession while a video is playing, the same

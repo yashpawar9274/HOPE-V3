@@ -112,7 +112,7 @@ object AgentTaskEngine {
 
     fun current(): Context? = active
 
-    /** Clears task state when a live Jarvis session is explicitly stopped or restarted. */
+    /** Clears task state when a live HOPE session is explicitly stopped or restarted. */
     @Synchronized
     fun resetForSession() {
         active?.let { it.cancellationRequested = true }

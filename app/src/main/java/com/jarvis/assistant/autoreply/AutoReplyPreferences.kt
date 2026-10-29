@@ -18,11 +18,22 @@ object AutoReplyPreferences {
     private const val KEY_ENABLED_APPS = "enabled_apps"
     private const val KEY_BLOCKED_CHATS = "blocked_chats"
     private const val KEY_SUBMITTED_REPLIES = "submitted_reply_fingerprints"
+    private const val KEY_SMART_MODE = "smart_mode_enabled"
     private const val SUBMITTED_REPLY_RETENTION_MILLIS = 24 * 60 * 60 * 1000L
     private const val MAX_SUBMITTED_REPLY_FINGERPRINTS = 500
 
     private fun preferences(context: Context) =
         context.applicationContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+
+    /** HOPE Smart Auto-Reply: one opt-in switch, no rule or template required. Off by default. */
+    fun isSmartModeEnabled(context: Context): Boolean =
+        preferences(context).getBoolean(KEY_SMART_MODE, false)
+
+    fun setSmartModeEnabled(context: Context, enabled: Boolean) {
+        check(preferences(context).edit().putBoolean(KEY_SMART_MODE, enabled).commit()) {
+            "Could not save the HOPE Smart Auto-Reply setting."
+        }
+    }
 
     fun isAppEnabled(context: Context, packageName: String): Boolean =
         preferences(context).getStringSet(KEY_ENABLED_APPS, emptySet())

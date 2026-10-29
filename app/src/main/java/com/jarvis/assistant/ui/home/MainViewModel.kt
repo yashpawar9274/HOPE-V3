@@ -241,7 +241,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun turnOffSession() {
         sendServiceAction(JarvisConversationService.ACTION_STOP_ALL)
         viewModelScope.launch {
-            _eventFlow.emit("Jarvis Powered Off")
+            _eventFlow.emit("HOPE Powered Off")
         }
     }
 
@@ -261,7 +261,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val context = getApplication<Application>()
         if (!PermissionHelper.hasAllRequiredPermissions(context)) {
             viewModelScope.launch {
-                _eventFlow.emit("Please allow all permissions in Settings to activate Jarvis.")
+                _eventFlow.emit("Please allow all permissions in Settings to activate HOPE.")
             }
             return
         }

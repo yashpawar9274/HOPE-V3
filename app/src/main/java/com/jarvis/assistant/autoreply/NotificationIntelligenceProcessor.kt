@@ -142,7 +142,8 @@ object NotificationIntelligenceProcessor {
         if (allowAutoReply &&
             masterEnabled && readingEnabled && AutoReplyCoordinator.isAppEnabled(context, packageName) &&
             AutoReplyPolicy.isSupportedPackage(packageName, defaultSmsPackage(context)) &&
-            authorizedReplyRule != null && !excluded && !quiet &&
+            (authorizedReplyRule != null || AutoReplyPreferences.isSmartModeEnabled(context)) &&
+            !excluded && !quiet &&
             !hasOutgoingLatestMessage(sbn.notification)
         ) {
             AutoReplyCoordinator.onNotification(

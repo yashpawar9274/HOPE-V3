@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.provider.ContactsContract
@@ -18,6 +19,8 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.EditText
 import android.widget.GridLayout
 import android.widget.HorizontalScrollView
@@ -54,14 +57,16 @@ class HopeDialerActivity : AppCompatActivity() {
         val lookupKey: String? = null,
         val lookupUri: String? = null,
         val callType: Int? = null,
-        val starred: Boolean = false
+        val starred: Boolean = false,
+        val date: Long = 0L
     )
 
     private lateinit var content: LinearLayout
     private lateinit var numberInput: EditText
-    private lateinit var simButton: Button
+    private lateinit var simButton: TextView
+    private lateinit var pal: IosCallStyle.Palette
     private lateinit var contentScroll: ScrollView
-    private val pageTabs = mutableMapOf<Page, Button>()
+    private val pageTabs = mutableMapOf<Page, Pair<ImageView, TextView>>()
     private var activePage = Page.DIAL
     private var pendingNumber: String? = null
     private var selectedAccount: PhoneAccountHandle? = null
@@ -173,83 +178,106 @@ class HopeDialerActivity : AppCompatActivity() {
         super.onPause()
     }
 
+    private fun isDarkTheme(): Boolean = try {
+        val prefs = com.jarvis.assistant.JarvisApp.instance.preferences
+        !ThemeManager.isLight(ThemeManager.getThemeBgColor(prefs.appTheme, prefs.customThemeColor))
+    } catch (_: Exception) {
+        true
+    }
+
     private fun buildUi() {
+        pal = IosCallStyle.Palette(isDarkTheme())
+        window.statusBarColor = pal.background
+        window.navigationBarColor = pal.tabBar
+        androidx.core.view.WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !pal.dark
+            isAppearanceLightNavigationBars = !pal.dark
+        }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(18))
+            setBackgroundColor(pal.background)
         }
+        content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(16), dp(8), dp(16), dp(16))
+        }
+        contentScroll = ScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = false
+            addView(content, ViewGroup.LayoutParams(-1, -2))
+        }
+        root.addView(contentScroll, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        val tabBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(pal.tabBar)
+            elevation = dp(4).toFloat()
+        }
+        listOf(
+            Triple("Recents", R.drawable.ic_ios_recents, Page.RECENTS),
+            Triple("Contacts", R.drawable.ic_ios_contacts, Page.CONTACTS),
+            Triple("Keypad", R.drawable.ic_ios_keypad, Page.DIAL)
+        ).forEach { (label, iconRes, page) ->
+            val icon = ImageView(this).apply {
+                setImageResource(iconRes)
+                setColorFilter(pal.secondary)
+            }
+            val caption = TextView(this).apply {
+                text = label
+                textSize = 10f
+                gravity = Gravity.CENTER
+                setTextColor(pal.secondary)
+            }
+            val tab = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(0, dp(8), 0, dp(6))
+                isClickable = true
+                isFocusable = true
+                contentDescription = label
+                setOnClickListener { showPage(page) }
+                addView(icon, LinearLayout.LayoutParams(dp(26), dp(26)))
+                addView(caption, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(2) })
+            }
+            pageTabs[page] = icon to caption
+            tabBar.addView(tab, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        root.addView(tabBar, LinearLayout.LayoutParams(-1, -2))
+
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val bars = insets.getInsets(
                 androidx.core.view.WindowInsetsCompat.Type.systemBars() or
                     androidx.core.view.WindowInsetsCompat.Type.displayCutout()
             )
-            view.setPadding(dp(20) + bars.left, dp(20) + bars.top, dp(20) + bars.right, dp(18) + bars.bottom)
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
-        ThemeManager.applyDynamicBackground(root)
-        val titleColor = themeColor(R.attr.themeTextPrimary)
-        root.addView(TextView(this).apply {
-            text = "HOPE PHONE"
-            textSize = 13f
-            letterSpacing = 0.15f
-            gravity = Gravity.CENTER
-            setTextColor(ContextCompat.getColor(this@HopeDialerActivity, R.color.accent_sapphire))
-        }, matchWidth())
-        root.addView(TextView(this).apply {
-            text = "Calls & contacts"
-            textSize = 25f
-            gravity = Gravity.CENTER
-            setTextColor(titleColor)
-            setPadding(0, dp(4), 0, dp(14))
-        }, matchWidth())
-        val tabs = LinearLayout(this).apply {
-            gravity = Gravity.CENTER
-        }
-        listOf(
-            "Dial pad" to Page.DIAL,
-            "Contacts" to Page.CONTACTS,
-            "Recent" to Page.RECENTS
-        ).forEach { (label, page) ->
-        val tab = Button(this).apply {
-            text = label
-            isAllCaps = false
-            setOnClickListener { showPage(page) }
-        }
-        pageTabs[page] = tab
-        tabs.addView(tab, LinearLayout.LayoutParams(0, dp(48), 1f).apply {
-            setMargins(dp(3), 0, dp(3), 0)
-        })
-        }
-        root.addView(tabs, matchWidth())
-        content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-        }
-        contentScroll = ScrollView(this).apply {
-            isFillViewport = false
-            addView(content, ViewGroup.LayoutParams(-1, -2))
-        }
-        root.addView(contentScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
         showPage(Page.DIAL)
     }
 
+    private fun largeTitle(text: String) {
+        content.addView(TextView(this).apply {
+            this.text = text
+            textSize = 34f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(pal.label)
+            setPadding(dp(4), dp(8), dp(4), dp(8))
+        }, matchWidth())
+    }
+
+    private fun card(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        background = IosCallStyle.roundRect(pal.cell, dp(12).toFloat())
+    }
+
     private fun showPage(page: Page) {
         activePage = page
-        pageTabs.forEach { (tabPage, button) ->
-            button.isSelected = tabPage == page
-            button.alpha = if (tabPage == page) 1f else 0.72f
-            button.backgroundTintList = android.content.res.ColorStateList.valueOf(
-                if (tabPage == page) {
-                    ContextCompat.getColor(this, R.color.accent_sapphire)
-                } else {
-                    themeColor(R.attr.themeSurface)
-                }
-            )
-            button.setTextColor(
-                if (tabPage == page) ContextCompat.getColor(this, android.R.color.white)
-                else themeColor(R.attr.themeTextPrimary)
-            )
+        pageTabs.forEach { (tabPage, views) ->
+            val color = if (tabPage == page) IosCallStyle.BLUE else pal.secondary
+            views.first.setColorFilter(color)
+            views.second.setTextColor(color)
         }
         dialSuggestionsJob?.cancel()
         recentCallsJob?.cancel()
@@ -259,6 +287,7 @@ class HopeDialerActivity : AppCompatActivity() {
             Page.CONTACTS -> {
                 if (hasPermission(Manifest.permission.READ_CONTACTS)) showContacts("")
                 else {
+                    largeTitle("Contacts")
                     showPermissionMessage("Allow Contacts permission to search and call people saved on this device.")
                     addActionButton("Allow Contacts Access") {
                         contactsPermissionRequest.launch(Manifest.permission.READ_CONTACTS)
@@ -268,6 +297,7 @@ class HopeDialerActivity : AppCompatActivity() {
             Page.RECENTS -> {
                 if (hasPermission(Manifest.permission.READ_CALL_LOG)) showRecents()
                 else {
+                    largeTitle("Recents")
                     showPermissionMessage("Allow Call History permission to view recent incoming, outgoing, and missed calls.")
                     addActionButton("Allow Call History Access") {
                         callLogPermissionRequest.launch(Manifest.permission.READ_CALL_LOG)
@@ -277,22 +307,59 @@ class HopeDialerActivity : AppCompatActivity() {
         }
     }
 
+    private fun placeCallFromDialPad() {
+        val number = numberInput.text.toString().trim()
+        if (number.isBlank()) {
+            Toast.makeText(this, "Enter a phone number.", Toast.LENGTH_SHORT).show()
+        } else if (!PhoneRoleHelper.isDefaultPhoneApp(this)) {
+            Toast.makeText(this, "Set HOPE as the default phone app before placing calls.", Toast.LENGTH_LONG).show()
+        } else if (!hasPermission(Manifest.permission.CALL_PHONE)) {
+            pendingNumber = number
+            callPermissionRequest.launch(Manifest.permission.CALL_PHONE)
+        } else {
+            placeCall(number)
+        }
+    }
+
     private fun showDialPad() {
-        val ink = themeColor(R.attr.themeTextPrimary)
         val suggestions = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
         }
-        numberInput = EditText(this).apply {
-            hint = "Phone number"
-            inputType = android.text.InputType.TYPE_CLASS_PHONE
-            textSize = 27f
+        simButton = TextView(this).apply {
+            text = simButtonLabel()
+            textSize = 13f
             gravity = Gravity.CENTER
+            setTextColor(IosCallStyle.BLUE)
+            setPadding(dp(12), dp(10), dp(12), dp(2))
+            setOnClickListener { chooseSim() }
+        }
+        content.addView(simButton, matchWidth())
+        val backspace = ImageView(this).apply {
+            setImageResource(R.drawable.ic_ios_backspace)
+            setColorFilter(pal.secondary)
+            contentDescription = "Delete"
+            visibility = View.INVISIBLE
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            setOnClickListener { deleteLastDigit() }
+            setOnLongClickListener {
+                numberInput.text.clear()
+                true
+            }
+        }
+        numberInput = EditText(this).apply {
+            hint = ""
+            inputType = android.text.InputType.TYPE_CLASS_PHONE
+            showSoftInputOnFocus = false
+            textSize = 36f
+            gravity = Gravity.CENTER
+            background = null
             setSingleLine(true)
-            setTextColor(ink)
+            setTextColor(pal.label)
             setText(dialNumber)
             addTextChangedListener(SimpleTextWatcher {
                 dialNumber = it
+                backspace.visibility = if (it.isEmpty()) View.INVISIBLE else View.VISIBLE
                 if (hasPermission(Manifest.permission.READ_CONTACTS)) {
                     loadDialSuggestions(it, suggestions)
                 } else {
@@ -301,94 +368,122 @@ class HopeDialerActivity : AppCompatActivity() {
                 }
             })
         }
-        content.addView(numberInput, matchWidth().apply {
-            topMargin = dp(18)
-            bottomMargin = dp(8)
-        })
-        simButton = Button(this).apply {
-            text = simButtonLabel()
-            isAllCaps = false
-            setOnClickListener { chooseSim() }
+        content.addView(numberInput, matchWidth().apply { topMargin = dp(12); bottomMargin = dp(4) })
+        content.addView(suggestions, matchWidth().apply { bottomMargin = dp(8) })
+
+        val keySize = dp(78)
+        val keyRows = listOf(
+            listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("*", "0", "#")
+        )
+        keyRows.forEach { digits ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            digits.forEach { digit ->
+                val key = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    background = android.graphics.drawable.RippleDrawable(
+                        android.content.res.ColorStateList.valueOf(Color.argb(60, 128, 128, 128)),
+                        IosCallStyle.circle(pal.key),
+                        IosCallStyle.circle(Color.WHITE)
+                    )
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = digit
+                    setOnClickListener { numberInput.append(digit) }
+                    if (digit == "0") {
+                        setOnLongClickListener {
+                            numberInput.append("+")
+                            true
+                        }
+                    }
+                }
+                key.addView(TextView(this).apply {
+                    text = digit
+                    textSize = if (digit == "*" || digit == "#") 30f else 32f
+                    gravity = Gravity.CENTER
+                    setTextColor(pal.label)
+                    includeFontPadding = false
+                })
+                val letters = IosCallStyle.lettersFor(digit)
+                if (letters.isNotEmpty()) {
+                    key.addView(TextView(this).apply {
+                        text = letters
+                        textSize = 10f
+                        letterSpacing = 0.15f
+                        gravity = Gravity.CENTER
+                        setTextColor(pal.label)
+                        includeFontPadding = false
+                    })
+                }
+                row.addView(key, LinearLayout.LayoutParams(keySize, keySize).apply {
+                    setMargins(dp(12), dp(7), dp(12), dp(7))
+                })
+            }
+            content.addView(row, matchWidth())
         }
-        content.addView(simButton, matchWidth())
-        val keys = GridLayout(this).apply {
-            columnCount = 3
-            rowCount = 4
-        }
-        listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#").forEach { digit ->
-            keys.addView(Button(this).apply {
-                text = digit
-                textSize = 22f
-                setOnClickListener { numberInput.append(digit) }
-            }, GridLayout.LayoutParams().apply {
-                width = 0
-                height = dp(58)
-                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                setMargins(dp(4), dp(4), dp(4), dp(4))
-            })
-        }
-        content.addView(keys, matchWidth().apply { topMargin = dp(8) })
-        val actions = LinearLayout(this).apply {
+        val bottom = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-        actions.addView(Button(this@HopeDialerActivity).apply {
-            text = "Clear"
-            isAllCaps = false
-            setOnClickListener {
-                numberInput.text.clear()
-            }
-            setOnLongClickListener {
-                numberInput.text.clear()
-                true
-            }
-        }, LinearLayout.LayoutParams(0, dp(54), 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
-        actions.addView(Button(this@HopeDialerActivity).apply {
-            text = "Delete"
-            isAllCaps = false
-            setOnClickListener { deleteLastDigit() }
-            setOnLongClickListener {
-                numberInput.text.clear()
-                true
-            }
-        }, LinearLayout.LayoutParams(0, dp(54), 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
-        actions.addView(Button(this@HopeDialerActivity).apply {
-            text = "Call"
-            isAllCaps = false
-            setTextColor(ContextCompat.getColor(this@HopeDialerActivity, android.R.color.white))
-            backgroundTintList = android.content.res.ColorStateList.valueOf(
-                ContextCompat.getColor(this@HopeDialerActivity, R.color.status_green)
-            )
-            setOnClickListener {
-                val number = numberInput.text.toString().trim()
-                if (number.isBlank()) {
-                    Toast.makeText(this@HopeDialerActivity, "Enter a phone number.", Toast.LENGTH_SHORT).show()
-                } else if (!PhoneRoleHelper.isDefaultPhoneApp(this@HopeDialerActivity)) {
-                    Toast.makeText(this@HopeDialerActivity, "Set HOPE as the default phone app before placing calls.", Toast.LENGTH_LONG).show()
-                } else if (!hasPermission(Manifest.permission.CALL_PHONE)) {
-                    pendingNumber = number
-                    callPermissionRequest.launch(Manifest.permission.CALL_PHONE)
-                } else {
-                    placeCall(number)
-                }
-            }
-        }, LinearLayout.LayoutParams(0, dp(54), 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
-        content.addView(actions, matchWidth().apply { topMargin = dp(12) })
-        content.addView(suggestions, matchWidth())
-        if (dialNumber.isNotBlank() && hasPermission(Manifest.permission.READ_CONTACTS)) {
-            loadDialSuggestions(dialNumber, suggestions)
+        bottom.addView(View(this), LinearLayout.LayoutParams(keySize, keySize).apply {
+            setMargins(dp(12), dp(7), dp(12), dp(7))
+        })
+        val callButton = ImageView(this).apply {
+            setImageResource(R.drawable.ic_ios_call)
+            setColorFilter(Color.WHITE)
+            contentDescription = "Call"
+            setPadding(dp(22), dp(22), dp(22), dp(22))
+            background = IosCallStyle.rippleCircle(IosCallStyle.GREEN)
+            setOnClickListener { placeCallFromDialPad() }
         }
+        bottom.addView(callButton, LinearLayout.LayoutParams(keySize, keySize).apply {
+            setMargins(dp(12), dp(7), dp(12), dp(7))
+        })
+        bottom.addView(backspace, LinearLayout.LayoutParams(keySize, keySize).apply {
+            setMargins(dp(12), dp(7), dp(12), dp(7))
+        })
+        content.addView(bottom, matchWidth())
+        if (dialNumber.isNotBlank()) {
+            backspace.visibility = View.VISIBLE
+            if (hasPermission(Manifest.permission.READ_CONTACTS)) loadDialSuggestions(dialNumber, suggestions)
+        }
+    }
+
+    private fun searchField(initial: String, hintText: String, onChange: (String) -> Unit): EditText {
+        val field = EditText(this).apply {
+            hint = hintText
+            setHintTextColor(pal.secondary)
+            setTextColor(pal.label)
+            textSize = 16f
+            background = null
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            setSingleLine(true)
+            setText(initial)
+            addTextChangedListener(SimpleTextWatcher { onChange(it) })
+        }
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), 0, dp(12), 0)
+            background = IosCallStyle.roundRect(pal.search, dp(12).toFloat())
+            addView(ImageView(this@HopeDialerActivity).apply {
+                setImageResource(R.drawable.ic_ios_search)
+                setColorFilter(pal.secondary)
+            }, LinearLayout.LayoutParams(dp(20), dp(20)))
+            addView(field, LinearLayout.LayoutParams(0, dp(42), 1f).apply { leftMargin = dp(8) })
+        }
+        content.addView(bar, matchWidth().apply { topMargin = dp(4); bottomMargin = dp(8) })
+        return field
     }
 
     private fun showContacts(initialQuery: String) {
         activePage = Page.CONTACTS
         content.removeAllViews()
-        val search = EditText(this).apply {
-            hint = "Search contacts"
-            inputType = android.text.InputType.TYPE_CLASS_TEXT
-            setSingleLine(true)
-            setText(initialQuery)
-        }
-        content.addView(search, matchWidth().apply { topMargin = dp(12); bottomMargin = dp(8) })
+        largeTitle("Contacts")
+        searchField(initialQuery, "Search") { load(it) }
         val index = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             visibility = View.GONE
@@ -398,83 +493,96 @@ class HopeDialerActivity : AppCompatActivity() {
         content.addView(index, matchWidth())
         val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(results, matchWidth())
-        fun load(query: String) {
-            contactsJob?.cancel()
-            contactsJob = lifecycleScope.launch {
-                val entries = withContext(Dispatchers.IO) { queryContacts(query) }
-                if (activePage != Page.CONTACTS || isFinishing) return@launch
-                results.removeAllViews()
-                letters.removeAllViews()
-                if (entries.isEmpty()) {
-                    index.visibility = View.GONE
-                    addListMessage(results, if (query.isBlank()) "No contacts found on this device." else "No matching contacts.")
-                } else {
-                    val sections = entries.groupBy { contactInitial(it.name) }.toSortedMap()
-                    sections.forEach { (initial, section) ->
-                        val header = TextView(this@HopeDialerActivity).apply {
-                            text = initial
-                            tag = "contact-index-$initial"
-                            textSize = 14f
-                            setTypeface(typeface, android.graphics.Typeface.BOLD)
-                            setTextColor(themeColor(R.attr.themeTextMuted))
-                            setPadding(dp(8), dp(12), dp(8), dp(4))
+        contactsResults = results
+        contactsLetters = letters
+        contactsIndex = index
+        load(initialQuery)
+    }
+
+    private var contactsResults: LinearLayout? = null
+    private var contactsLetters: LinearLayout? = null
+    private var contactsIndex: HorizontalScrollView? = null
+
+    private fun load(query: String) {
+        val results = contactsResults ?: return
+        val letters = contactsLetters ?: return
+        val index = contactsIndex ?: return
+        contactsJob?.cancel()
+        contactsJob = lifecycleScope.launch {
+            val entries = withContext(Dispatchers.IO) { queryContacts(query) }
+            if (activePage != Page.CONTACTS || isFinishing) return@launch
+            results.removeAllViews()
+            letters.removeAllViews()
+            if (entries.isEmpty()) {
+                index.visibility = View.GONE
+                addListMessage(results, if (query.isBlank()) "No contacts found on this device." else "No Results")
+                return@launch
+            }
+            val sections = entries.groupBy { contactInitial(it.name) }.toSortedMap()
+            sections.forEach { (initial, section) ->
+                results.addView(TextView(this@HopeDialerActivity).apply {
+                    text = initial
+                    tag = "contact-index-$initial"
+                    textSize = 14f
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setTextColor(pal.secondary)
+                    setPadding(dp(8), dp(14), dp(8), dp(4))
+                }, matchWidth())
+                val group = card()
+                section.forEach { entry ->
+                    addEntry(group, entry) { placeCallAfterPermission(entry.number) }
+                }
+                results.addView(group, matchWidth())
+            }
+            index.visibility = if (query.isBlank() && sections.size > 1) View.VISIBLE else View.GONE
+            if (index.visibility == View.VISIBLE) {
+                sections.keys.forEach { initial ->
+                    letters.addView(TextView(this@HopeDialerActivity).apply {
+                        text = initial
+                        textSize = 14f
+                        gravity = Gravity.CENTER
+                        setTextColor(IosCallStyle.BLUE)
+                        setPadding(dp(9), dp(9), dp(9), dp(9))
+                        contentDescription = "Jump to contacts starting with $initial"
+                        setOnClickListener {
+                            val target = results.findViewWithTag<View>("contact-index-$initial")
+                            if (target != null) contentScroll.smoothScrollTo(0, results.top + target.top)
                         }
-                        results.addView(header, matchWidth())
-                        section.forEach { entry ->
-                            addEntry(results, entry) { placeCallAfterPermission(entry.number) }
-                        }
-                    }
-                    index.visibility = if (query.isBlank() && sections.size > 1) View.VISIBLE else View.GONE
-                    if (index.visibility == View.VISIBLE) {
-                        sections.keys.forEach { initial ->
-                            letters.addView(TextView(this@HopeDialerActivity).apply {
-                                text = initial
-                                textSize = 14f
-                                gravity = Gravity.CENTER
-                                setTextColor(ContextCompat.getColor(this@HopeDialerActivity, R.color.accent_sapphire))
-                                setPadding(dp(9), dp(9), dp(9), dp(9))
-                                contentDescription = "Jump to contacts starting with $initial"
-                                setOnClickListener {
-                                    val target = results.findViewWithTag<View>("contact-index-$initial")
-                                    if (target != null) contentScroll.smoothScrollTo(0, results.top + target.top)
-                                }
-                            })
-                        }
-                    }
+                    })
                 }
             }
         }
-        search.addTextChangedListener(SimpleTextWatcher { load(it) })
-        load(initialQuery)
     }
 
     private fun showRecents() {
         activePage = Page.RECENTS
         content.removeAllViews()
-        val filters = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        largeTitle("Recents")
+        val segmented = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+            background = IosCallStyle.roundRect(pal.search, dp(10).toFloat())
+        }
         RecentFilter.values().forEach { filter ->
-            filters.addView(Button(this).apply {
+            val selected = filter == recentFilter
+            segmented.addView(TextView(this).apply {
                 text = filter.label
-                isAllCaps = false
-                isSelected = filter == recentFilter
-                backgroundTintList = android.content.res.ColorStateList.valueOf(
-                    if (filter == recentFilter) ContextCompat.getColor(this@HopeDialerActivity, R.color.accent_sapphire)
-                    else themeColor(R.attr.themeSurface)
-                )
-                setTextColor(
-                    if (filter == recentFilter) ContextCompat.getColor(this@HopeDialerActivity, android.R.color.white)
-                    else themeColor(R.attr.themeTextPrimary)
-                )
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setTypeface(typeface, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+                setTextColor(pal.label)
+                background = if (selected) {
+                    IosCallStyle.roundRect(if (pal.dark) Color.rgb(99, 99, 102) else Color.WHITE, dp(8).toFloat())
+                } else null
+                isClickable = true
                 setOnClickListener {
                     recentFilter = filter
                     showRecents()
                 }
-            }, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
-                setMargins(dp(1), dp(4), dp(1), dp(8))
-            })
+            }, LinearLayout.LayoutParams(0, dp(32), 1f))
         }
-        content.addView(filters, matchWidth())
-        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(segmented, matchWidth().apply { bottomMargin = dp(12) })
+        val results = card()
         content.addView(results, matchWidth())
         recentCallsJob = lifecycleScope.launch {
             val requestedFilter = recentFilter
@@ -482,7 +590,7 @@ class HopeDialerActivity : AppCompatActivity() {
             if (activePage != Page.RECENTS || recentFilter != requestedFilter || isFinishing) return@launch
             results.removeAllViews()
             if (entries.isEmpty()) {
-                addListMessage(results, if (recentFilter == RecentFilter.ALL) "No recent calls found." else "No ${recentFilter.label.lowercase()} calls found.")
+                addListMessage(results, if (recentFilter == RecentFilter.ALL) "No Recent Calls" else "No ${recentFilter.label} Calls")
             }
             entries.forEach { entry ->
                 addEntry(results, entry) { placeCallAfterPermission(entry.number) }
@@ -502,6 +610,7 @@ class HopeDialerActivity : AppCompatActivity() {
             val matches = withContext(Dispatchers.IO) { queryContacts(query).take(5) }
             if (activePage != Page.DIAL || isFinishing || numberInput.text.toString() != query) return@launch
             results.removeAllViews()
+            results.background = IosCallStyle.roundRect(pal.cell, dp(12).toFloat())
             if (matches.isEmpty()) {
                 addListMessage(results, "No matching contacts")
             } else {
@@ -601,7 +710,8 @@ class HopeDialerActivity : AppCompatActivity() {
                         number,
                         "$type • $dateTime$durationLabel",
                         lookupUri = cursor.getString(5),
-                        callType = callType
+                        callType = callType,
+                        date = date
                     )
                 }
             }
@@ -613,53 +723,103 @@ class HopeDialerActivity : AppCompatActivity() {
         return entries
     }
 
+    private fun shortDate(millis: Long): String {
+        if (millis <= 0L) return ""
+        val now = java.util.Calendar.getInstance()
+        val then = java.util.Calendar.getInstance().apply { timeInMillis = millis }
+        val sameDay = now.get(java.util.Calendar.YEAR) == then.get(java.util.Calendar.YEAR) &&
+            now.get(java.util.Calendar.DAY_OF_YEAR) == then.get(java.util.Calendar.DAY_OF_YEAR)
+        if (sameDay) return android.text.format.DateFormat.getTimeFormat(this).format(millis)
+        now.add(java.util.Calendar.DAY_OF_YEAR, -1)
+        val yesterday = now.get(java.util.Calendar.YEAR) == then.get(java.util.Calendar.YEAR) &&
+            now.get(java.util.Calendar.DAY_OF_YEAR) == then.get(java.util.Calendar.DAY_OF_YEAR)
+        return if (yesterday) "Yesterday" else android.text.format.DateFormat.getDateFormat(this).format(millis)
+    }
+
     private fun addEntry(parent: LinearLayout, entry: PhoneEntry, onCall: () -> Unit) {
+        val recent = entry.callType != null
+        val missed = entry.callType == CallLog.Calls.MISSED_TYPE
+        if (parent.childCount > 0) {
+            parent.addView(
+                View(this).apply { setBackgroundColor(pal.separator) },
+                LinearLayout.LayoutParams(-1, 1).apply { leftMargin = dp(16) }
+            )
+        }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), dp(8), dp(8), dp(8))
-            background = ContextCompat.getDrawable(this@HopeDialerActivity, R.drawable.bg_jarvis_action_card)
+            setPadding(dp(16), dp(10), dp(6), dp(10))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { if (recent) onCall() else showEntryDetails(entry) }
+            setOnLongClickListener {
+                showEntryMenu(this, entry)
+                true
+            }
         }
         val labels = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         labels.addView(TextView(this).apply {
             text = entry.name
-            textSize = 16f
-            maxLines = 2
-            setTextColor(themeColor(R.attr.themeTextPrimary))
+            textSize = 17f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setTextColor(if (missed) IosCallStyle.RED else pal.label)
         }, matchWidth())
-        labels.addView(TextView(this).apply {
-            val numberLabel = entry.number.takeIf(String::isNotBlank)
-                ?.let(::formatPhoneNumber)
-                ?.takeIf { it != entry.name }
-            text = listOf(numberLabel, entry.detail).filterNotNull().filter { it.isNotBlank() }.joinToString(" • ")
-            textSize = 12f
-            maxLines = 2
-            setTextColor(themeColor(R.attr.themeTextMuted))
-        }, matchWidth())
-        labels.setOnClickListener { showEntryDetails(entry) }
-        row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(Button(this).apply {
-            text = "Call"
-            isAllCaps = false
-            isEnabled = entry.number.isNotBlank()
-            setOnClickListener { onCall() }
-        })
-        val more = Button(this).apply {
-            text = if (entry.contactId != null) {
-                if (entry.starred) "★" else "☆"
-            } else {
-                "⋮"
+        val numberLabel = entry.number.takeIf(String::isNotBlank)
+            ?.let(::formatPhoneNumber)
+            ?.takeIf { it != entry.name }
+        val subtitle = if (recent) {
+            val typeLabel = when (entry.callType) {
+                CallLog.Calls.MISSED_TYPE -> "Missed"
+                CallLog.Calls.OUTGOING_TYPE -> "Outgoing"
+                CallLog.Calls.REJECTED_TYPE -> "Declined"
+                else -> "Incoming"
             }
-            contentDescription = if (entry.contactId != null) {
-                if (entry.starred) "Contact actions; favorite" else "Contact actions"
-            } else {
-                "More call actions"
-            }
-            isAllCaps = false
-            setOnClickListener { showEntryMenu(this, entry) }
+            listOfNotNull(typeLabel, numberLabel).joinToString(" \u2022 ")
+        } else {
+            listOfNotNull(numberLabel, entry.detail.takeIf(String::isNotBlank)).joinToString(" \u2022 ")
         }
-        row.addView(more)
-        parent.addView(row, matchWidth().apply { topMargin = dp(4); bottomMargin = dp(4) })
+        if (subtitle.isNotBlank()) {
+            labels.addView(TextView(this).apply {
+                text = subtitle
+                textSize = 13f
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setTextColor(pal.secondary)
+            }, matchWidth())
+        }
+        row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
+        if (recent) {
+            row.addView(TextView(this).apply {
+                text = shortDate(entry.date)
+                textSize = 14f
+                setTextColor(pal.secondary)
+                setPadding(dp(8), 0, dp(4), 0)
+            })
+            row.addView(ImageView(this).apply {
+                setImageResource(R.drawable.ic_ios_info)
+                setColorFilter(IosCallStyle.BLUE)
+                contentDescription = "More call actions"
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setOnClickListener { showEntryMenu(this, entry) }
+            }, LinearLayout.LayoutParams(dp(44), dp(44)))
+        } else {
+            if (entry.starred) {
+                row.addView(ImageView(this).apply {
+                    setImageResource(R.drawable.ic_ios_star)
+                    setColorFilter(IosCallStyle.ORANGE)
+                }, LinearLayout.LayoutParams(dp(16), dp(16)).apply { rightMargin = dp(6) })
+            }
+            row.addView(ImageView(this).apply {
+                setImageResource(R.drawable.ic_ios_call)
+                setColorFilter(IosCallStyle.BLUE)
+                contentDescription = "Call ${entry.name}"
+                isEnabled = entry.number.isNotBlank()
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setOnClickListener { onCall() }
+            }, LinearLayout.LayoutParams(dp(44), dp(44)))
+        }
+        parent.addView(row, matchWidth())
     }
 
     private fun showEntryMenu(anchor: View, entry: PhoneEntry) {
@@ -767,7 +927,7 @@ class HopeDialerActivity : AppCompatActivity() {
             text = message
             textSize = 15f
             gravity = Gravity.CENTER
-            setTextColor(themeColor(R.attr.themeTextMuted))
+            setTextColor(pal.secondary)
             setPadding(dp(12), dp(28), dp(12), dp(28))
         }, matchWidth())
     }
@@ -777,17 +937,23 @@ class HopeDialerActivity : AppCompatActivity() {
             text = message
             textSize = 15f
             gravity = Gravity.CENTER
-            setTextColor(themeColor(R.attr.themeTextMuted))
+            setTextColor(pal.secondary)
             setPadding(dp(12), dp(24), dp(12), dp(16))
         }, matchWidth())
     }
 
     private fun addActionButton(label: String, action: () -> Unit) {
-        content.addView(Button(this).apply {
+        content.addView(TextView(this).apply {
             text = label
-            isAllCaps = false
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            background = IosCallStyle.roundRect(IosCallStyle.BLUE, dp(14).toFloat())
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            isClickable = true
             setOnClickListener { action() }
-        }, matchWidth())
+        }, matchWidth().apply { leftMargin = dp(24); rightMargin = dp(24) })
     }
 
     private fun placeCallAfterPermission(number: String) {
@@ -871,6 +1037,12 @@ class HopeDialerActivity : AppCompatActivity() {
         if (!incomingNumber.isNullOrBlank() && ::numberInput.isInitialized) {
             numberInput.setText(Uri.decode(incomingNumber))
             showPage(Page.DIAL)
+            return
+        }
+        when (intent?.getStringExtra(EXTRA_START_PAGE)) {
+            "contacts" -> showPage(Page.CONTACTS)
+            "recents" -> showPage(Page.RECENTS)
+            "keypad" -> showPage(Page.DIAL)
         }
     }
 
@@ -919,8 +1091,10 @@ class HopeDialerActivity : AppCompatActivity() {
         override fun afterTextChanged(s: android.text.Editable?) = Unit
     }
 
-    private companion object {
-        const val TAG = "HopeDialerActivity"
-        const val MAX_PHONE_LIST_ITEMS = 150
+    companion object {
+        /** Optional extra: "contacts", "recents" or "keypad" opens that tab first. */
+        const val EXTRA_START_PAGE = "start_page"
+        private const val TAG = "HopeDialerActivity"
+        private const val MAX_PHONE_LIST_ITEMS = 150
     }
 }
