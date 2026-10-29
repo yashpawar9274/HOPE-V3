@@ -24,7 +24,7 @@ object CommandParser {
 
     /**
      * Returns true when a parsed YouTube play query is too vague/short to trust blindly
-     * (likely a mis-heard or dropped title), meaning Jarvis should confirm with the user
+     * (likely a mis-heard or dropped title), meaning HOPE should confirm with the user
      * before actually launching a video instead of guessing.
      */
     fun isAmbiguousPlayQuery(query: String): Boolean {

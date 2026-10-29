@@ -8,6 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.widget.RemoteViews
+import android.view.View
+import android.os.SystemClock
 import android.os.Handler
 import android.os.Looper
 import android.provider.ContactsContract
@@ -348,6 +351,7 @@ object HopeCallController {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val incoming = call.state == Call.STATE_RINGING
+        val banner = buildBanner(context, call, incoming)
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_mic_jarvis)
             .setContentTitle(if (incoming) "Incoming call" else "Call in progress")
@@ -357,26 +361,15 @@ object HopeCallController {
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setOngoing(incoming || call.state == Call.STATE_ACTIVE)
             .setAutoCancel(!incoming)
+            .setColor(android.graphics.Color.rgb(48, 209, 88))
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .setCustomContentView(banner)
+            .setCustomHeadsUpContentView(banner)
+            .setCustomBigContentView(banner)
             .setContentIntent(fullScreenPendingIntent)
 
         if (incoming) {
             builder.setFullScreenIntent(fullScreenPendingIntent, true)
-                .addAction(
-                    android.R.drawable.ic_menu_close_clear_cancel,
-                    "Reject",
-                    actionPendingIntent(context, call.id, ACTION_REJECT)
-                )
-                .addAction(
-                    android.R.drawable.ic_menu_call,
-                    "Answer",
-                    actionPendingIntent(context, call.id, ACTION_ANSWER)
-                )
-        } else if (call.state != Call.STATE_DISCONNECTED) {
-            builder.addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "Hang up",
-                actionPendingIntent(context, call.id, ACTION_HANG_UP)
-            )
         }
         manager.notify(notificationId(call.id), builder.build())
 
@@ -387,6 +380,61 @@ object HopeCallController {
                 Log.e(TAG, "Could not open the incoming-call screen without notification access.", error)
             }
         }
+    }
+
+    /**
+     * iPhone-style call banner: avatar, caller, "mobile" / "calling..." / live timer and round
+     * Decline + Accept buttons (a single red End button once the call is going on).
+     */
+    private fun buildBanner(context: Context, call: HopeCallSnapshot, incoming: Boolean): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.notification_call_banner)
+        val initial = call.caller.firstOrNull { it.isLetter() }?.uppercaseChar()?.toString() ?: "#"
+        views.setTextViewText(R.id.ios_call_avatar, initial)
+        views.setTextViewText(R.id.ios_call_name, call.caller)
+        if (incoming) {
+            views.setTextViewText(R.id.ios_call_subtitle, "mobile")
+            views.setViewVisibility(R.id.ios_call_subtitle, View.VISIBLE)
+            views.setViewVisibility(R.id.ios_call_chrono, View.GONE)
+            views.setViewVisibility(R.id.ios_call_accept, View.VISIBLE)
+            views.setContentDescription(R.id.ios_call_decline, "Decline call")
+            views.setOnClickPendingIntent(
+                R.id.ios_call_decline,
+                actionPendingIntent(context, call.id, ACTION_REJECT)
+            )
+            views.setOnClickPendingIntent(
+                R.id.ios_call_accept,
+                actionPendingIntent(context, call.id, ACTION_ANSWER)
+            )
+        } else {
+            val connected = (call.state == Call.STATE_ACTIVE || call.state == Call.STATE_HOLDING) &&
+                call.connectTimeMillis > 0L
+            views.setViewVisibility(R.id.ios_call_accept, View.GONE)
+            views.setContentDescription(R.id.ios_call_decline, "End call")
+            views.setOnClickPendingIntent(
+                R.id.ios_call_decline,
+                actionPendingIntent(context, call.id, ACTION_HANG_UP)
+            )
+            if (connected) {
+                val elapsed = (System.currentTimeMillis() - call.connectTimeMillis).coerceAtLeast(0L)
+                views.setChronometer(
+                    R.id.ios_call_chrono,
+                    SystemClock.elapsedRealtime() - elapsed,
+                    null,
+                    call.state == Call.STATE_ACTIVE
+                )
+                views.setViewVisibility(R.id.ios_call_chrono, View.VISIBLE)
+                views.setTextViewText(R.id.ios_call_subtitle, "on hold")
+                views.setViewVisibility(
+                    R.id.ios_call_subtitle,
+                    if (call.state == Call.STATE_HOLDING) View.VISIBLE else View.GONE
+                )
+            } else {
+                views.setTextViewText(R.id.ios_call_subtitle, "calling\u2026")
+                views.setViewVisibility(R.id.ios_call_subtitle, View.VISIBLE)
+                views.setViewVisibility(R.id.ios_call_chrono, View.GONE)
+            }
+        }
+        return views
     }
 
     private fun actionPendingIntent(context: Context, callId: String, action: String): PendingIntent {

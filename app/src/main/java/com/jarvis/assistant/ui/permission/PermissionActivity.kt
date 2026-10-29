@@ -230,19 +230,19 @@ class PermissionActivity : AppCompatActivity() {
         card("contacts", "Contacts", "Lets WhatsApp and calling features resolve saved contact names.", com.jarvis.assistant.R.drawable.ic_nav_chat) {
             if (!PermissionHelper.hasContactsPermission(this)) contactsLauncher.launch(Manifest.permission.READ_CONTACTS) else PermissionHelper.openAppSettings(this)
         }
-        card("phone", "Phone calls", "Needed only when you ask JARVIS to place a normal phone call.", com.jarvis.assistant.R.drawable.ic_settings_voice) {
+        card("phone", "Phone calls", "Needed only when you ask HOPE to place a normal phone call.", com.jarvis.assistant.R.drawable.ic_settings_voice) {
             if (!hasPermission(Manifest.permission.CALL_PHONE)) callLauncher.launch(Manifest.permission.CALL_PHONE) else PermissionHelper.openAppSettings(this)
         }
         card("camera", "Camera and flashlight", "Camera access is used only for the flashlight control.", com.jarvis.assistant.R.drawable.ic_settings_orb) {
             if (!hasPermission(Manifest.permission.CAMERA)) cameraLauncher.launch(Manifest.permission.CAMERA) else PermissionHelper.openAppSettings(this)
         }
-        card("bluetooth", "Nearby Bluetooth devices", "Optional: allows JARVIS to detect and route audio to a connected headset.", com.jarvis.assistant.R.drawable.ic_settings_plug) {
+        card("bluetooth", "Nearby Bluetooth devices", "Optional: allows HOPE to detect and route audio to a connected headset.", com.jarvis.assistant.R.drawable.ic_settings_plug) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) bluetoothLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) else PermissionHelper.openAppSettings(this)
         }
         card("battery", "Background battery access", "Recommended on Vivo devices so voice service and overlay can stay active in the background.", com.jarvis.assistant.R.drawable.ic_settings_silent) {
             PermissionHelper.requestBatteryOptimization(this)
         }
-        card("brightness", "Modify system settings", "Optional: lets JARVIS adjust screen brightness when you ask.", com.jarvis.assistant.R.drawable.ic_settings_palette) {
+        card("brightness", "Modify system settings", "Optional: lets HOPE adjust screen brightness when you ask.", com.jarvis.assistant.R.drawable.ic_settings_palette) {
             PermissionHelper.requestWriteSettings(this)
         }
         val note = TextView(this).apply {

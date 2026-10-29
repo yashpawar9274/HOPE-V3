@@ -8,7 +8,7 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 /**
- * Procedural, ultra-low latency sound effect generator for JARVIS.
+ * Procedural, ultra-low latency sound effect generator for HOPE.
  * Synthesizes high-tech sci-fi earcons (wake & standby) directly into 16-bit PCM,
  * completely eliminating external audio file dependencies and load latency.
  */
@@ -20,14 +20,14 @@ object JarvisSoundEffects {
     private val standbySoundPcm: ByteArray by lazy { generateStandbySound() }
 
     /**
-     * Futuristic ascending dual-tone chime when JARVIS wakes up or comes out of background.
+     * Futuristic ascending dual-tone chime when HOPE wakes up or comes out of background.
      */
     fun playWakeSound() {
         playPcm(wakeSoundPcm)
     }
 
     /**
-     * Sleek descending harmonic earcon when JARVIS enters standby / goes to background.
+     * Sleek descending harmonic earcon when HOPE enters standby / goes to background.
      */
     fun playStandbySound() {
         playPcm(standbySoundPcm)

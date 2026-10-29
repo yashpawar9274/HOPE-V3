@@ -10,7 +10,7 @@ import androidx.core.content.ContextCompat
 import java.util.Locale
 
 /**
- * Lets JARVIS place phone calls by spoken contact name or raw phone number.
+ * Lets HOPE place phone calls by spoken contact name or raw phone number.
  */
 object ContactCaller {
 

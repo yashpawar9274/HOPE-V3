@@ -10,8 +10,8 @@ import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
 /**
- * Built-in Chrome background search engine for JARVIS.
- * Allows JARVIS to conduct invisible background web research on topics, questions,
+ * Built-in Chrome background search engine for HOPE.
+ * Allows HOPE to conduct invisible background web research on topics, questions,
  * or websites without interrupting the user's active screen.
  */
 object BuiltInChromeEngine {

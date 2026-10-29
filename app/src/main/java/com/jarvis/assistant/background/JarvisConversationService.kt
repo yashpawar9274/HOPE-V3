@@ -91,7 +91,7 @@ data class JarvisLiveError(
 )
 
 /**
- * Owns the *entire* Jarvis conversation lifecycle: the microphone, the audio
+ * Owns the *entire* HOPE conversation lifecycle: the microphone, the audio
  * player, the Gemini Live WebSocket, the 120-second inactivity timer, and the
  * wake-word standby listener.
  *
@@ -99,7 +99,7 @@ data class JarvisLiveError(
  * user removes the app from Recents (or the screen turns off), Android
  * destroys the Activity and its ViewModel - if the live session lived there,
  * the conversation would die with it. Because everything here is owned by a
- * foreground service instead, the mic stays on and Jarvis keeps talking
+ * foreground service instead, the mic stays on and HOPE keeps talking
  * normally even with the app closed. The Activity/ViewModel only *observes*
  * this service's state through the companion StateFlows below; they never
  * own the audio pipeline.
@@ -613,7 +613,7 @@ class JarvisConversationService : Service() {
                 val shown = taskProgressOverlay?.update(snapshot, showIdleAvatar) == true
                 if (snapshot != null && !shown && overlayPermissionWarningTaskId != snapshot.taskId) {
                     overlayPermissionWarningTaskId = snapshot.taskId
-                    _events.emit("Task progress is shown inside JARVIS Home. Allow Display over other apps if you want the floating task panel over Instagram, Spotify, and Chrome.")
+                    _events.emit("Task progress is shown inside HOPE Home. Allow Display over other apps if you want the floating task panel over Instagram, Spotify, and Chrome.")
                 }
             }
         }
@@ -850,7 +850,7 @@ class JarvisConversationService : Service() {
         if (apiKey.isBlank()) {
             _liveError.value = JarvisLiveError(
                 title = "API KEY MISSING",
-                message = "No Gemini API Key configured. Please enter your API Key in Settings to activate Jarvis.",
+                message = "No Gemini API Key configured. Please enter your API Key in Settings to activate HOPE.",
                 errorCode = "API_KEY_MISSING",
                 actionText = "OPEN SETTINGS"
             )
@@ -862,11 +862,11 @@ class JarvisConversationService : Service() {
         if (!PermissionHelper.hasAllRequiredPermissions(this)) {
             _liveError.value = JarvisLiveError(
                 title = "PERMISSIONS REQUIRED",
-                message = "Jarvis requires Microphone and Notification permissions to run. Please grant them in Authorizations.",
+                message = "HOPE requires Microphone and Notification permissions to run. Please grant them in Authorizations.",
                 errorCode = "PERMISSIONS_MISSING",
                 actionText = "GRANT PERMISSIONS"
             )
-            serviceScope.launch { _events.emit("Please allow all required permissions in Settings to use Jarvis.") }
+            serviceScope.launch { _events.emit("Please allow all required permissions in Settings to use HOPE.") }
             fullStop()
             return
         }
@@ -1478,7 +1478,7 @@ class JarvisConversationService : Service() {
                                 "API_KEY_MISSING" -> {
                                     _liveError.value = JarvisLiveError(
                                         title = "API KEY MISSING",
-                                        message = "No Gemini API key found. Enter your BYOK key in Settings to activate Jarvis.",
+                                        message = "No Gemini API key found. Enter your BYOK key in Settings to activate HOPE.",
                                         errorCode = "API_KEY_MISSING",
                                         actionText = "OPEN SETTINGS"
                                     )
@@ -1843,7 +1843,7 @@ class JarvisConversationService : Service() {
                                             setConversationState(ConversationState.IDLE)
                                             lastResponseTimedOut = true
                                             updateNotification()
-                                            serviceScope.launch { _events.emit("Jarvis did not receive a reply. Check the connection and repeat your request.") }
+                                            serviceScope.launch { _events.emit("HOPE did not receive a reply. Check the connection and repeat your request.") }
                                         }
                                     }
                                 }
@@ -1878,7 +1878,7 @@ class JarvisConversationService : Service() {
     @Volatile
     private var lastCommandExecutionTime = 0L
 
-    // Holds a command that Jarvis heard but isn't confident enough about to run blindly
+    // Holds a command that HOPE heard but isn't confident enough about to run blindly
     // (e.g. a YouTube title that sounded too short/garbled). Cleared once the user
     // confirms or cancels it in a follow-up turn.
     @Volatile
@@ -2334,7 +2334,7 @@ class JarvisConversationService : Service() {
                             is com.jarvis.assistant.util.ContactCaller.CallResult.Success -> Pair(true, "Calling ${callResult.contact.name}.")
                             is com.jarvis.assistant.util.ContactCaller.CallResult.NoMatch -> Pair(false, "Could not find contact $contact.")
                             is com.jarvis.assistant.util.ContactCaller.CallResult.MultipleMatches -> Pair(false, "Multiple contacts found for $contact.")
-                            is com.jarvis.assistant.util.ContactCaller.CallResult.MissingContactsPermission -> Pair(false, "Contacts permission is not granted, so JARVIS cannot look up that saved contact.")
+                            is com.jarvis.assistant.util.ContactCaller.CallResult.MissingContactsPermission -> Pair(false, "Contacts permission is not granted, so HOPE cannot look up that saved contact.")
                             is com.jarvis.assistant.util.ContactCaller.CallResult.MissingCallPermission -> Pair(false, "Phone call permission is not granted.")
                             is com.jarvis.assistant.util.ContactCaller.CallResult.CallFailed -> Pair(false, "Could not place phone call.")
                         }
@@ -2496,7 +2496,7 @@ class JarvisConversationService : Service() {
                         val userAskedForStandby = isExplicitStandbyCommand(currentTurnUserText.toString())
                         if (!userAskedForStandby) {
                             result.put("success", false)
-                            result.put("message", "REFUSED: The user's current request did not explicitly ask Jarvis to go to standby. Keep the conversation active and continue the requested task.")
+                            result.put("message", "REFUSED: The user's current request did not explicitly ask HOPE to go to standby. Keep the conversation active and continue the requested task.")
                         } else if (!preferences.isWakeWordEnabled) {
                             result.put("success", false)
                             result.put("message", "Standby was not started because on-device Hey HOPE wake listening is disabled. Explain that the user can enable it in Hands-Free settings.")
@@ -3287,7 +3287,7 @@ class JarvisConversationService : Service() {
 
         if (cmd != null && parsed.confidence >= 0.90f) {
             // If the requested video/song is too vague or could easily be a mis-hearing
-            // (e.g. Jarvis only caught one short/filler word), confirm with the user
+            // (e.g. HOPE only caught one short/filler word), confirm with the user
             // instead of guessing and playing the wrong thing.
             if (cmd is com.jarvis.assistant.automation.command.JarvisCommand.PlayYouTube &&
                 com.jarvis.assistant.automation.command.CommandParser.isAmbiguousPlayQuery(cmd.query)
@@ -4249,9 +4249,9 @@ class JarvisConversationService : Service() {
         val app = application as? JarvisApp
         val movedBack = app?.moveAppToBack() == true
         if (movedBack) {
-            Log.i("JarvisService", "JARVIS foreground activity moved to back safely")
+            Log.i("JarvisService", "HOPE foreground activity moved to back safely")
         } else {
-            Log.i("JarvisService", "JARVIS going to background standby; leaving active foreground app intact")
+            Log.i("JarvisService", "HOPE going to background standby; leaving active foreground app intact")
         }
     }
 
@@ -4303,7 +4303,7 @@ class JarvisConversationService : Service() {
             _isSessionOn.value && !_connectionStatus.value.equals("LIVE", ignoreCase = true) ->
                 "HOPE is reconnecting" to "Connection: ${_connectionStatus.value}. Requests may not be heard yet."
             _isSessionOn.value && lastResponseTimedOut ->
-                "Jarvis did not reply" to "Connection is active. Repeat your request."
+                "HOPE did not reply" to "Connection is active. Repeat your request."
             _isSessionOn.value && _conversationState.value == ConversationState.SPEAKING ->
                 "HOPE is replying" to "Audio response is playing"
             _isSessionOn.value && _conversationState.value == ConversationState.THINKING ->

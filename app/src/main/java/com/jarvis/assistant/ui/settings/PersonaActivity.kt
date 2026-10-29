@@ -152,7 +152,7 @@ class PersonaActivity : AppCompatActivity() {
             GeminiConstants.PERSONALITY_GIRLFRIEND -> "Pari"
             GeminiConstants.PERSONALITY_BOYFRIEND -> "Kabir"
             GeminiConstants.PERSONALITY_TECHGPT_X -> "HOPE"
-            else -> "Jarvis Pro"
+            else -> "HOPE Pro"
         }
         val operator = binding.etUserName.text?.toString()?.trim().takeUnless { it.isNullOrBlank() } ?: "YASH"
         val profile = VoicePersonaRegistry.profileForVoice(getSelectedVoice())
@@ -244,7 +244,7 @@ class PersonaActivity : AppCompatActivity() {
             GeminiConstants.PERSONALITY_GIRLFRIEND -> "Pari (Girlfriend Mode)"
             GeminiConstants.PERSONALITY_BOYFRIEND -> "Kabir (Boyfriend Mode)"
             GeminiConstants.PERSONALITY_TECHGPT_X -> "HOPE Neural Core"
-            else -> "Jarvis Pro"
+            else -> "HOPE Pro"
         }
 
         Toast.makeText(

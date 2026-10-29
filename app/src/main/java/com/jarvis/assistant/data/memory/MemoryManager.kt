@@ -462,7 +462,7 @@ class MemoryManager(
                 if (locationTurn) return@forEach
                 if (u.isNotBlank() && j.isNotBlank() && u != "(Audio query)" && j != "(Audio response)") {
                     sb.append("User: \"$u\"\n")
-                    sb.append("JARVIS: \"$j\"\n")
+                    sb.append("HOPE: \"$j\"\n")
                 }
             }
         }

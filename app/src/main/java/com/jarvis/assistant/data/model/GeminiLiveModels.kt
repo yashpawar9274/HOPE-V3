@@ -52,13 +52,19 @@ object GeminiConstants {
         "Zephyr"
     )
 
-    const val PERSONALITY_ASSISTANT = "Jarvis Pro"
+    const val PERSONALITY_ASSISTANT = "HOPE Pro"
     const val PERSONALITY_GIRLFRIEND = "Girlfriend Mode"
     const val PERSONALITY_BOYFRIEND = "Boyfriend Mode"
-    const val PERSONALITY_TECHGPT_X = "TechGPT X Mode"
+    const val PERSONALITY_TECHGPT_X = "HOPE Neural Mode"
     const val PERSONALITY_COMPANION = "Companion Mode"
     const val PERSONALITY_PROFESSIONAL = "Professional Mode"
     const val PERSONALITY_FOCUS = "Focus Mode"
+
+    /** Persona names saved by older builds, mapped to their HOPE names. */
+    val LEGACY_PERSONALITY_NAMES = mapOf(
+        "Jarvis Pro" to PERSONALITY_ASSISTANT,
+        "TechGPT X Mode" to PERSONALITY_TECHGPT_X
+    )
 
     val SUPPORTED_PERSONALITIES = listOf(
         PERSONALITY_ASSISTANT,

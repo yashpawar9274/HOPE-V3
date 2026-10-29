@@ -159,7 +159,7 @@ class HandsFreeActivity : AppCompatActivity() {
         }
 
         binding.btnHandsFreeInstagram.setOnClickListener {
-            openUrl("https://www.instagram.com/techgptx.ai")
+            openUrl("https://github.com/yashpawar9274/HOPE-V3")
         }
 
         binding.tvFooterHandsFree.setOnClickListener {

@@ -218,7 +218,7 @@ class MainActivity : AppCompatActivity() {
                     selectTab(TAB_HOME)
                 } else {
                     // Preserve Android's normal root behavior (return to launcher) only
-                    // after the user is already on JARVIS Home.
+                    // after the user is already on HOPE Home.
                     isEnabled = false
                     onBackPressedDispatcher.onBackPressed()
                     isEnabled = true

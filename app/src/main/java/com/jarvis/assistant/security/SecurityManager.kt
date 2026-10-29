@@ -2,13 +2,11 @@ package com.jarvis.assistant.security
 
 import android.app.AlertDialog
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
-import java.security.MessageDigest
+import com.jarvis.assistant.BuildConfig
 import kotlin.system.exitProcess
 
 /**
- * JARVIS ASSISTANT — SECURITY MODULE
+ * HOPE ASSISTANT — SECURITY MODULE
  * Developer       : Yash Pawar
  * Copyright © 2026: Yash Pawar. All Rights Reserved.
  * GitHub          : https://github.com/yashpawar9274/HOPE-V3.git
@@ -24,6 +22,7 @@ object SecurityManager {
 
     fun verify(context: Context) {
         checkPackageName(context)
+        checkSignature(context)
     }
 
     private fun checkPackageName(context: Context) {
@@ -39,45 +38,22 @@ object SecurityManager {
         }
     }
 
-    @Suppress("unused")
+    /**
+     * Release builds must be signed with the pinned certificate (JARVIS_RELEASE_CERT_SHA256).
+     * Skipped in debug builds and when no pin is configured, so local builds never lock themselves out
+     * (MainActivity still blocks sensitive features in that case via AppIdentityVerifier).
+     * Note: this is a client-side deterrent, not tamper-proof; a repackaged app can remove it.
+     */
     private fun checkSignature(context: Context) {
-        val EXPECTED_SHA256 = "PASTE_YOUR_APK_SHA256_FINGERPRINT_HERE"
-
-        val actual = getApkSignatureSha256(context) ?: run {
-            showTamperAlert(context, "Verification Failed", "Unable to verify app authenticity. Closing.")
-            return
-        }
-        if (!actual.equals(EXPECTED_SHA256, ignoreCase = true)) {
+        if (BuildConfig.DEBUG || BuildConfig.PINNED_RELEASE_CERT_SHA256.isBlank()) return
+        if (!AppIdentityVerifier.isTrustedRelease(context)) {
             showTamperAlert(
                 context,
                 "Tampered APK Detected",
-                "This APK has been re-signed or modified.\n\n" +
+                "This APK is not signed with the official release certificate.\n\n" +
                 "$DEVELOPER_NAME only distributes APKs signed with the original certificate.\n\n" +
                 "Download the official APK from:\n$GITHUB_REPO"
             )
-        }
-    }
-
-    private fun getApkSignatureSha256(context: Context): String? {
-        return try {
-            val sigs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val info = context.packageManager.getPackageInfo(
-                    context.packageName, PackageManager.GET_SIGNING_CERTIFICATES
-                )
-                info.signingInfo?.apkContentsSigners
-            } else {
-                @Suppress("DEPRECATION")
-                val info = context.packageManager.getPackageInfo(
-                    context.packageName, PackageManager.GET_SIGNATURES
-                )
-                info.signatures
-            }
-            val firstSig = sigs?.firstOrNull() ?: return null
-            val md = MessageDigest.getInstance("SHA-256")
-            val digest = md.digest(firstSig.toByteArray())
-            digest.joinToString(":") { "%02X".format(it) }
-        } catch (e: Exception) {
-            null
         }
     }
 

@@ -5,6 +5,9 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
@@ -26,6 +29,7 @@ import com.jarvis.assistant.autoreply.NotificationRule
 import com.jarvis.assistant.autoreply.NotificationRuleAction
 import com.jarvis.assistant.autoreply.NotificationRuleEngine
 import com.jarvis.assistant.autoreply.NotificationRuleInput
+import com.jarvis.assistant.autoreply.SmartAutoReply
 import com.jarvis.assistant.util.PermissionHelper
 import com.jarvis.assistant.util.HopeSpeech
 import com.jarvis.assistant.util.ThemeManager
@@ -47,22 +51,27 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         val scroll = ScrollView(this)
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(18), dp(20), dp(30))
+            setPadding(dp(16), dp(18), dp(16), dp(36))
+        }
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars() or
+                    androidx.core.view.WindowInsetsCompat.Type.displayCutout()
+            )
+            view.setPadding(dp(16) + bars.left, dp(18) + bars.top, dp(16) + bars.right, dp(36) + bars.bottom)
+            insets
         }
         scroll.addView(root)
         setContentView(scroll)
         ThemeManager.applyDynamicBackground(root)
 
-        addText("AI AUTO-REPLY", 23f, bold = true)
-        addText(
-            "Automatic sending requires Notification Access, global and per-app monitoring, the auto-reply master switch, an explicitly selected app, a matching AUTHORIZED_AUTO_REPLY rule, a supported inline-reply action, and a nonsensitive message. Without that rule, HOPE never sends automatically.",
-            14f
+        addLargeTitle(
+            "Auto-Reply",
+            "HOPE reads every new message, understands it and replies by itself using its own name. No template needed."
         )
-        addText(
-            "Personal WhatsApp has no universal send API in this app. HOPE can submit a reply only through an Android-provided notification quick-reply action when WhatsApp exposes one; sending is not guaranteed, and recipient delivery cannot be confirmed. Notification processing may be delayed or stopped by Android when the app process is killed or network access is unavailable. Location is never added to an automatic reply.",
-            13f
-        )
+        addSmartHeroCard()
 
+        addText("SETUP STATUS", 12f, bold = true)
         serviceStatus = addText("", 13f)
         addButton("Grant HOPE notification access") {
             try {
@@ -75,9 +84,8 @@ class AutoReplySettingsActivity : AppCompatActivity() {
                 ).show()
             }
         }
-
         notificationStatus = addText("", 13f)
-        addButton("Allow JARVIS notifications") {
+        addButton("Allow HOPE notifications") {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 !PermissionHelper.hasNotificationPermission(this)
             ) {
@@ -89,33 +97,60 @@ class AutoReplySettingsActivity : AppCompatActivity() {
                 ))
             }
         }
+        addButton(
+            if (PermissionHelper.hasBatteryOptimizationPermission(this)) "Background running: allowed"
+            else "Allow background running (keeps replies working with screen off)"
+        ) {
+            try {
+                PermissionHelper.requestBatteryOptimization(this)
+            } catch (error: Exception) {
+                Toast.makeText(this, "Could not open battery settings: ${error.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+        replyStatus = addText("", 13f, bold = true)
 
-        addText("MASTER PRIVACY CONTROL", 12f, bold = true)
+        addText("SMART REPLY OPTIONS", 12f, bold = true)
+        addButton("Reply language: ${NotificationIntelligenceStore.replyLanguage(this)}") { chooseReplyLanguage() }
+        addButton("Reply delay: ${NotificationIntelligenceStore.replyDelaySeconds(this)} seconds") { editReplyDelay() }
+        addButton("Daily reply limit: ${NotificationIntelligenceStore.dailyReplyLimit(this)}") { editDailyLimit() }
+        addButton("Quiet hours") { editQuietHours() }
+        addButton("Excluded contacts / conversations") { editExclusions(contacts = true) }
+        addButton("Excluded keywords") { editExclusions(contacts = false) }
+        addText(
+            "HOPE skips group chats, OTP/bank/password style messages and other auto-responders, waits at least 20 seconds between replies in the same chat and stops at your daily limit.",
+            12f
+        )
+
+        addText("ADVANCED CONTROLS", 12f, bold = true)
         addSettingSwitch(
             "AI Auto Reply master switch",
-            "Emergency OFF stops automatic message sending. Monitoring, inbox history, rules, and announcements use their separate controls below.",
+            "Emergency OFF for every automatic send. Smart Auto-Reply turns this on for you.",
             NotificationIntelligenceStore.isMasterEnabled(this)
         ) { enabled -> NotificationIntelligenceStore.setMasterEnabled(this, enabled) }
         addSettingSwitch(
             "Read Notifications",
-            "Enable notification monitoring globally; select individual apps in Per-app notification controls.",
+            "Notification monitoring, globally. Individual apps are in Per-app notification controls.",
             NotificationIntelligenceStore.isReadingEnabled(this)
         ) { enabled -> NotificationIntelligenceStore.setReadingEnabled(this, enabled) }
         addSettingSwitch(
             "Announce notifications aloud",
-            "Allow announcements globally. Per-app announcement controls and the intelligence pause switch also apply.",
+            "HOPE speaks new notifications. Per-app announcement controls also apply.",
             NotificationIntelligenceStore.areAnnouncementsEnabled(this)
         ) { enabled -> NotificationIntelligenceStore.setAnnouncementsEnabled(this, enabled) }
         addSettingSwitch(
             "Allow sensitive notifications to be spoken",
-            "Off by default. Sensitive notifications are still never auto-replied to.",
+            "Off by default. Sensitive messages are never auto-replied to.",
             NotificationIntelligenceStore.canAnnounceSensitive(this)
         ) { enabled -> NotificationIntelligenceStore.setAnnounceSensitive(this, enabled) }
+        addSettingSwitch(
+            "Use AI-generated contextual replies",
+            "Message context is sent to your configured Gemini service, or answered on-device with the offline model.",
+            NotificationIntelligenceStore.aiRepliesEnabled(this)
+        ) { enabled -> NotificationIntelligenceStore.setAiRepliesEnabled(this, enabled) }
         addButton(if (NotificationIntelligenceStore.isPaused(this)) "Resume notification intelligence" else "Pause notification intelligence") {
             NotificationIntelligenceStore.setPaused(this, !NotificationIntelligenceStore.isPaused(this))
             recreate()
         }
-
         addButton("Per-app notification controls and diagnostics") {
             startActivity(Intent(this, NotificationAppsActivity::class.java))
         }
@@ -126,31 +161,13 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             chooseHistoryRetention()
         }
 
-        addText("AUTO-REPLY SCOPE & RESPONSE", 12f, bold = true)
+        addText("CUSTOM RULES (OPTIONAL)", 12f, bold = true)
         addText(
-            "Automatic replies are off by default. Each send requires an explicitly enabled app and a matching AUTHORIZED_AUTO_REPLY rule. Use SUGGEST_REPLY for draft-only behavior.",
-            13f
+            "Only needed if you want a fixed template for a specific app or contact. A matching rule with a template overrides Smart Auto-Reply for that message.",
+            12f
         )
-        replyStatus = addText("", 13f, bold = true)
-        addSettingSwitch(
-            "Use AI-generated contextual replies",
-            "When on, message context is sent to your configured Gemini service. Off uses the saved reply template on-device.",
-            NotificationIntelligenceStore.aiRepliesEnabled(this)
-        ) { enabled -> NotificationIntelligenceStore.setAiRepliesEnabled(this, enabled) }
-        addButton("Reply language: ${NotificationIntelligenceStore.replyLanguage(this)}") { chooseReplyLanguage() }
         addButton("Custom reply template") { editReplyTemplate() }
         addButton("Preview custom reply") { previewReply() }
-        addButton("Reply delay: ${NotificationIntelligenceStore.replyDelaySeconds(this)} seconds") { editReplyDelay() }
-        addButton("Daily reply limit: ${NotificationIntelligenceStore.dailyReplyLimit(this)}") { editDailyLimit() }
-        addButton("Quiet hours") { editQuietHours() }
-        addButton("Excluded contacts / conversations") { editExclusions(contacts = true) }
-        addButton("Excluded keywords") { editExclusions(contacts = false) }
-
-        addText("NOTIFICATION RULES", 12f, bold = true)
-        addText(
-            "Rules are evaluated locally in priority order. Replies still require an enabled app, an Android notification reply action, the master switch, and available daily reply capacity.",
-            13f
-        )
         addButton("Create notification rule") { createRule() }
         addButton("View, test, or remove rules") { showRules() }
 
@@ -159,14 +176,8 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         addButton("Clear notification history") { clearNotificationHistory() }
         addButton("View execution log (message bodies omitted)") { showExecutionLog() }
 
-        addText("APP-SPECIFIC SETTINGS", 12f, bold = true)
         addText(
-            "Use Per-app notification controls to select monitoring and announcements. Allow Auto-Reply only for supported messaging apps. Every automatic send also requires a matching, enabled AUTHORIZED_AUTO_REPLY rule; use SUGGEST_REPLY rules for preview/draft mode.",
-            13f
-        )
-
-        addText(
-            "Privacy: Notification history stays on this device for apps you select. If AI-generated replies are enabled, recent incoming messages from the conversation are sent over HTTPS to Gemini; otherwise replies use your local template. HOPE sends only through the message app's notification quick-reply action, skips sensitive credential/payment messages, and never opens chats or taps Send. Auto-replies stop at the configured daily limit and respect quiet hours and exclusions.",
+            "Privacy: notification history stays on this device. With AI replies, the recent messages of that chat are sent over HTTPS to Gemini (or handled by the offline model on this phone). HOPE sends only through the messaging app's own notification quick-reply action, never opens chats or taps Send, and never adds your location to a reply.",
             12f
         )
         updatePermissionStatus()
@@ -179,27 +190,149 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         }
     }
 
+    private fun addLargeTitle(title: String, subtitle: String) {
+        group = null
+        root.addView(TextView(this).apply {
+            text = title
+            textSize = 34f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(themeColor(R.attr.themeTextPrimary))
+            setPadding(dp(4), dp(8), dp(4), dp(2))
+        }, matchWidth())
+        root.addView(TextView(this).apply {
+            text = subtitle
+            textSize = 14f
+            setTextColor(themeColor(R.attr.themeTextMuted))
+            setPadding(dp(4), 0, dp(4), dp(14))
+        }, matchWidth())
+    }
+
+    /** The one switch that turns the whole feature on: HOPE Smart Auto-Reply. */
+    private fun addSmartHeroCard() {
+        group = null
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+            background = rounded(themeColor(R.attr.themeCardBg), 20)
+        }
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val labels = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        labels.addView(TextView(this).apply {
+            text = "HOPE Smart Auto-Reply"
+            textSize = 19f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(themeColor(R.attr.themeTextPrimary))
+        })
+        labels.addView(TextView(this).apply {
+            text = "WhatsApp • Instagram • SMS"
+            textSize = 12f
+            setTextColor(themeColor(R.attr.themeTextMuted))
+        })
+        head.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
+        val toggle = iosSwitch(AutoReplyPreferences.isSmartModeEnabled(this))
+        var restoring = false
+        toggle.setOnCheckedChangeListener { _, checked ->
+            if (restoring) return@setOnCheckedChangeListener
+            try {
+                if (checked) {
+                    if (!PermissionHelper.isNotificationListenerEnabled(this)) {
+                        Toast.makeText(
+                            this,
+                            "Allow HOPE notification access first, then switch this on.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        restoring = true
+                        toggle.isChecked = false
+                        restoring = false
+                        PermissionHelper.openNotificationListenerSettings(this)
+                        return@setOnCheckedChangeListener
+                    }
+                    SmartAutoReply.enable(this)
+                } else {
+                    SmartAutoReply.disable(this)
+                }
+                root.post { recreate() }
+            } catch (error: Exception) {
+                restoring = true
+                toggle.isChecked = !checked
+                restoring = false
+                Toast.makeText(this, error.message ?: "Could not change Smart Auto-Reply.", Toast.LENGTH_LONG).show()
+            }
+        }
+        head.addView(toggle)
+        card.addView(head, matchWidth())
+        card.addView(TextView(this).apply {
+            text = "When someone messages you — \u201cHi\u201d, \u201cHello\u201d, \u201cKya karu\u201d or anything else — HOPE reads it, understands what they want and replies by itself, introducing itself as HOPE, your assistant. Works with the screen off while the internet is on."
+            textSize = 13f
+            setTextColor(themeColor(R.attr.themeTextSecondary))
+            setPadding(0, dp(12), 0, 0)
+        }, matchWidth())
+        root.addView(card, matchWidth().apply { bottomMargin = dp(8) })
+    }
+
+    // ---- iOS-style grouped list helpers -------------------------------------------------
+
+    private var group: LinearLayout? = null
+
+    private fun rounded(color: Int, radiusDp: Int) = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(radiusDp).toFloat()
+    }
+
+    private fun ensureGroup(): LinearLayout {
+        group?.let { return it }
+        val created = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(themeColor(R.attr.themeCardBg), 14)
+        }
+        root.addView(created, matchWidth().apply { bottomMargin = dp(8) })
+        group = created
+        return created
+    }
+
+    private fun addRowTo(target: LinearLayout, row: View) {
+        if (target.childCount > 0) {
+            target.addView(
+                View(this).apply {
+                    setBackgroundColor((themeColor(R.attr.themeTextMuted) and 0x00FFFFFF) or 0x33000000)
+                },
+                LinearLayout.LayoutParams(-1, 1).apply { leftMargin = dp(16) }
+            )
+        }
+        target.addView(row, matchWidth())
+    }
+
+    private fun iosSwitch(initial: Boolean) = SwitchCompat(this).apply {
+        isChecked = initial
+        thumbTintList = ColorStateList.valueOf(Color.WHITE)
+        trackTintList = ColorStateList(
+            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+            intArrayOf(Color.rgb(52, 199, 89), Color.argb(102, 142, 142, 147))
+        )
+    }
+
     private fun addSettingSwitch(title: String, description: String, initial: Boolean, onChange: (Boolean) -> Unit) {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(8), dp(8), dp(8))
-            background = getDrawable(R.drawable.bg_jarvis_card)
+            setPadding(dp(16), dp(12), dp(14), dp(12))
         }
         val labels = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         labels.addView(TextView(this).apply {
             text = title
-            textSize = 14f
+            textSize = 16f
             setTextColor(themeColor(R.attr.themeTextPrimary))
         })
         labels.addView(TextView(this).apply {
             text = description
-            textSize = 11f
+            textSize = 12f
             setTextColor(themeColor(R.attr.themeTextMuted))
         })
-        row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
-        val toggle = SwitchCompat(this).apply {
-            isChecked = initial
+        row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = dp(10) })
+        val toggle = iosSwitch(initial).apply {
             var restoring = false
             setOnCheckedChangeListener { _, checked ->
                 if (restoring) return@setOnCheckedChangeListener
@@ -215,8 +348,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             }
         }
         row.addView(toggle)
-        root.addView(row, matchWidth())
-        root.addView(View(this), LinearLayout.LayoutParams(1, dp(6)))
+        addRowTo(ensureGroup(), row)
     }
 
     private fun chooseReplyLanguage() {
@@ -583,43 +715,64 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             android.text.format.DateFormat.format("MMM d, HH:mm", lastNotificationAt)
         } else "none received"
         serviceStatus.text = "${serviceStatus.text}\nLast notification: $lastReceived\n${HopeSpeech.status(this)}"
+        val smart = AutoReplyPreferences.isSmartModeEnabled(this)
+        val ready = enabled && masterEnabled && monitoringEnabled && monitoredAppCount > 0 && enabledApps > 0 && !paused
         replyStatus.text = when {
             !enabled -> "Replies are paused: grant HOPE notification access."
-            !masterEnabled -> "Replies are off: turn on the AI Auto Reply master switch."
+            smart && paused -> "HOPE Smart Auto-Reply is on but paused. Resume notification intelligence below."
+            smart && ready -> "HOPE Smart Auto-Reply is ready. New messages in $enabledApps app group(s) will get a reply from HOPE, even with the screen off."
+            smart -> "HOPE Smart Auto-Reply is on. Switch it off and on again to restore all required settings."
+            !masterEnabled -> "Smart Auto-Reply is off. Turn on the switch at the top to let HOPE reply by itself."
             enabledApps == 0 -> "Replies are off: enable at least one app below."
             !monitoringEnabled || monitoredAppCount == 0 ->
                 "Replies are paused: enable global monitoring and monitor the selected app in Per-app notification controls."
             paused -> "Replies are paused. Resume notification intelligence to continue."
-            else -> "Monitoring is ready for $enabledApps selected app(s). Automatic sends still require an enabled AUTHORIZED_AUTO_REPLY rule, a supported notification RemoteInput, and all safety checks."
+            else -> "Rule-based auto-reply is ready for $enabledApps selected app(s). It still needs an enabled AUTHORIZED_AUTO_REPLY rule."
         } + "\nLast auto-reply result: ${NotificationIntelligenceStore.lastAutoReplyStatus(this)}"
         replyStatus.setTextColor(
-            themeColor(
-                if (enabled && masterEnabled && monitoringEnabled && monitoredAppCount > 0 &&
-                    enabledApps > 0 && !paused
-                ) {
-                    R.attr.themeAccent
-                } else {
-                    R.attr.themeTextMuted
-                }
-            )
+            themeColor(if (ready || (smart && enabled)) R.attr.themeAccent else R.attr.themeTextMuted)
         )
     }
 
-    private fun addText(textValue: String, size: Float, bold: Boolean = false): TextView =
-        TextView(this).apply {
+    private fun addText(textValue: String, size: Float, bold: Boolean = false): TextView {
+        group = null
+        val header = bold && size <= 12f
+        return TextView(this).apply {
             text = textValue
             textSize = size
-            setTextColor(themeColor(R.attr.themeTextPrimary))
-            if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(0, dp(8), 0, dp(8))
+            if (header) {
+                setTextColor(themeColor(R.attr.themeTextMuted))
+                letterSpacing = 0.04f
+                setPadding(dp(8), dp(18), dp(8), dp(6))
+            } else {
+                setTextColor(themeColor(if (size <= 13f) R.attr.themeTextMuted else R.attr.themeTextPrimary))
+                if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(dp(8), dp(4), dp(8), dp(8))
+            }
             root.addView(this, matchWidth())
         }
+    }
 
     private fun addButton(label: String, onClick: () -> Unit) {
-        root.addView(Button(this).apply {
-            text = label
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(14), dp(14), dp(14))
+            isClickable = true
+            isFocusable = true
             setOnClickListener { onClick() }
-        }, matchWidth())
+        }
+        row.addView(TextView(this).apply {
+            text = label
+            textSize = 16f
+            setTextColor(themeColor(R.attr.themeTextPrimary))
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(TextView(this).apply {
+            text = "\u203A"
+            textSize = 22f
+            setTextColor(themeColor(R.attr.themeTextMuted))
+        })
+        addRowTo(ensureGroup(), row)
     }
 
     private fun matchWidth() = LinearLayout.LayoutParams(

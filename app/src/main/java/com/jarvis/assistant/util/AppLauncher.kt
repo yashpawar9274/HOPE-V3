@@ -10,7 +10,7 @@ import android.os.UserHandle
 import android.os.UserManager
 
 /**
- * Lets JARVIS open any app installed on the device by spoken name,
+ * Lets HOPE open any app installed on the device by spoken name,
  * e.g. "open YouTube", "open camera", "launch WhatsApp".
  *
  * Supports Dual Apps / Cloned Apps / Multi-user profiles (e.g. Samsung Dual Messenger,

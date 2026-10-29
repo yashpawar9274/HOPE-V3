@@ -93,9 +93,12 @@ object WhatsAppAutoReplyControl {
         } catch (error: Exception) {
             return blocked("HOPE could not read the auto-reply rules: ${error.message ?: "settings unavailable"}.")
         }
-        val configuredPackage = packages.firstOrNull { packageName ->
+        // With HOPE Smart Auto-Reply no rule is needed: starting auto-reply by voice turns smart mode on.
+        val ruleMatchedPackage = packages.firstOrNull { packageName ->
             rulePackages.any { it == "*" || it.equals(packageName, ignoreCase = true) }
-        } ?: return blocked("Create and enable an AUTHORIZED_AUTO_REPLY rule for WhatsApp or WhatsApp Business in AI Auto-Reply settings.")
+        }
+        val useSmartMode = ruleMatchedPackage == null
+        val configuredPackage = ruleMatchedPackage ?: packages.first()
 
         if (!NotificationIntelligenceStore.isReadingEnabled(context)) {
             val otherMonitoredApps = NotificationIntelligenceStore.monitoredApps(context)
@@ -117,7 +120,7 @@ object WhatsAppAutoReplyControl {
         if (NotificationIntelligenceStore.aiRepliesEnabled(context) &&
             preferences.aiMode == AiMode.ONLINE &&
             preferences.apiKey.isBlank() &&
-            authorizedRules.any { it.template.isBlank() }
+            (useSmartMode || authorizedRules.any { it.template.isBlank() })
         ) {
             return blocked("AI replies are enabled but no Gemini API key is configured. Add the key in AI settings or use a saved reply template.")
         }
@@ -140,6 +143,7 @@ object WhatsAppAutoReplyControl {
             }
             AutoReplyPreferences.setAppEnabled(context, AutoReplyCoordinator.WHATSAPP_SETTING_KEY, true)
             NotificationIntelligenceStore.setMasterEnabled(context, true)
+            if (useSmartMode) SmartAutoReply.enable(context)
         } catch (error: Exception) {
             return blocked("HOPE could not save the WhatsApp auto-reply settings: ${error.message ?: "storage error"}.")
         }
@@ -169,12 +173,13 @@ object WhatsAppAutoReplyControl {
                 "Could not read WhatsApp auto-reply status because the rule settings are invalid: ${error.message ?: "unknown settings error"}."
             )
         }
+        val smartMode = AutoReplyPreferences.isSmartModeEnabled(context)
         val enabled = NotificationIntelligenceStore.isMasterEnabled(context) &&
             !NotificationIntelligenceStore.isPaused(context) &&
             NotificationIntelligenceStore.isReadingEnabled(context) &&
             AutoReplyCoordinator.isAppEnabled(context, WHATSAPP) &&
             monitoredPackages.isNotEmpty() &&
-            hasRule &&
+            (hasRule || smartMode) &&
             PermissionHelper.isNotificationListenerEnabled(context) &&
             NotificationIntelligenceStore.isListenerConnected(context)
         val details = buildList {
@@ -182,7 +187,7 @@ object WhatsAppAutoReplyControl {
             add("listener ${if (NotificationIntelligenceStore.isListenerConnected(context)) "connected" else "not connected"}")
             add("master switch ${if (NotificationIntelligenceStore.isMasterEnabled(context)) "on" else "off"}")
             add("WhatsApp monitoring ${if (monitoredPackages.isNotEmpty()) "on" else "off"}")
-            add("authorized rule ${if (hasRule) "configured" else "missing"}")
+            add(if (smartMode) "HOPE Smart Auto-Reply on (no rule needed)" else "authorized rule ${if (hasRule) "configured" else "missing"}")
             if (NotificationIntelligenceStore.isPaused(context)) add("notification intelligence paused")
         }.joinToString("; ")
         return WhatsAppAutoReplyCommandResult(
