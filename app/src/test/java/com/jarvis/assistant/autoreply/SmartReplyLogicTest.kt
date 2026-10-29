@@ -49,6 +49,48 @@ class SmartReplyLogicTest {
     }
 
     @Test
+    fun firstReplyPromptAsksForShortFemaleIntroAndLaterRepliesDoNot() {
+        val first = SmartReplyLogic.buildSystemInstruction("YASH", "Auto", "", "WhatsApp", Intent.GREETING, needsIntro = true)
+        assertTrue(first.contains("FIRST reply"))
+        assertTrue(first.contains("kar rahi hoon"))
+        assertTrue(first.contains("VERY SHORT"))
+        val later = SmartReplyLogic.buildSystemInstruction(
+            "YASH", "Auto", "", "WhatsApp", Intent.OTHER, needsIntro = false,
+            previousReplies = listOf("Hi, main HOPE hoon, YASH ki assistant.")
+        )
+        assertTrue(later.contains("Do NOT introduce yourself"))
+        assertTrue(later.contains("do NOT repeat them"))
+        assertTrue(later.contains("Hi, main HOPE hoon"))
+    }
+
+    @Test
+    fun repliesAreShortAndCutAtSentenceEnd() {
+        val long = "Sure, I can help with that. " + "More detail here that nobody needs. ".repeat(20)
+        val out = SmartReplyLogic.enforceIdentity(long, "YASH", false)
+        assertTrue(out.length <= SmartReplyLogic.MAX_SMART_REPLY_CHARS)
+        assertTrue(out.startsWith("Sure, I can help with that."))
+        assertTrue(
+            SmartReplyLogic.enforceIdentity(long, "YASH", true).length <= SmartReplyLogic.MAX_SMART_INTRO_REPLY_CHARS
+        )
+    }
+
+    @Test
+    fun repeatedAnswersAreDetected() {
+        val previous = listOf("Hi, main HOPE hoon, YASH ki assistant. Kya madad chahiye?")
+        assertTrue(SmartReplyLogic.isRepeat("Hi main HOPE hoon YASH ki assistant, kya madad chahiye", previous))
+        assertFalse(SmartReplyLogic.isRepeat("Kal 5 baje YASH khud aapko call karenge.", previous))
+        assertFalse(SmartReplyLogic.isRepeat("anything", emptyList()))
+    }
+
+    @Test
+    fun savedIntroTimeIsRestoredAfterRestart() {
+        val tracker = SmartReplyLogic.IntroTracker()
+        tracker.restore("c1", 1_000L)
+        assertFalse(tracker.needsIntro("c1", 60_000L))
+        assertTrue(tracker.needsIntro("never-seen", 60_000L))
+    }
+
+    @Test
     fun firstReplyAlwaysNamesHope() {
         assertTrue(
             SmartReplyLogic.enforceIdentity("Hello! How can I help?", "YASH", true)
@@ -60,7 +102,7 @@ class SmartReplyLogicTest {
         )
         assertEquals("Sure, noted.", SmartReplyLogic.enforceIdentity("Sure, noted.", "YASH", false))
         assertEquals("Hello", SmartReplyLogic.enforceIdentity("\"Hello\"", "YASH", false))
-        assertTrue(SmartReplyLogic.enforceIdentity("a".repeat(900), "YASH", false).length <= SmartReplyLogic.MAX_REPLY_LENGTH)
+        assertTrue(SmartReplyLogic.enforceIdentity("a".repeat(900), "YASH", false).length <= SmartReplyLogic.MAX_SMART_REPLY_CHARS + 1)
     }
 
     @Test
@@ -99,8 +141,12 @@ class SmartReplyLogicTest {
     @Test
     fun groupChatsAreNeverAutoReplied() {
         assertTrue(SmartAutoReply.isGroupConversation("com.whatsapp", true, null))
-        assertTrue(SmartAutoReply.isGroupConversation("com.whatsapp", false, "Family group"))
-        assertFalse(SmartAutoReply.isGroupConversation("com.whatsapp", false, null))
-        assertFalse(SmartAutoReply.isGroupConversation("com.google.android.apps.messaging", false, "Rahul"))
+        // real group: title is the group name, writer is a member
+        assertTrue(SmartAutoReply.isGroupConversation("com.whatsapp", false, "Family group", "Rahul"))
+        // 1:1 chat: WhatsApp may still set the title, but it is the contact themselves
+        assertFalse(SmartAutoReply.isGroupConversation("com.whatsapp", false, "Rahul", "Rahul"))
+        assertFalse(SmartAutoReply.isGroupConversation("com.whatsapp", false, null, "Rahul"))
+        assertFalse(SmartAutoReply.isGroupConversation("com.whatsapp", false, "Rahul", null))
+        assertFalse(SmartAutoReply.isGroupConversation("com.google.android.apps.messaging", false, "Rahul", "Amit"))
     }
 }

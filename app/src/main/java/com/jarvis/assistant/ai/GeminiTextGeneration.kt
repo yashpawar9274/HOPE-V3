@@ -47,7 +47,7 @@ class GeminiTextGeneration(
                 .put("parts", JSONArray().put(JSONObject().put("text", prompt)))
         )
 
-        val requestBody = JSONObject()
+        val bodyJson = JSONObject()
             .put("systemInstruction", JSONObject().put(
                 "parts",
                 JSONArray().put(JSONObject().put("text", systemInstruction))
@@ -55,12 +55,34 @@ class GeminiTextGeneration(
             .put("contents", contents)
             .put("generationConfig", JSONObject().put("temperature", 0.7).put("maxOutputTokens", 2048))
             .toString()
-            .toRequestBody("application/json".toMediaType())
 
+        // Try the last model that worked first, then the other current models. Model IDs get retired,
+        // so a single hard-coded name must never be able to silently break every reply.
+        val order = (listOfNotNull(workingModel) + TEXT_MODELS).distinct()
+        var lastError: Exception? = null
+        for (model in order) {
+            try {
+                val text = callModel(model, apiKey, bodyJson)
+                workingModel = model
+                return text
+            } catch (error: GeminiHttpException) {
+                lastError = error
+                // Wrong/blocked API key will fail on every model, so stop and say so clearly.
+                if (error.code == 401 || error.code == 403) throw error
+                // 404 (unknown model), 400, 429 (quota) and 5xx: try the next model.
+                if (workingModel == model) workingModel = null
+            }
+        }
+        throw lastError ?: IllegalStateException("Gemini did not return a reply.")
+    }
+
+    private class GeminiHttpException(val code: Int, message: String) : IllegalStateException(message)
+
+    private suspend fun callModel(model: String, apiKey: String, bodyJson: String): String {
         val request = Request.Builder()
-            .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash:generateContent")
+            .url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
             .header("x-goog-api-key", apiKey)
-            .post(requestBody)
+            .post(bodyJson.toRequestBody("application/json".toMediaType()))
             .build()
 
         val call = client.newCall(request)
@@ -75,7 +97,18 @@ class GeminiTextGeneration(
                     try {
                         val text = response.use {
                             val body = it.body?.string().orEmpty()
-                            check(it.isSuccessful) { "Gemini returned HTTP ${it.code}." }
+                            if (!it.isSuccessful) {
+                                val reason = try {
+                                    JSONObject(body).optJSONObject("error")?.optString("message").orEmpty()
+                                } catch (_: Exception) {
+                                    ""
+                                }
+                                throw GeminiHttpException(
+                                    it.code,
+                                    "Gemini ($model) returned HTTP ${it.code}" +
+                                        if (reason.isNotBlank()) ": ${reason.take(140)}" else "."
+                                )
+                            }
                             JSONObject(body)
                                 .optJSONArray("candidates")
                                 ?.optJSONObject(0)
@@ -97,5 +130,13 @@ class GeminiTextGeneration(
                 }
             })
         }
+    }
+
+    private companion object {
+        /** Current Gemini text model IDs (checked against ai.google.dev, Oct 2026). */
+        val TEXT_MODELS = listOf("gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-2.5-flash")
+
+        @Volatile
+        var workingModel: String? = null
     }
 }

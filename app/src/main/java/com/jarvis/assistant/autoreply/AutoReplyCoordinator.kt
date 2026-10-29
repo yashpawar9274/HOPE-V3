@@ -50,6 +50,7 @@ object AutoReplyCoordinator {
     private val pendingReplyJobs = ConcurrentHashMap<String, Pair<String, kotlinx.coroutines.Job>>()
     private val throttle = SmartReplyLogic.ReplyThrottle()
     private val introTracker = SmartReplyLogic.IntroTracker()
+    private val sentReplies = ConcurrentHashMap<String, MutableList<String>>()
 
     fun onNotification(
         context: Context,
@@ -72,7 +73,10 @@ object AutoReplyCoordinator {
             extractedMessages.map(Message::text)
         )
         val conversation = resolveConversation(notification, packageName, text)
-        if (conversation.isBlank() || text.isBlank()) return
+        if (conversation.isBlank() || text.isBlank()) {
+            skip(context, packageName, "Skipped: could not read the sender or message text from the notification.")
+            return
+        }
         if (hasOutgoingLatestMessage(notification)) return
         if (smartMode && rule == null) {
             // Never auto-reply into group chats, and never answer another auto-responder.
@@ -80,18 +84,37 @@ object AutoReplyCoordinator {
             if (SmartAutoReply.isGroupConversation(
                     packageName,
                     extras?.getBoolean("android.isGroupConversation", false) == true,
-                    extras?.getCharSequence("android.conversationTitle")
+                    extras?.getCharSequence("android.conversationTitle"),
+                    extractedMessages.lastOrNull()?.sender
                 )
-            ) return
-            if (SmartReplyLogic.looksLikeAutomatedMessage(text)) return
+            ) {
+                skip(context, packageName, "Skipped: group chat (HOPE never replies in groups).")
+                return
+            }
+            if (SmartReplyLogic.looksLikeAutomatedMessage(text)) {
+                skip(context, packageName, "Skipped: the message looks like another auto-responder.")
+                return
+            }
         }
-        if (NotificationIntelligenceStore.isQuietNow(context, currentMinute())) return
+        if (NotificationIntelligenceStore.isQuietNow(context, currentMinute())) {
+            skip(context, packageName, "Skipped: quiet hours are active.")
+            return
+        }
         if (NotificationIntelligenceStore.excludedContacts(context)
-                .any { conversation.contains(it, ignoreCase = true) }) return
+                .any { conversation.contains(it, ignoreCase = true) }) {
+            skip(context, packageName, "Skipped: $conversation is in the excluded contacts list.")
+            return
+        }
         if (NotificationIntelligenceStore.excludedKeywords(context)
-                .any { text.contains(it, ignoreCase = true) }) return
+                .any { text.contains(it, ignoreCase = true) }) {
+            skip(context, packageName, "Skipped: the message contains an excluded keyword.")
+            return
+        }
 
-        if (!isAppEnabled(context, packageName)) return
+        if (!isAppEnabled(context, packageName)) {
+            skip(context, packageName, "Skipped: replies are switched off for this app. Switch Smart Auto-Reply off and on again.")
+            return
+        }
 
         val chatAllowed = try {
             AutoReplyPreferences.isChatAllowed(context, packageName, conversation)
@@ -132,6 +155,7 @@ object AutoReplyCoordinator {
                 safeIncoming.any { it.text.contains(keyword, ignoreCase = true) }
             }) return
         val remoteInputAction = findReplyAction(notification)
+        skip(context, packageName, "Reading the message from $conversation and writing a reply\u2026")
         if (remoteInputAction == null) {
             postStatusNotification(
                 context,
@@ -183,7 +207,8 @@ object AutoReplyCoordinator {
                     }
                     val app = context.applicationContext as JarvisApp
                     val useAi = NotificationIntelligenceStore.aiRepliesEnabled(context)
-                    val replyTemplateOverride = rule?.template?.takeIf(String::isNotBlank)
+                    // HOPE Smart Auto-Reply never uses templates: every reply is written for the message itself.
+                    val replyTemplateOverride = if (smartMode) null else rule?.template?.takeIf(String::isNotBlank)
                     val reply = if (replyTemplateOverride != null) {
                         NotificationRuleEngine.renderTemplate(
                             replyTemplateOverride,
@@ -253,6 +278,8 @@ object AutoReplyCoordinator {
                         val sentAt = System.currentTimeMillis()
                         throttle.record(chatKey, sentAt)
                         introTracker.markIntroduced(chatKey, sentAt)
+                        AutoReplyPreferences.setIntroducedAt(app, chatKey, introTracker.lastIntroAt(chatKey))
+                        rememberReply(chatKey, reply)
                     }
                     try {
                         AutoReplyPreferences.recordReplySubmitted(context, submissionFingerprint)
@@ -309,6 +336,15 @@ object AutoReplyCoordinator {
             pendingReplyJobs.remove(submissionFingerprint, packageName to replyJob)
         }
         replyJob.start()
+    }
+
+    /** Remembers why a message was not answered so the Auto-Reply screen can show it. */
+    private fun skip(context: Context, packageName: String, reason: String) {
+        try {
+            NotificationIntelligenceStore.setLastAutoReplyStatus(context, "${appName(packageName)} \u2022 $reason")
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not save the auto-reply status.", error)
+        }
     }
 
     fun cancelPendingReplies() {
@@ -566,6 +602,18 @@ object AutoReplyCoordinator {
             extras.getParcelableArray(key).orEmpty()
         }
 
+    private fun previousRepliesFor(chatKey: String): List<String> =
+        sentReplies[chatKey]?.let { synchronized(it) { it.toList() } } ?: emptyList()
+
+    private fun rememberReply(chatKey: String, reply: String) {
+        val list = sentReplies.computeIfAbsent(chatKey) { mutableListOf() }
+        synchronized(list) {
+            list.add(reply)
+            while (list.size > 6) list.removeAt(0)
+        }
+        if (sentReplies.size > 300) sentReplies.keys.take(100).forEach { sentReplies.remove(it) }
+    }
+
     private fun appendAndGetHistory(chatKey: String, incoming: List<Message>): List<Message> {
         val history = histories.computeIfAbsent(chatKey) { mutableListOf() }
         synchronized(history) {
@@ -599,13 +647,18 @@ object AutoReplyCoordinator {
         val voice = app.preferences.voice
         val customTone = app.preferences.getVoicePersonaCustomization(voice, "tone")
         val ownerName = app.preferences.userName
+        if (smartMode) introTracker.restore(chatKey, AutoReplyPreferences.introducedAt(app, chatKey))
+        val needsIntro = smartMode && introTracker.needsIntro(chatKey, System.currentTimeMillis())
+        val previousReplies = if (smartMode) previousRepliesFor(chatKey) else emptyList()
         val systemInstruction = if (smartMode) {
             SmartReplyLogic.buildSystemInstruction(
                 ownerName = ownerName,
                 language = language,
                 tone = customTone,
                 appName = appLabel,
-                intent = SmartReplyLogic.detectIntent(latest.text)
+                intent = SmartReplyLogic.detectIntent(latest.text),
+                needsIntro = needsIntro,
+                previousReplies = previousReplies
             )
         } else buildString {
             append("Write one short, natural reply on behalf of the phone owner to the latest incoming chat message. ")
@@ -617,19 +670,24 @@ object AutoReplyCoordinator {
             if (customTone.isNotBlank()) append("Use this selected voice tone: ${customTone.take(120)}. ")
             append("Return only the message to send, using at most $MAX_REPLY_LENGTH characters.")
         }
-        val needsIntro = smartMode && introTracker.needsIntro(chatKey, System.currentTimeMillis())
         var lastError: Exception? = null
+        var instruction = systemInstruction
         repeat(2) { attempt ->
             try {
                 val generated = app.aiRouter.generate(
                     mode = app.preferences.aiMode,
-                    systemInstruction = systemInstruction,
+                    systemInstruction = instruction,
                     context = conversation,
                     prompt = "${latest.sender}: ${latest.text}"
                 ).text.trim().trim('"', ' ', '\n', '\r')
                     .let { if (smartMode) SmartReplyLogic.enforceIdentity(it, ownerName, needsIntro) else it }
                 require(generated.isNotBlank() && generated.length <= MAX_REPLY_LENGTH) {
                     "AI returned an empty or oversized reply."
+                }
+                if (smartMode && SmartReplyLogic.isRepeat(generated, previousReplies)) {
+                    instruction = systemInstruction +
+                        "\nYour last attempt repeated an earlier reply. Write a clearly different, fresh answer."
+                    throw IllegalStateException("the reply would repeat an earlier one")
                 }
                 return generated
             } catch (cancelled: CancellationException) {

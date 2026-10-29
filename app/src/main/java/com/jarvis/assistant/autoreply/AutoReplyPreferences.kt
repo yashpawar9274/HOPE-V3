@@ -35,6 +35,14 @@ object AutoReplyPreferences {
         }
     }
 
+    /** When HOPE last introduced itself in a chat (survives app restarts, so it never re-introduces itself). */
+    fun introducedAt(context: Context, chatKey: String): Long =
+        preferences(context).getLong("smart_intro_${chatKey.take(120)}", 0L)
+
+    fun setIntroducedAt(context: Context, chatKey: String, at: Long) {
+        preferences(context).edit().putLong("smart_intro_${chatKey.take(120)}", at).apply()
+    }
+
     fun isAppEnabled(context: Context, packageName: String): Boolean =
         preferences(context).getStringSet(KEY_ENABLED_APPS, emptySet())
             ?.contains(packageName) == true
