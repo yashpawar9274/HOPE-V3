@@ -16,6 +16,8 @@ class HopeInCallService : InCallService() {
 
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
+        // Meeting Mode: decline the call before any ringing/call screen and text the caller instead.
+        if (com.jarvis.assistant.meeting.MeetingCallScreener.screenIfNeeded(this, call)) return
         HopeCallController.track(call)
         openCallScreenIfReady(call)
         val callback = object : Call.Callback() {

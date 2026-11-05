@@ -128,6 +128,11 @@ class PermissionActivity : AppCompatActivity() {
         updateExtraPermission("bluetooth", Build.VERSION.SDK_INT < Build.VERSION_CODES.S || hasPermission(Manifest.permission.BLUETOOTH_CONNECT))
         updateExtraPermission("battery", PermissionHelper.hasBatteryOptimizationPermission(this))
         updateExtraPermission("brightness", PermissionHelper.hasWriteSettingsPermission(this))
+        updateExtraPermission("notifaccess", PermissionHelper.isNotificationListenerEnabled(this))
+        updateExtraPermission("files", com.jarvis.assistant.util.PermissionExtras.hasFilesAccess(this))
+        updateExtraPermission("bglocation", com.jarvis.assistant.util.PermissionExtras.hasBackgroundLocation(this))
+        updateExtraPermission("callsms", com.jarvis.assistant.util.PermissionExtras.missingCallAndSms(this).isEmpty())
+        updateExtraPermission("secure", com.jarvis.assistant.util.PermissionExtras.hasWriteSecureSettings(this))
 
         if (hasMic && hasLoc && hasNotif && hasA11y) {
             binding.btnGrantAll.text = "ALL ESSENTIAL PERMISSIONS GRANTED ✓"
@@ -174,14 +179,77 @@ class PermissionActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
             missing.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
+        missing.addAll(com.jarvis.assistant.util.PermissionExtras.missingMediaPermissions(this))
+        missing.addAll(com.jarvis.assistant.util.PermissionExtras.missingCallAndSms(this))
 
         if (missing.isNotEmpty()) {
-            allPermissionsLauncher.launch(missing.toTypedArray())
-        } else if (!PermissionHelper.isAccessibilityServiceEnabled(this)) {
-            PermissionHelper.openAccessibilitySettings(this)
-        } else if (!PermissionHelper.hasOverlayPermission(this)) {
-            PermissionHelper.requestOverlayPermission(this)
+            allPermissionsLauncher.launch(missing.distinct().toTypedArray())
+            return
         }
+        openNextSpecialPermission()
+    }
+
+    /**
+     * Android opens a Settings page for these permissions, one at a time. Each press of
+     * "GRANT ALL PERMISSIONS" opens the next one that is still missing.
+     */
+    private fun openNextSpecialPermission() {
+        val extras = com.jarvis.assistant.util.PermissionExtras
+        when {
+            !PermissionHelper.isAccessibilityServiceEnabled(this) -> PermissionHelper.openAccessibilitySettings(this)
+            !PermissionHelper.isNotificationListenerEnabled(this) -> PermissionHelper.openNotificationListenerSettings(this)
+            !PermissionHelper.hasOverlayPermission(this) -> PermissionHelper.requestOverlayPermission(this)
+            !PermissionHelper.hasWriteSettingsPermission(this) -> PermissionHelper.requestWriteSettings(this)
+            !extras.hasAllFilesAccess() -> openAllFilesSettings()
+            !extras.hasBackgroundLocation(this) -> requestBackgroundLocation()
+            !PermissionHelper.hasBatteryOptimizationPermission(this) -> PermissionHelper.requestBatteryOptimization(this)
+            else -> android.widget.Toast.makeText(this, "Everything Android allows is granted.", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openAllFilesSettings() {
+        try {
+            startActivity(com.jarvis.assistant.util.PermissionExtras.allFilesIntent(this))
+        } catch (error: Exception) {
+            try {
+                startActivity(com.jarvis.assistant.util.PermissionExtras.allFilesFallbackIntent())
+            } catch (second: Exception) {
+                PermissionHelper.openAppSettings(this)
+            }
+        }
+    }
+
+    /** Foreground location first; "Allow all the time" is then chosen in Android's own screen. */
+    private fun requestBackgroundLocation() {
+        val extras = com.jarvis.assistant.util.PermissionExtras
+        when {
+            !extras.hasForegroundLocation(this) ->
+                allPermissionsLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            Build.VERSION.SDK_INT == Build.VERSION_CODES.Q ->
+                allPermissionsLauncher.launch(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+            else -> {
+                android.widget.Toast.makeText(this, "Choose Location > Allow all the time", android.widget.Toast.LENGTH_LONG).show()
+                PermissionHelper.openAppSettings(this)
+            }
+        }
+    }
+
+    private fun showSecureSettingsHelp() {
+        val command = com.jarvis.assistant.util.PermissionExtras.ADB_COMMAND
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Advanced system settings")
+            .setMessage(
+                "Android does not let apps give themselves this permission. If you want HOPE to be able to switch on " +
+                    "its own accessibility service by itself, connect the phone to a computer with USB debugging on and run:\n\n" +
+                    command
+            )
+            .setPositiveButton("Copy command") { _, _ ->
+                val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("adb command", command))
+                android.widget.Toast.makeText(this, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     private fun hasPermission(permission: String) = ContextCompat.checkSelfPermission(this, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -233,8 +301,25 @@ class PermissionActivity : AppCompatActivity() {
         card("phone", "Phone calls", "Needed only when you ask HOPE to place a normal phone call.", com.jarvis.assistant.R.drawable.ic_settings_voice) {
             if (!hasPermission(Manifest.permission.CALL_PHONE)) callLauncher.launch(Manifest.permission.CALL_PHONE) else PermissionHelper.openAppSettings(this)
         }
-        card("camera", "Camera and flashlight", "Camera access is used only for the flashlight control.", com.jarvis.assistant.R.drawable.ic_settings_orb) {
+        card("camera", "Camera and flashlight", "Used for the flashlight and for camera tasks when you ask. Android lets HOPE use the camera only while HOPE is on screen or running its foreground service, and never while a normal phone call has the phone's audio.", com.jarvis.assistant.R.drawable.ic_settings_orb) {
             if (!hasPermission(Manifest.permission.CAMERA)) cameraLauncher.launch(Manifest.permission.CAMERA) else PermissionHelper.openAppSettings(this)
+        }
+        card("notifaccess", "Read notifications", "Lets HOPE read incoming notifications (WhatsApp, Instagram, SMS, calls and other apps) so it can announce them and reply for you. Android opens a page where you switch HOPE on.", com.jarvis.assistant.R.drawable.ic_nav_chat) {
+            PermissionHelper.openNotificationListenerSettings(this)
+        }
+        card("files", "Files and media", "Lets HOPE find and use your photos, videos, audio and files when you ask. Media access is asked here; \"all files access\" opens an Android page.", com.jarvis.assistant.R.drawable.ic_settings_plug) {
+            val missingMedia = com.jarvis.assistant.util.PermissionExtras.missingMediaPermissions(this)
+            if (missingMedia.isNotEmpty()) allPermissionsLauncher.launch(missingMedia.toTypedArray()) else openAllFilesSettings()
+        }
+        card("bglocation", "Location all the time", "Lets HOPE use your location while the screen is off or the app is closed (for \"where am I\" and location tasks). HOPE does not record a location history. Android asks you to choose \"Allow all the time\".", com.jarvis.assistant.R.drawable.ic_settings_orb) {
+            requestBackgroundLocation()
+        }
+        card("callsms", "Messages and call info", "Lets HOPE text callers for Meeting Mode, read your call log and see when a call is active (so it can pause the microphone).", com.jarvis.assistant.R.drawable.ic_settings_voice) {
+            val missingCalls = com.jarvis.assistant.util.PermissionExtras.missingCallAndSms(this)
+            if (missingCalls.isNotEmpty()) allPermissionsLauncher.launch(missingCalls.toTypedArray()) else PermissionHelper.openAppSettings(this)
+        }
+        card("secure", "Advanced: system settings (optional)", "Android allows this only through a one-time USB (adb) command. It lets HOPE switch on its own accessibility service by itself. Tap for the command.", com.jarvis.assistant.R.drawable.ic_settings_palette) {
+            showSecureSettingsHelp()
         }
         card("bluetooth", "Nearby Bluetooth devices", "Optional: allows HOPE to detect and route audio to a connected headset.", com.jarvis.assistant.R.drawable.ic_settings_plug) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) bluetoothLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) else PermissionHelper.openAppSettings(this)

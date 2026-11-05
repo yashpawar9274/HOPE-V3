@@ -39,7 +39,7 @@ object GeminiConstants {
         "Urdu"
     )
 
-    const val DEFAULT_VOICE = "Puck"
+    const val DEFAULT_VOICE = "Aoede"
 
     val SUPPORTED_VOICES = listOf(
         "Aoede",

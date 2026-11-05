@@ -6,6 +6,12 @@ plugins {
     id("kotlin-kapt")
 }
 
+// Firebase config: the Google services plugin is applied only when google-services.json exists, so the
+// project still builds before the file is added (the licence gate then shows a "Firebase not set up" message).
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 fun configuredValue(name: String): String? =
     providers.gradleProperty(name).orNull ?: providers.environmentVariable(name).orNull
 
@@ -29,8 +35,8 @@ android {
         applicationId = "com.jarvis.assistant"
         minSdk = 26
         targetSdk = 34
-        versionCode = 152
-        versionName = "1.9.6"
+        versionCode = 153
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "DEVELOPER_NAME", buildConfigString(developerName.ifBlank { "Unverified developer" }))
@@ -129,6 +135,14 @@ dependencies {
 
     // Security Crypto for EncryptedSharedPreferences
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Licence gate: Firebase Authentication + Google sign-in via Credential Manager
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-auth")
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
     testImplementation("junit:junit:4.13.2")
 }

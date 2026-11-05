@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark purple/blue Material 3 theme for Login, Licence key and Licence gate screens. -->
+    <style name="Theme.Hope.Auth" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/hope_auth_primary</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorPrimaryContainer">@color/hope_auth_primary_dark</item>
+        <item name="colorOnPrimaryContainer">#FFFFFF</item>
+        <item name="colorSecondary">@color/hope_auth_cyan</item>
+        <item name="colorOnSecondary">#06202A</item>
+        <item name="colorSurface">@color/hope_auth_surface</item>
+        <item name="colorOnSurface">@color/hope_auth_text</item>
+        <item name="colorSurfaceVariant">@color/hope_auth_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/hope_auth_text_muted</item>
+        <item name="colorOutline">@color/hope_auth_outline</item>
+        <item name="colorError">@color/hope_auth_error</item>
+        <item name="android:windowBackground">@drawable/bg_hope_auth</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/hope_auth_bg_bottom</item>
+        <item name="android:textColorPrimary">@color/hope_auth_text</item>
+        <item name="android:textColorSecondary">@color/hope_auth_text_muted</item>
+    </style>
+</resources>

@@ -240,9 +240,24 @@ object HopeSpeech {
         }
         if (voice != null) {
             tts.voice = voice
+        } else if (PromptGenerator.isFemaleVoice(selectedVoice)) {
+            // HOPE is female: prefer a female-sounding device voice for the current language,
+            // otherwise lift the pitch so announcements never sound male.
+            val language = tts.voice?.locale?.language ?: Locale.getDefault().language
+            val femaleVoice = tts.voices.orEmpty().firstOrNull {
+                it.locale.language == language &&
+                    !it.isNetworkConnectionRequired &&
+                    it.name.contains("female", ignoreCase = true)
+            }
+            if (femaleVoice != null) {
+                tts.voice = femaleVoice
+                tts.setPitch(1f)
+            } else {
+                tts.setPitch(1.15f)
+            }
+            Log.i(TAG, "Using a feminine speech voice for HOPE announcements.")
         } else {
             val pitch = when (selectedVoice.lowercase(Locale.ROOT)) {
-                "aoede", "kore" -> 1.08f
                 "charon", "fenrir" -> 0.92f
                 else -> 1f
             }

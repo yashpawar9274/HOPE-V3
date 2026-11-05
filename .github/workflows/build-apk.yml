@@ -24,6 +24,17 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Add google-services.json (optional repository secret)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            echo "google-services.json added from the GOOGLE_SERVICES_JSON secret."
+          else
+            echo "No GOOGLE_SERVICES_JSON secret: building without Firebase config."
+          fi
+
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 

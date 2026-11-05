@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:recognitionService="com.jarvis.assistant.voice.HopeRecognitionService"
     android:sessionService="com.jarvis.assistant.voice.HopeVoiceInteractionSessionService"
-    android:supportsAssist="true" />
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="true" />

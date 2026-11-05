@@ -30,6 +30,76 @@ class UpdatesFragment : Fragment() {
     private fun renderFeatureUpdates() {
         val features = listOf(
             FeatureNotice(
+                "HOPE 2.0",
+                "Login and licence key",
+                "Sign in with Firebase (Email/Password or Google) and activate HOPE with your licence key. The key must belong to the same account that bought HOPE on the website; the server checks it and limits how many phones can use it. The licence is re-checked on every start and at least every 24 hours, and works offline for up to 72 hours from a signed licence token. The unlock screens use the same HOPE ORB as the home screen."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "Auto-reply that sounds human, and says it is an AI",
+                "WhatsApp, Instagram and SMS auto-replies are now short, casual one-liners that mirror the sender's language, length, tone and emoji. HOPE introduces itself in the first reply as the owner's AI assistant and answers honestly if anyone asks whether it is a bot. It never repeats itself, waits a moment like a person typing, skips group chats, and never claims to be human."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "Permissions Center: notifications, files, location, calls",
+                "New cards on the Permissions screen: read notifications, personal files and media (including all-files access), location all the time, and messages plus call info. GRANT ALL now walks through every missing permission one Android screen at a time. Android never lets an app grant these to itself; you switch them on, HOPE shows what is missing and why. An optional adb command for advanced system settings is shown too. HOPE does not record a location history."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "Camera, microphone and calls",
+                "HOPE can now request the camera and location foreground-service types when you have granted those permissions, so camera tasks work while HOPE runs in the background. Android gives the microphone to a normal phone call while it is active, so HOPE pauses listening during calls and cannot hear you on the phone; it resumes after the call."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "Device settings and safe UPI payments",
+                "Ask HOPE to open any settings screen (Wi-Fi, Bluetooth, airplane mode, display, sound, battery, location, apps, accessibility and more) or to change brightness, screen timeout and auto-rotate once Modify system settings is allowed. Android does not let apps flip Wi-Fi, Bluetooth or airplane-mode switches, so HOPE opens the right screen for you. Payments: HOPE can only prepare a UPI screen with the payee and amount after you clearly confirm them aloud; you approve with your own UPI PIN or fingerprint. HOPE never enters a PIN or OTP and never completes a payment. Payments above 1 lakh rupees are refused."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "Meeting Mode",
+                "When you are in a meeting, sleeping or busy, HOPE declines SIM calls without ringing, texts the caller from your own SIM, and keeps chatting with them over SMS or WhatsApp using your own instructions. Starred contacts and a second call within 5 minutes still ring. Set a time limit, see a log of what happened, or switch it on by voice. Android does not let apps speak inside a normal phone call, so HOPE answers by text."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "Tasks with the screen off",
+                "For tasks that need the screen (opening apps, tapping, typing, YouTube, WhatsApp, settings), HOPE switches the display on by itself and lets it sleep when the task ends. A phone locked with a PIN, pattern or fingerprint cannot be unlocked by an app, so HOPE asks you to unlock once and then continues."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "Female voice grammar and speaking only when spoken to",
+                "With a female voice, HOPE now uses feminine Hindi and Hinglish about herself. After her last reply HOPE listens for a 30 second follow-up, then returns to the wake word, and stays silent when you are talking to someone else instead of answering friends' conversations."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "Default digital assistant",
+                "HOPE is now set up so Android lets you choose it as the default digital assistant app; the power-button or home long-press assist gesture can then open HOPE."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "iPhone-style phone",
+                "A new dialer with Keypad, Contacts and Recents (All, Missed, Incoming, Outgoing), and iPhone-style incoming, outgoing and active call screens with round Mute, Keypad, Speaker, Add call, Hold and End buttons. Calls show the caller's photo as a blurred background (or a colour from their name) with the HOPE ORB in the centre, banner notifications with a live timer, and the screen turns off at your ear using the proximity sensor."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "HOPE Smart Auto-Reply",
+                "One switch turns on automatic replies for WhatsApp, Instagram and SMS with no templates: HOPE reads the message and writes a fresh reply for it. It skips OTP and bank messages, group chats and other auto-responders, has per-chat cooldowns and your daily limit, and shows the reason on screen whenever it did not reply."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "Auto-reply and AI fixes",
+                "Cloud replies now use valid Gemini model names with automatic fallback, which fixes replies that were silently failing. Clearer errors are shown for a wrong or blocked API key."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "New HOPE logo",
+                "A new launcher icon with an adaptive background and a themed icon for Android 13 and later."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "Security clean-up",
+                "A pinned release-signature check, removal of an unused permission, and removal of leftover unused resources."
+            ),
+            FeatureNotice(
                 "HOPE AI",
                 "Natural voice conversations and single wake greeting",
                 "A wake activation now has one guarded greeting request. If speech is already underway, HOPE answers that request rather than injecting a second greeting. Transcript callbacks that repeat cumulative partial/final text are merged, reconnects do not replay the greeting, and live Gemini audio remains on the existing single playback path. Conversation instructions now favor concise, context-aware responses in the configured language."

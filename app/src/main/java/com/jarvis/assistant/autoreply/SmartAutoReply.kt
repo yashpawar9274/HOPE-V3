@@ -57,14 +57,22 @@ object SmartAutoReply {
         AutoReplyCoordinator.cancelPendingReplies()
     }
 
-    /** True when the notification is a group chat (HOPE never auto-replies into groups). */
+    /**
+     * True when the notification is a group chat (HOPE never auto-replies into groups).
+     * WhatsApp may put a conversation title on 1:1 chats too, where the title is the contact
+     * themselves; in a real group the title is the group name and differs from the person writing.
+     */
     fun isGroupConversation(
         packageName: String,
         isGroupFlag: Boolean,
-        conversationTitle: CharSequence?
+        conversationTitle: CharSequence?,
+        latestSender: CharSequence? = null
     ): Boolean {
         if (isGroupFlag) return true
         val isWhatsApp = packageName == "com.whatsapp" || packageName == "com.whatsapp.w4b"
-        return isWhatsApp && !conversationTitle.isNullOrBlank()
+        val title = conversationTitle?.toString()?.trim().orEmpty()
+        if (!isWhatsApp || title.isEmpty()) return false
+        val sender = latestSender?.toString()?.trim().orEmpty()
+        return sender.isNotEmpty() && !title.equals(sender, ignoreCase = true)
     }
 }

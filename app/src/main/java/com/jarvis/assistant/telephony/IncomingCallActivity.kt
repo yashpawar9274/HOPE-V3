@@ -21,17 +21,12 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.ScrollView
 import android.widget.FrameLayout
-import android.widget.GridLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.webkit.WebViewAssetLoader
-import androidx.webkit.WebViewClientCompat
 import com.jarvis.assistant.R
 import com.jarvis.assistant.util.ThemeManager
 import com.jarvis.assistant.util.HopeSpeech
@@ -47,7 +42,16 @@ class IncomingCallActivity : AppCompatActivity() {
     private lateinit var standbyView: TextView
     private lateinit var instructionView: TextView
     private lateinit var quickTextButton: LinearLayout
-    private lateinit var actions: GridLayout
+    private lateinit var actions: LinearLayout
+    private lateinit var callRoot: FrameLayout
+    private lateinit var bgImage: ImageView
+    private lateinit var orbContainer: FrameLayout
+    private lateinit var orbView: HopeOrbView
+    private val pendingActions = ArrayList<View>()
+    private val proximityLock by lazy { CallProximityLock(this) }
+    private var backgroundKey: String? = null
+    private val compactScreen: Boolean get() = resources.configuration.screenHeightDp < 700
+    private val actionSizeDp: Int get() = if (compactScreen) 64 else 72
     private lateinit var incomingBar: LinearLayout
     private lateinit var endCallButton: LinearLayout
     private lateinit var listeningView: TextView
@@ -104,8 +108,7 @@ class IncomingCallActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         window.addFlags(
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
         callId = intent.getStringExtra(HopeCallController.EXTRA_CALL_ID).orEmpty()
         if (callId.isBlank()) {
@@ -149,6 +152,8 @@ class IncomingCallActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        // Screen goes back to normal behaviour when the call screen is not in front.
+        proximityLock.release()
         stopVoiceRecognition()
         mainHandler.removeCallbacks(callTimerTick)
         try {
@@ -161,14 +166,13 @@ class IncomingCallActivity : AppCompatActivity() {
 
     private fun createCallUi() {
         val white = Color.WHITE
-        val soft = Color.argb(190, 255, 255, 255)
-        val faint = Color.argb(140, 255, 255, 255)
+        val soft = Color.argb(200, 255, 255, 255)
+        val faint = Color.argb(150, 255, 255, 255)
+        val compact = compactScreen
         val root = FrameLayout(this).apply {
-            setBackground(
-                android.graphics.drawable.GradientDrawable(
-                    android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                    intArrayOf(Color.rgb(62, 68, 92), Color.rgb(30, 32, 44), Color.rgb(8, 8, 12))
-                )
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                CallerBackground.gradientFor("hope")
             )
             systemUiVisibility = (
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
@@ -176,16 +180,34 @@ class IncomingCallActivity : AppCompatActivity() {
                     View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 )
         }
+        callRoot = root
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         androidx.core.view.WindowInsetsControllerCompat(window, root).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
         }
+        // Caller photo (blurred) sits under a dark scrim so text and buttons stay readable.
+        bgImage = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            visibility = View.GONE
+            alpha = 0f
+        }
+        root.addView(bgImage, FrameLayout.LayoutParams(-1, -1))
+        root.addView(
+            View(this).apply {
+                background = android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(Color.argb(120, 0, 0, 0), Color.argb(60, 0, 0, 0), Color.argb(190, 0, 0, 0))
+                )
+            },
+            FrameLayout.LayoutParams(-1, -1)
+        )
+
         callContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(56), dp(24), dp(16))
+            setPadding(dp(24), dp(if (compact) 36 else 52), dp(24), dp(16))
         }
         val content = callContent
         screenTitleView = TextView(this).apply { visibility = View.GONE }
@@ -195,12 +217,13 @@ class IncomingCallActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
         }
         callerView = TextView(this).apply {
-            textSize = 34f
+            textSize = if (compact) 30f else 34f
             gravity = Gravity.CENTER
             setTextColor(white)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
+            setShadowLayer(8f, 0f, 2f, Color.argb(120, 0, 0, 0))
         }
         callDetails.addView(callerView, matchWidth())
         stateView = TextView(this).apply {
@@ -227,7 +250,15 @@ class IncomingCallActivity : AppCompatActivity() {
         }
         callDetails.addView(numberView, matchWidth())
         content.addView(callDetails, matchWidth())
-        content.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+
+        // HOPE ORB in the centre of every call screen (incoming, outgoing, active, on hold).
+        orbContainer = FrameLayout(this).apply { clipToPadding = false }
+        orbView = HopeOrbView(this)
+        orbContainer.addView(orbView, FrameLayout.LayoutParams(-1, -1))
+        content.addView(orbContainer, LinearLayout.LayoutParams(-1, dp(if (compact) 160 else 260)).apply {
+            topMargin = dp(4)
+            bottomMargin = dp(4)
+        })
 
         listeningView = TextView(this).apply {
             text = "\u25CF  HOPE is listening\u2026"
@@ -236,19 +267,19 @@ class IncomingCallActivity : AppCompatActivity() {
             setTextColor(IosCallStyle.GREEN)
             visibility = View.GONE
         }
-        content.addView(listeningView, matchWidth().apply { bottomMargin = dp(6) })
+        content.addView(listeningView, matchWidth().apply { bottomMargin = dp(4) })
         standbyView = TextView(this).apply {
             textSize = 12f
             gravity = Gravity.CENTER
             setTextColor(faint)
         }
-        content.addView(standbyView, matchWidth().apply { bottomMargin = dp(4) })
+        content.addView(standbyView, matchWidth().apply { bottomMargin = dp(2) })
         instructionView = TextView(this).apply {
             textSize = 13f
             gravity = Gravity.CENTER
             setTextColor(soft)
         }
-        content.addView(instructionView, matchWidth().apply { bottomMargin = dp(14) })
+        content.addView(instructionView, matchWidth().apply { bottomMargin = dp(8) })
 
         // iPhone "Message" shortcut shown above Decline / Accept.
         quickTextButton = LinearLayout(this).apply {
@@ -270,7 +301,7 @@ class IncomingCallActivity : AppCompatActivity() {
         }
         content.addView(quickTextButton, LinearLayout.LayoutParams(-2, -2).apply {
             gravity = Gravity.CENTER_HORIZONTAL
-            bottomMargin = dp(22)
+            bottomMargin = dp(14)
         })
 
         incomingBar = LinearLayout(this).apply {
@@ -278,9 +309,9 @@ class IncomingCallActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
             visibility = View.GONE
         }
-        actions = GridLayout(this).apply {
-            columnCount = 3
-            useDefaultMargins = false
+        actions = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
         }
         endCallButton = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -289,8 +320,8 @@ class IncomingCallActivity : AppCompatActivity() {
             isFocusable = true
             contentDescription = "End call"
             background = IosCallStyle.rippleCircle(IosCallStyle.RED)
-            setPadding(dp(20), dp(20), dp(20), dp(20))
-            addView(IosCallStyle.icon(this@IncomingCallActivity, R.drawable.ic_ios_call_end, white, 36))
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            addView(IosCallStyle.icon(this@IncomingCallActivity, R.drawable.ic_ios_call_end, white, 34))
         }
         callActionDock = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -298,12 +329,21 @@ class IncomingCallActivity : AppCompatActivity() {
         }
         callActionDock.addView(incomingBar, matchWidth())
         callActionDock.addView(actions, matchWidth())
-        callActionDock.addView(endCallButton, LinearLayout.LayoutParams(dp(78), dp(78)).apply {
-            topMargin = dp(18)
+        val endSize = if (compact) 68 else 76
+        callActionDock.addView(endCallButton, LinearLayout.LayoutParams(dp(endSize), dp(endSize)).apply {
+            topMargin = dp(if (compact) 8 else 14)
             bottomMargin = dp(6)
         })
         content.addView(callActionDock, matchWidth())
-        root.addView(content, FrameLayout.LayoutParams(-1, -1))
+
+        // Scrolls only on very small screens, so the buttons can never be pushed off the display.
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(content, FrameLayout.LayoutParams(-1, -2))
+        }
+        root.addView(scroll, FrameLayout.LayoutParams(-1, -1))
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val bars = insets.getInsets(
                 androidx.core.view.WindowInsetsCompat.Type.systemBars() or
@@ -313,6 +353,86 @@ class IncomingCallActivity : AppCompatActivity() {
             insets
         }
         setContentView(root)
+    }
+
+    /** Orb takes the free space between the caller name and the buttons, never less than 120dp. */
+    private fun applyOrbHeight(dockDp: Int) {
+        if (!::orbContainer.isInitialized) return
+        val usedAboveAndBelow = (if (compactScreen) 36 else 52) + 110 + 40 + dockDp + 16 + 24
+        val orbDp = (resources.configuration.screenHeightDp - usedAboveAndBelow).coerceIn(120, 340)
+        val params = orbContainer.layoutParams as LinearLayout.LayoutParams
+        if (params.height != dp(orbDp)) {
+            params.height = dp(orbDp)
+            orbContainer.layoutParams = params
+        }
+    }
+
+    private fun applyCallerBackground(call: HopeCallSnapshot) {
+        val key = call.number.ifBlank { call.caller }
+        if (key == backgroundKey) return
+        backgroundKey = key
+        callRoot.background = android.graphics.drawable.GradientDrawable(
+            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+            CallerBackground.gradientFor(call.caller)
+        )
+        bgImage.visibility = View.GONE
+        bgImage.alpha = 0f
+        if (call.number.isBlank()) return
+        val metrics = resources.displayMetrics
+        Thread {
+            val photo = CallerBackground.loadBlurredPhoto(
+                applicationContext,
+                call.number,
+                metrics.widthPixels,
+                metrics.heightPixels
+            )
+            if (photo != null) {
+                runOnUiThread {
+                    if (!isDestroyed && key == backgroundKey) {
+                        bgImage.setImageBitmap(photo)
+                        bgImage.visibility = View.VISIBLE
+                        bgImage.animate().alpha(1f).setDuration(450).start()
+                    }
+                }
+            }
+        }.start()
+    }
+
+    /**
+     * Earpiece call: screen turns off near the ear (proximity lock) and is not forced on.
+     * Speaker / headset / ringing: screen stays on so the buttons can be used.
+     */
+    private fun applyScreenPolicy(call: HopeCallSnapshot) {
+        val inCall = call.state != android.telecom.Call.STATE_RINGING &&
+            call.state != android.telecom.Call.STATE_DISCONNECTED
+        val awayFromEar = call.speakerOn || CallProximityLock.isHeadsetConnected(this)
+        val atEar = inCall && !awayFromEar
+        proximityLock.setEnabled(atEar)
+        if (atEar) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    private fun flushActions() {
+        actions.removeAllViews()
+        pendingActions.chunked(3).forEach { rowViews ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            rowViews.forEach { view ->
+                val cell = LinearLayout(this).apply {
+                    gravity = Gravity.CENTER
+                    addView(view)
+                }
+                row.addView(cell, LinearLayout.LayoutParams(0, -2, 1f))
+            }
+            repeat(3 - rowViews.size) { row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f)) }
+            actions.addView(row, matchWidth().apply {
+                topMargin = dp(if (compactScreen) 4 else 8)
+                bottomMargin = dp(if (compactScreen) 4 else 8)
+            })
+        }
+        pendingActions.clear()
     }
 
     private fun refreshCall(allowPrompt: Boolean = false) {
@@ -386,17 +506,18 @@ class IncomingCallActivity : AppCompatActivity() {
         }
         callActionDock.visibility = View.VISIBLE
         actions.removeAllViews()
+        pendingActions.clear()
         incomingBar.removeAllViews()
         incomingBar.visibility = if (ringing) View.VISIBLE else View.GONE
         actions.visibility = if (ringing) View.GONE else View.VISIBLE
         if (ringing) {
             instructionView.text = ""
-            val decline = IosCallStyle.RoundAction(this, R.drawable.ic_ios_call_end, "Decline", 78).apply {
+            val decline = IosCallStyle.RoundAction(this, R.drawable.ic_ios_call_end, "Decline", if (compactScreen) 70 else 78).apply {
                 setFill(IosCallStyle.RED)
                 contentDescription = "Decline incoming call"
                 setOnClickListener { if (!HopeCallController.reject(callId)) showCallActionFailure() }
             }
-            val accept = IosCallStyle.RoundAction(this, R.drawable.ic_ios_call, "Accept", 78).apply {
+            val accept = IosCallStyle.RoundAction(this, R.drawable.ic_ios_call, "Accept", if (compactScreen) 70 else 78).apply {
                 setFill(IosCallStyle.GREEN)
                 contentDescription = "Answer incoming call"
                 setOnClickListener { if (!HopeCallController.answer(callId)) showCallActionFailure() }
@@ -441,7 +562,9 @@ class IncomingCallActivity : AppCompatActivity() {
                     }
                 }
             }
-        } else if (dialing) {
+        } else {
+            // Outgoing (dialing / connecting / any other pre-connect state): same grid as iOS, with
+            // the buttons that cannot work yet greyed out instead of hidden.
             instructionView.text = ""
             addAction("mute", R.drawable.ic_ios_mic_off, "Toggle microphone mute", active = call.muted) {
                 if (!HopeCallController.toggleMute()) showCallActionFailure()
@@ -453,11 +576,28 @@ class IncomingCallActivity : AppCompatActivity() {
             addAction(
                 "speaker", R.drawable.ic_ios_speaker, "Toggle speakerphone",
                 active = call.speakerOn, enabled = call.canSpeaker
-            ) { if (!HopeCallController.toggleSpeaker()) showCallActionFailure() }
-        } else {
-            actions.visibility = View.GONE
-            instructionView.text = "Waiting for the call to connect\u2026"
+            ) { if (!call.canSpeaker || !HopeCallController.toggleSpeaker()) showCallActionFailure() }
+            addAction("add call", R.drawable.ic_ios_add, "Add call is available after the call connects", enabled = false) { }
+            addAction("hold", R.drawable.ic_ios_pause, "Hold is available after the call connects", enabled = false) { }
+            addAction("contacts", R.drawable.ic_ios_contacts, "Open contacts") {
+                try {
+                    startActivity(Intent(this, HopeDialerActivity::class.java)
+                        .putExtra(HopeDialerActivity.EXTRA_START_PAGE, "contacts"))
+                } catch (error: Exception) {
+                    showCallActionFailure()
+                }
+            }
         }
+        flushActions()
+        applyCallerBackground(call)
+        applyScreenPolicy(call)
+        applyOrbHeight(
+            when {
+                ringing -> 175
+                activeOrHeld -> if (compactScreen) 290 else 335
+                else -> if (compactScreen) 290 else 335
+            }
+        )
         updateOrbState()
     }
 
@@ -642,20 +782,11 @@ class IncomingCallActivity : AppCompatActivity() {
         enabled: Boolean = true,
         onClick: () -> Unit
     ) {
-        val tile = IosCallStyle.RoundAction(this, iconRes, label, 72).apply {
+        pendingActions.add(IosCallStyle.RoundAction(this, iconRes, label, actionSizeDp).apply {
             contentDescription = description
             setActive(active)
             isEnabled = enabled
             setOnClickListener { onClick() }
-        }
-        actions.addView(tile, GridLayout.LayoutParams(
-            GridLayout.spec(GridLayout.UNDEFINED, 1f),
-            GridLayout.spec(GridLayout.UNDEFINED, 1f)
-        ).apply {
-            width = 0
-            height = ViewGroup.LayoutParams.WRAP_CONTENT
-            setGravity(Gravity.CENTER)
-            setMargins(0, dp(8), 0, dp(8))
         })
     }
 
@@ -667,63 +798,66 @@ class IncomingCallActivity : AppCompatActivity() {
             setPadding(0, dp(8), 0, dp(12))
             minHeight = dp(48)
         }
-        val grid = GridLayout(this).apply {
-            columnCount = 3
+        val keys = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setPadding(dp(8), dp(4), dp(8), dp(4))
         }
-        listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#").forEach { digit ->
-            val key = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
+        listOf(
+            listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("*", "0", "#")
+        ).forEach { digits ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
-                background = IosCallStyle.rippleCircle(Color.argb(64, 255, 255, 255))
-                isClickable = true
-                isFocusable = true
-                contentDescription = "Send DTMF $digit"
-                setOnClickListener {
-                    if (HopeCallController.sendDtmf(callId, digit[0])) {
-                        typed.text = (typed.text.toString() + digit).takeLast(16)
-                    } else {
-                        Toast.makeText(
-                            this@IncomingCallActivity,
-                            "Android could not send that keypad tone.",
-                            Toast.LENGTH_SHORT
-                        ).show()
+            }
+            digits.forEach { digit ->
+                val key = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    background = IosCallStyle.rippleCircle(Color.argb(64, 255, 255, 255))
+                    isClickable = true
+                    isFocusable = true
+                    contentDescription = "Send DTMF $digit"
+                    setOnClickListener {
+                        if (HopeCallController.sendDtmf(callId, digit[0])) {
+                            typed.text = (typed.text.toString() + digit).takeLast(16)
+                        } else {
+                            Toast.makeText(
+                                this@IncomingCallActivity,
+                                "Android could not send that keypad tone.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     }
                 }
-            }
-            key.addView(TextView(this).apply {
-                text = digit
-                textSize = 28f
-                gravity = Gravity.CENTER
-                setTextColor(Color.WHITE)
-                includeFontPadding = false
-            })
-            val letters = IosCallStyle.lettersFor(digit)
-            if (letters.isNotEmpty()) {
                 key.addView(TextView(this).apply {
-                    text = letters
-                    textSize = 9f
-                    letterSpacing = 0.15f
+                    text = digit
+                    textSize = 28f
                     gravity = Gravity.CENTER
                     setTextColor(Color.WHITE)
                     includeFontPadding = false
                 })
+                val letters = IosCallStyle.lettersFor(digit)
+                if (letters.isNotEmpty()) {
+                    key.addView(TextView(this).apply {
+                        text = letters
+                        textSize = 9f
+                        letterSpacing = 0.15f
+                        gravity = Gravity.CENTER
+                        setTextColor(Color.WHITE)
+                        includeFontPadding = false
+                    })
+                }
+                row.addView(key, LinearLayout.LayoutParams(dp(68), dp(68)).apply {
+                    setMargins(dp(8), dp(5), dp(8), dp(5))
+                })
             }
-            grid.addView(key, GridLayout.LayoutParams(
-                GridLayout.spec(GridLayout.UNDEFINED, 1f),
-                GridLayout.spec(GridLayout.UNDEFINED, 1f)
-            ).apply {
-                width = dp(72)
-                height = dp(72)
-                setGravity(Gravity.CENTER)
-                setMargins(dp(8), dp(6), dp(8), dp(6))
-            })
+            keys.addView(row, matchWidth())
         }
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(8))
             addView(typed, matchWidth())
-            addView(grid, matchWidth())
+            addView(keys, matchWidth())
         }
         val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
             .setView(panel)
@@ -740,13 +874,24 @@ class IncomingCallActivity : AppCompatActivity() {
         return String.format(Locale.US, "%02d:%02d", seconds / 60, seconds % 60)
     }
 
-    /** Shows a small "HOPE is listening" line while voice confirmation is capturing a command. */
+    /** Tells the HOPE ORB what the call is doing: ringing, connecting, active, on hold, ended. */
     private fun updateOrbState(forceState: String? = null) {
-        if (!::listeningView.isInitialized) return
+        if (::listeningView.isInitialized) {
+            val snap = HopeCallController.currentCall(this, callId)
+            val listening = forceState == null && speechStarted &&
+                snap?.state == android.telecom.Call.STATE_RINGING
+            listeningView.visibility = if (listening) View.VISIBLE else View.GONE
+        }
+        if (!::orbView.isInitialized) return
         val snapshot = HopeCallController.currentCall(this, callId)
-        val listening = forceState == null && speechStarted &&
-            snapshot?.state == android.telecom.Call.STATE_RINGING
-        listeningView.visibility = if (listening) View.VISIBLE else View.GONE
+        val state = forceState ?: when (snapshot?.state) {
+            android.telecom.Call.STATE_RINGING -> if (speechStarted) "listening" else "ringing"
+            android.telecom.Call.STATE_ACTIVE -> "active"
+            android.telecom.Call.STATE_HOLDING -> "idle"
+            android.telecom.Call.STATE_DISCONNECTED, null -> "disconnected"
+            else -> "thinking"
+        }
+        orbView.setState(state)
     }
 
     private fun roundedBackground(color: Int, radius: Int) =
@@ -784,6 +929,7 @@ class IncomingCallActivity : AppCompatActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
+        proximityLock.release()
         speechRecognizer?.cancel()
         speechRecognizer?.destroy()
         speechRecognizer = null

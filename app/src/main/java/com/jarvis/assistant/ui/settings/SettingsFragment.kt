@@ -125,6 +125,7 @@ class SettingsFragment : Fragment() {
         binding.switchSilentMode.isChecked = preferences.isSilentExecutionMode
         binding.switchCriticalThinking.isChecked = preferences.isCriticalThinkingEnabled
         updateAutoReplyStatus()
+        updateMeetingModeStatus()
         updateDefaultAssistantStatus()
 
         // Model
@@ -227,6 +228,10 @@ class SettingsFragment : Fragment() {
             startActivity(Intent(requireContext(), AutoReplySettingsActivity::class.java))
         }
 
+        binding.rowMeetingMode.setOnClickListener {
+            startActivity(Intent(requireContext(), MeetingModeActivity::class.java))
+        }
+
         binding.rowIncomingCall.setOnClickListener {
             startActivity(Intent(requireContext(), IncomingCallSettingsActivity::class.java))
         }
@@ -283,6 +288,21 @@ class SettingsFragment : Fragment() {
         binding.tvFooterCredit.setOnClickListener {
             openUrl("https://wa.me/+917385066631")
         }
+    }
+
+    private fun updateMeetingModeStatus() {
+        val context = requireContext()
+        val active = com.jarvis.assistant.meeting.MeetingModePreferences.isActive(context)
+        binding.tvMeetingModeStatus.text = if (active) {
+            val until = com.jarvis.assistant.meeting.MeetingModePreferences.untilText(context)
+            "On \u2022 " + com.jarvis.assistant.meeting.MeetingModePreferences.situation(context).label +
+                if (until.isNotEmpty()) " until $until" else ""
+        } else {
+            "Off \u2022 HOPE declines calls and texts for you"
+        }
+        binding.tvMeetingModeStatus.setTextColor(
+            ContextCompat.getColor(context, if (active) R.color.status_green else R.color.accent_sapphire)
+        )
     }
 
     private fun updateAutoReplyStatus() {

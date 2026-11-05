@@ -152,6 +152,25 @@ object NotificationIntelligenceProcessor {
                 sbn.notification,
                 authorizedReplyRule
             )
+        } else if (allowAutoReply && AutoReplyPreferences.isSmartModeEnabled(context) &&
+            AutoReplyPolicy.isSupportedPackage(packageName, defaultSmsPackage(context))
+        ) {
+            val reason = when {
+                !masterEnabled -> "the AI Auto Reply master switch is off"
+                !readingEnabled -> "notification reading is off for this app"
+                !AutoReplyCoordinator.isAppEnabled(context, packageName) -> "replies are off for this app"
+                excluded -> "the sender or message is excluded"
+                quiet -> "quiet hours are active"
+                else -> "the message looks like one you sent"
+            }
+            try {
+                NotificationIntelligenceStore.setLastAutoReplyStatus(
+                    context,
+                    "$appName \u2022 Skipped: $reason."
+                )
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not save the auto-reply status.", error)
+            }
         }
     }
 

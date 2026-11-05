@@ -151,6 +151,12 @@ class MainActivity : AppCompatActivity() {
         appliedThemeKey = prefs.appTheme
         appliedCustomHex = prefs.customThemeColor
         super.onCreate(savedInstanceState)
+        // Licence gate: HOPE's main screen opens only for a signed-in user with a valid licence.
+        if (!com.jarvis.assistant.license.LicenseManager.guardAllows(this)) {
+            com.jarvis.assistant.license.LicenseGateActivity.redirect(this, intent)
+            finish()
+            return
+        }
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -262,6 +268,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Re-check on every return to the app (also enforces the 24 h re-verification).
+        if (!com.jarvis.assistant.license.LicenseManager.guardAllows(this)) {
+            com.jarvis.assistant.license.LicenseGateActivity.redirect(this, intent)
+            finish()
+            return
+        }
         viewModel.refreshSettings()
         val prefs = com.jarvis.assistant.JarvisApp.instance.preferences
         if (appliedThemeKey != prefs.appTheme || appliedCustomHex != prefs.customThemeColor) {

@@ -37,3 +37,7 @@
     public static int v(...);
     public static int i(...);
 }
+
+# HOPE licence gate: Credential Manager / Google ID token classes are loaded reflectively.
+-keep class com.google.android.libraries.identity.googleid.** { *; }
+-keep class androidx.credentials.** { *; }

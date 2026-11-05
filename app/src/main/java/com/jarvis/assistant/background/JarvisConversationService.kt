@@ -113,7 +113,14 @@ class JarvisConversationService : Service() {
 
         private const val CHANNEL_ID = "jarvis_conversation"
         private const val NOTIFICATION_ID = 41
-        private const val INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000L // 30 minutes before standby
+        /**
+         * After HOPE's last reply (or task activity) the session stays open this long for a follow-up
+         * without saying "Hey HOPE" again. After that HOPE goes back to wake-word standby and ignores
+         * everything else (e.g. the owner talking to a friend).
+         */
+        private const val FOLLOW_UP_WINDOW_MS = 30_000L
+        /** Never wait longer than this for the owner to finish a sentence before returning to standby. */
+        private const val FOLLOW_UP_GRACE_MS = 20_000L
         private const val STANDBY_COOLDOWN_MS = 2500L
         private const val MAX_SPEAKER_PENDING_AUDIO_BYTES = 600_000
 
@@ -267,6 +274,7 @@ class JarvisConversationService : Service() {
     private val currentTurnAssistantText = StringBuilder()
     private val currentTurnUserText = StringBuilder()
     private var lastUserSpeechDetectedTime = 0L
+    @Volatile private var lastAssistantActivityTime = 0L
     private var lastPlaybackEndTime = 0L
     @Volatile
     private var hasSpeechInCurrentUtterance = false
@@ -663,52 +671,66 @@ class JarvisConversationService : Service() {
         }
     }
 
+    /**
+     * Foreground service types HOPE may use right now. Camera and location are added only when their
+     * permission is granted, because Android 14 throws a SecurityException for a type without it.
+     */
+    private fun foregroundTypes(includeProjection: Boolean, includeCameraAndLocation: Boolean): Int {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return 0
+        var types = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+        if (includeProjection) types = types or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        if (includeCameraAndLocation) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
+                checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                types = types or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            }
+            if (com.jarvis.assistant.util.PermissionExtras.hasBackgroundLocation(this) &&
+                com.jarvis.assistant.util.PermissionExtras.hasForegroundLocation(this)
+            ) {
+                types = types or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            }
+        }
+        return types
+    }
+
     private fun ensureMicrophoneForegroundService(): Boolean {
         val notification = buildNotification()
-        var combinedTypes = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-        } else {
-            0
-        }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q &&
-            com.jarvis.assistant.vision.ScreenCaptureManager.getInstance().isSharing.value) {
-            combinedTypes = combinedTypes or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-        }
-
-        return try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                startForeground(NOTIFICATION_ID, notification, combinedTypes)
-            } else {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
+            return try {
                 startForeground(NOTIFICATION_ID, notification)
-            }
-            Log.d("JarvisService", "Foreground service started with types=$combinedTypes")
-            true
-        } catch (primaryError: Exception) {
-            Log.w("JarvisService", "Foreground service start failed with requested types.", primaryError)
-            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
-                return false
-            }
-            try {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                )
                 true
-            } catch (fallbackError: Exception) {
-                Log.e("JarvisService", "Microphone foreground service could not start.", fallbackError)
+            } catch (error: Exception) {
+                Log.w("JarvisService", "Foreground service start failed.", error)
                 false
             }
         }
+        val projection = com.jarvis.assistant.vision.ScreenCaptureManager.getInstance().isSharing.value
+        // Try the widest set first (adds camera + location when granted), then step down so the
+        // microphone service always starts even if Android refuses the extra types.
+        val attempts = linkedSetOf(
+            foregroundTypes(projection, includeCameraAndLocation = true),
+            foregroundTypes(projection, includeCameraAndLocation = false),
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        )
+        for (types in attempts) {
+            try {
+                startForeground(NOTIFICATION_ID, notification, types)
+                Log.d("JarvisService", "Foreground service started with types=$types")
+                return true
+            } catch (error: Exception) {
+                Log.w("JarvisService", "Foreground service start failed with types=$types", error)
+            }
+        }
+        Log.e("JarvisService", "Microphone foreground service could not start.")
+        return false
     }
 
     fun elevateToMediaProjection(): Boolean {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             val notification = buildNotification()
-            val types = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or
-                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            val types = foregroundTypes(includeProjection = true, includeCameraAndLocation = false)
             try {
                 startForeground(NOTIFICATION_ID, notification, types)
                 Log.i("JarvisService", "Foreground service elevated to include MEDIA_PROJECTION")
@@ -724,8 +746,7 @@ class JarvisConversationService : Service() {
     fun demoteFromMediaProjection() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             val notification = buildNotification()
-            val types = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            val types = foregroundTypes(includeProjection = false, includeCameraAndLocation = true)
             try {
                 startForeground(NOTIFICATION_ID, notification, types)
                 Log.i("JarvisService", "Foreground service demoted from MEDIA_PROJECTION")
@@ -900,6 +921,7 @@ class JarvisConversationService : Service() {
         _voiceAssistantState.value = HopeAssistantState.ACTIVE_LISTENING
         lastResponseTimedOut = false
         lastUserSpeechDetectedTime = System.currentTimeMillis()
+        lastAssistantActivityTime = lastUserSpeechDetectedTime
         ownerVerificationGeneration++
         speakerMatchRequestedForTurn = false
         clearSpeakerEmbedding()
@@ -1908,6 +1930,21 @@ class JarvisConversationService : Service() {
                     "open_app", "open_website", "search_in_chrome",
                     "click_ui_element", "type_text", "scroll_screen", "press_key"
                 )
+                // Screen-off support: switch the display on for tools that need it. A PIN/pattern-locked phone
+                // cannot be unlocked by HOPE (Android security), so ask the owner to unlock once.
+                if (name in com.jarvis.assistant.util.ScreenWaker.SCREEN_TOOLS &&
+                    com.jarvis.assistant.util.ScreenWaker.prepareForTask(applicationContext) ==
+                    com.jarvis.assistant.util.ScreenWaker.Result.LOCKED
+                ) {
+                    Log.w("JarvisService", "Tool '$name' needs the screen but the phone is locked.")
+                    liveWebSocket?.sendToolResponse(callId, name, JSONObject().apply {
+                        put("success", false)
+                        put("message", "The phone screen is on but the phone is locked, so apps cannot be opened or tapped. " +
+                            "Tell the owner in ONE short sentence to unlock the phone (fingerprint, PIN or pattern) and then say continue. " +
+                            "Do not call any other screen tool until they unlock it.")
+                    })
+                    return@withTimeout
+                }
                 if (isAutomationTool && autonomousHardStop) {
                     Log.w("JarvisService", "Automation tool '$name' refused: hard stop is active.")
                     liveWebSocket?.sendToolResponse(callId, name, JSONObject().apply {
@@ -2511,6 +2548,68 @@ class JarvisConversationService : Service() {
                         }
                     }
 
+                    "set_meeting_mode" -> {
+                        val enable = args.optBoolean("enabled", true)
+                        val ctx = applicationContext
+                        if (enable) {
+                            val situation = com.jarvis.assistant.meeting.MeetingModeLogic.Situation
+                                .fromName(args.optString("situation", "meeting"))
+                            val minutes = if (args.has("duration_minutes")) {
+                                args.optInt("duration_minutes", 0).coerceIn(0, 24 * 60)
+                            } else com.jarvis.assistant.meeting.MeetingModePreferences.durationMinutes(ctx)
+                            com.jarvis.assistant.meeting.MeetingModePreferences.activate(ctx, situation, minutes)
+                            val warnings = buildList {
+                                if (!com.jarvis.assistant.telephony.PhoneRoleHelper.isDefaultPhoneApp(ctx)) {
+                                    add("HOPE is not the default Phone app yet, so calls cannot be declined")
+                                }
+                                if (!com.jarvis.assistant.meeting.MeetingCallScreener.canSendSms(ctx)) {
+                                    add("SMS permission is missing, so HOPE cannot text callers")
+                                }
+                            }
+                            result.put("success", true)
+                            result.put(
+                                "message",
+                                "Meeting Mode is ON (${situation.label}" +
+                                    (com.jarvis.assistant.meeting.MeetingModePreferences.untilText(ctx)
+                                        .takeIf { it.isNotEmpty() }?.let { " until $it" } ?: ", until the owner turns it off") +
+                                    "). Calls will be declined and callers texted." +
+                                    if (warnings.isEmpty()) "" else " Warning: ${warnings.joinToString("; ")}. Tell the owner to fix this in Settings > Meeting Mode."
+                            )
+                        } else {
+                            com.jarvis.assistant.meeting.MeetingModePreferences.deactivate(ctx)
+                            result.put("success", true)
+                            result.put("message", "Meeting Mode is OFF. Calls ring normally again.")
+                        }
+                    }
+                    "open_system_settings" -> {
+                        val outcome = com.jarvis.assistant.util.SystemSettingsController.open(
+                            applicationContext,
+                            args.optString("setting", "")
+                        )
+                        result.put("success", outcome.ok)
+                        result.put("message", outcome.message)
+                    }
+                    "set_system_setting" -> {
+                        val outcome = com.jarvis.assistant.util.SystemSettingsController.set(
+                            applicationContext,
+                            args.optString("setting", ""),
+                            args.optString("value", "")
+                        )
+                        result.put("success", outcome.ok)
+                        result.put("message", outcome.message)
+                    }
+                    "prepare_upi_payment" -> {
+                        val outcome = com.jarvis.assistant.util.UpiPaymentHelper.prepare(
+                            applicationContext,
+                            payeeUpiId = args.optString("payee_upi_id", ""),
+                            payeeName = args.optString("payee_name", ""),
+                            amountRupees = args.optDouble("amount_rupees", Double.NaN),
+                            note = args.optString("note", ""),
+                            confirmedByOwner = args.optBoolean("confirmed_by_owner", false)
+                        )
+                        result.put("success", outcome.ok)
+                        result.put("message", outcome.message)
+                    }
                     "set_flashlight" -> {
                         val enabled = args.optBoolean("enabled", true)
                         val msg = app.phoneControlManager.setFlashlight(enabled)
@@ -2657,6 +2756,7 @@ class JarvisConversationService : Service() {
                     }
 
                     "task_completed" -> {
+                        com.jarvis.assistant.util.ScreenWaker.release()
                         val summary = args.optString("summary", "Task completed.")
                         if (!isAutonomousTaskRunning &&
                             (!lastCompletedTaskSummary.isNullOrBlank() || System.currentTimeMillis() - lastVerifiedCompletionAt < 15_000L)
@@ -3622,7 +3722,17 @@ class JarvisConversationService : Service() {
         inactivityJob = serviceScope.launch {
             while (isActive && _isSessionOn.value) {
                 delay(15_000)
-                if (System.currentTimeMillis() - lastUserSpeechDetectedTime >= INACTIVITY_TIMEOUT_MS) {
+                val now = System.currentTimeMillis()
+                val assistantBusy = isAutonomousTaskRunning || pendingToolCalls.isNotEmpty() ||
+                    audioPlayer?.isPlaying() == true || HopeSpeech.isSpeaking() ||
+                    _conversationState.value == ConversationState.SPEAKING ||
+                    _conversationState.value == ConversationState.THINKING
+                if (assistantBusy) lastAssistantActivityTime = now
+                val idleFor = now - lastAssistantActivityTime
+                val userStillTalking = now - lastUserSpeechDetectedTime < 6_000L
+                val windowExpired = idleFor >= FOLLOW_UP_WINDOW_MS &&
+                    (!userStillTalking || idleFor >= FOLLOW_UP_WINDOW_MS + FOLLOW_UP_GRACE_MS)
+                if (!assistantBusy && windowExpired) {
                     if (preferences.isWakeWordEnabled) {
                         enterStandby()
                     } else {
@@ -4161,6 +4271,7 @@ class JarvisConversationService : Service() {
     }
 
     private fun releaseWakeLock() {
+        com.jarvis.assistant.util.ScreenWaker.release()
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
         releaseWifiLock()
