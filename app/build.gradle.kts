@@ -25,6 +25,8 @@ val releaseCertSha256 = configuredValue("JARVIS_RELEASE_CERT_SHA256")?.replace("
 val developerName = configuredValue("JARVIS_DEVELOPER_NAME")?.ifBlank { null } ?: "Yash Pawar"
 val copyrightOwner = configuredValue("JARVIS_COPYRIGHT_OWNER")?.ifBlank { null } ?: "Yash Pawar"
 val verificationEndpoint = configuredValue("JARVIS_VERIFICATION_ENDPOINT").orEmpty()
+val supabaseUrl = configuredValue("SUPABASE_URL").orEmpty().trim().trimEnd('/')
+val supabasePublishableKey = configuredValue("SUPABASE_PUBLISHABLE_KEY").orEmpty().trim()
 val releaseSigningReady = listOf(releaseStorePath, releaseStorePassword, releaseKeyAlias, releaseKeyPassword).all { !it.isNullOrBlank() }
 
 android {
@@ -43,6 +45,8 @@ android {
         buildConfigField("String", "COPYRIGHT_OWNER", buildConfigString(copyrightOwner.ifBlank { "Unconfigured" }))
         buildConfigField("String", "PINNED_RELEASE_CERT_SHA256", buildConfigString(releaseCertSha256))
         buildConfigField("String", "VERIFICATION_ENDPOINT", buildConfigString(verificationEndpoint))
+        buildConfigField("String", "SUPABASE_URL", buildConfigString(supabaseUrl))
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", buildConfigString(supabasePublishableKey))
     }
 
     signingConfigs {
@@ -124,6 +128,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("androidx.webkit:webkit:1.12.0")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation("net.java.dev.jna:jna:5.13.0@aar")
     implementation("com.alphacephei:vosk-android:0.3.75@aar")
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.16.1")

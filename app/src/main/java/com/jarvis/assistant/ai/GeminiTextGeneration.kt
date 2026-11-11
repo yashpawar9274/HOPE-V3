@@ -56,6 +56,47 @@ class GeminiTextGeneration(
             .put("generationConfig", JSONObject().put("temperature", 0.85).put("maxOutputTokens", 2048))
             .toString()
 
+        return generateFromBody(apiKey, bodyJson)
+    }
+
+    suspend fun generateWithImage(
+        systemInstruction: String,
+        prompt: String,
+        mimeType: String,
+        base64Data: String
+    ): String {
+        val apiKey = preferences.apiKey
+        check(apiKey.isNotBlank()) { "Configure the Gemini API key in Settings to use online AI." }
+        require(mimeType in setOf("image/jpeg", "image/png", "image/webp")) {
+            "The image format is not supported."
+        }
+        require(base64Data.isNotBlank()) { "The clipboard image is empty." }
+
+        val parts = JSONArray()
+            .put(JSONObject().put("text", prompt))
+            .put(
+                JSONObject().put(
+                    "inlineData",
+                    JSONObject()
+                        .put("mimeType", mimeType)
+                        .put("data", base64Data)
+                )
+            )
+        val bodyJson = JSONObject()
+            .put("systemInstruction", JSONObject().put(
+                "parts",
+                JSONArray().put(JSONObject().put("text", systemInstruction))
+            ))
+            .put(
+                "contents",
+                JSONArray().put(JSONObject().put("role", "user").put("parts", parts))
+            )
+            .put("generationConfig", JSONObject().put("temperature", 0.85).put("maxOutputTokens", 2048))
+            .toString()
+        return generateFromBody(apiKey, bodyJson)
+    }
+
+    private suspend fun generateFromBody(apiKey: String, bodyJson: String): String {
         // Try the last model that worked first, then the other current models. Model IDs get retired,
         // so a single hard-coded name must never be able to silently break every reply.
         val order = (listOfNotNull(workingModel) + TEXT_MODELS).distinct()

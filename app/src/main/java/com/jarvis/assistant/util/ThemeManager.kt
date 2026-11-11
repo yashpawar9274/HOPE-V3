@@ -30,7 +30,7 @@ object ThemeManager {
 
     fun applyTheme(activity: Activity) {
         val prefs = try { JarvisApp.instance.preferences } catch (_: Exception) { null }
-        val themeKey = prefs?.appTheme ?: "sunset"
+        val themeKey = prefs?.appTheme ?: "light"
 
         val (themeRes, isLightStatusBar, bgColor) = when (themeKey) {
             "dark" -> Triple(R.style.Theme_JarvisAssistant_Dark, false, Color.parseColor("#070914"))
@@ -68,7 +68,7 @@ object ThemeManager {
 
     fun applyDynamicBackground(view: View) {
         val prefs = try { JarvisApp.instance.preferences } catch (_: Exception) { null }
-        val themeKey = prefs?.appTheme ?: "sunset"
+        val themeKey = prefs?.appTheme ?: "light"
         val customHex = prefs?.customThemeColor ?: "#FFFFFF"
         val color = getThemeBgColor(themeKey, customHex)
         view.setBackgroundColor(color)

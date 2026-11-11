@@ -19,6 +19,7 @@ buildOutputCleanup/
 
 # Local machine configuration and secrets
 local.properties
+app/google-services.json
 *.jks
 *.keystore
 .env

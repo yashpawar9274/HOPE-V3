@@ -4,11 +4,11 @@
     <color name="hope_auth_bg_bottom">#2A1B6B</color>
     <color name="hope_auth_primary">#7C5CFF</color>
     <color name="hope_auth_primary_dark">#5B3FE0</color>
-    <color name="hope_auth_cyan">#4FE3FF</color>
+    <color name="hope_auth_cyan">#69E8FF</color>
     <color name="hope_auth_surface">#151A3A</color>
     <color name="hope_auth_surface_variant">#1E2450</color>
     <color name="hope_auth_text">#EEF0FF</color>
-    <color name="hope_auth_text_muted">#A9B1E6</color>
+    <color name="hope_auth_text_muted">#C4CAEB</color>
     <color name="hope_auth_outline">#4B548F</color>
     <color name="hope_auth_error">#FF6B7A</color>
     <color name="hope_auth_info">#4FE3FF</color>

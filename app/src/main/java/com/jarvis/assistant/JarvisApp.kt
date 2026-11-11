@@ -8,6 +8,9 @@ import com.jarvis.assistant.ai.AiRouter
 import com.jarvis.assistant.ai.GemmaModelManager
 import com.jarvis.assistant.ai.GemmaTextGeneration
 import com.jarvis.assistant.ai.GeminiTextGeneration
+import com.jarvis.assistant.clipboard.ClipboardAIRepository
+import com.jarvis.assistant.clipboard.ClipboardAnalysisManager
+import com.jarvis.assistant.clipboard.ClipboardImageProcessor
 import com.jarvis.assistant.security.SecurityManager
 import com.jarvis.assistant.automation.command.CommandExecutor
 import com.jarvis.assistant.automation.contacts.ContactResolver
@@ -17,9 +20,11 @@ import com.jarvis.assistant.automation.youtube.YouTubeAutomationManager
 import com.jarvis.assistant.data.memory.MemoryDatabase
 import com.jarvis.assistant.data.memory.MemoryManager
 import com.jarvis.assistant.data.memory.MemoryRepository
+import com.jarvis.assistant.data.memory.CloudMemoryRepository
 import com.jarvis.assistant.data.preferences.AppPreferences
 import com.jarvis.assistant.data.preferences.YouTubePreferences
 import com.jarvis.assistant.data.repository.ChatRepository
+import com.jarvis.assistant.license.LicenseManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,10 +51,22 @@ class JarvisApp : Application() {
     lateinit var aiRouter: AiRouter
         private set
 
+    lateinit var clipboardAnalysisManager: ClipboardAnalysisManager
+        private set
+
+    lateinit var clipboardAIRepository: ClipboardAIRepository
+        private set
+
+    lateinit var clipboardImageProcessor: ClipboardImageProcessor
+        private set
+
     lateinit var memoryDatabase: MemoryDatabase
         private set
 
     lateinit var memoryRepository: MemoryRepository
+        private set
+
+    lateinit var cloudMemoryRepository: CloudMemoryRepository
         private set
 
     lateinit var memoryManager: MemoryManager
@@ -79,22 +96,35 @@ class JarvisApp : Application() {
         instance = this
         com.jarvis.assistant.security.AppLockManager.initialize(this)
         preferences = AppPreferences(this)
-        chatRepository = ChatRepository(preferences)
+        chatRepository = ChatRepository(preferences) {
+            LicenseManager.currentUser(this)?.uid
+        }
         gemmaModelManager = GemmaModelManager(this)
         gemmaTextGeneration = GemmaTextGeneration(this, gemmaModelManager, preferences)
+        val geminiTextGeneration = GeminiTextGeneration(preferences)
         aiRouter = AiRouter(
-            cloud = GeminiTextGeneration(preferences),
+            cloud = geminiTextGeneration,
             local = gemmaTextGeneration,
             cloudAvailable = {
                 preferences.apiKey.isNotBlank() && hasValidatedInternet()
             },
             cloudAllowedInAutomatic = { preferences.cloudAllowedInAutomatic }
         )
+        clipboardImageProcessor = ClipboardImageProcessor(contentResolver)
+        clipboardAIRepository = ClipboardAIRepository(geminiTextGeneration, clipboardImageProcessor)
+        clipboardAnalysisManager = ClipboardAnalysisManager(this)
 
         // Memory System
         memoryDatabase = MemoryDatabase.getInstance(this)
         memoryRepository = MemoryRepository(memoryDatabase.memoryDao())
-        memoryManager = MemoryManager(memoryRepository, preferences, chatRepository, appScope)
+        cloudMemoryRepository = CloudMemoryRepository(this)
+        memoryManager = MemoryManager(
+            memoryRepository,
+            preferences,
+            chatRepository,
+            cloudMemoryRepository,
+            appScope
+        )
 
         // Automation Systems
         youTubePreferences = YouTubePreferences(this)
@@ -142,6 +172,7 @@ class JarvisApp : Application() {
         })
     }
 
+    @Volatile
     var currentResumedActivity: android.app.Activity? = null
         private set
 

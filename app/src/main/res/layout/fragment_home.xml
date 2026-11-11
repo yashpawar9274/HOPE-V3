@@ -259,7 +259,7 @@
             android:layout_marginStart="8dp" />
     </LinearLayout>
 
-    <!-- Quick Action Grid (3 Modern High-Tech Cards) -->
+    <!-- Quick Action Grid -->
     <LinearLayout
         android:id="@+id/layoutActionGrid"
         android:layout_width="match_parent"

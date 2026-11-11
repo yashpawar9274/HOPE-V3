@@ -61,6 +61,41 @@
         android:orientation="vertical"
         android:paddingHorizontal="16dp">
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:background="@drawable/bg_jarvis_card"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchCloudMemory"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Cloud Long-Term Memory"
+                android:textColor="?attr/themeTextPrimary"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="When enabled, completed chat and voice transcripts are saved to your private Supabase database and sent to Mem0 to extract searchable memories. HOPE uses your existing Firebase sign-in. Audio is not stored. Off by default."
+                android:textColor="?attr/themeTextMuted"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnClearCloudMemory"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginTop="4dp"
+                android:text="CLEAR CLOUD MEMORIES"
+                android:textColor="?attr/themeAccent" />
+        </LinearLayout>
+
         <!-- Search Input -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/tilSearch"

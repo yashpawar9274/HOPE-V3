@@ -16,8 +16,14 @@
         <item name="colorError">@color/hope_auth_error</item>
         <item name="android:windowBackground">@drawable/bg_hope_auth</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
         <item name="android:navigationBarColor">@color/hope_auth_bg_bottom</item>
+        <item name="android:windowLightNavigationBar">false</item>
         <item name="android:textColorPrimary">@color/hope_auth_text</item>
         <item name="android:textColorSecondary">@color/hope_auth_text_muted</item>
+        <item name="android:editTextColor">@color/hope_auth_text</item>
+        <item name="colorControlNormal">@color/hope_auth_text_muted</item>
+        <item name="colorControlActivated">@color/hope_auth_cyan</item>
+        <item name="colorControlHighlight">@color/hope_auth_primary</item>
     </style>
 </resources>

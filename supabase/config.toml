@@ -1,0 +1,7 @@
+project_id = "hope-v3"
+
+[functions.hope-ai-gateway]
+verify_jwt = false
+
+[functions.hope-memory]
+verify_jwt = false

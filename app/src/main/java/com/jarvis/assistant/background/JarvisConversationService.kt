@@ -29,6 +29,13 @@ import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.jarvis.assistant.JarvisApp
+import com.jarvis.assistant.clipboard.ClipboardAccessNotification
+import com.jarvis.assistant.clipboard.ClipboardContent
+import com.jarvis.assistant.clipboard.ClipboardContentType
+import com.jarvis.assistant.clipboard.ClipboardReadResult
+import com.jarvis.assistant.clipboard.ClipboardPrivacyGuard
+import com.jarvis.assistant.clipboard.SmartClipboardRequest
+import com.jarvis.assistant.clipboard.SmartClipboardVoiceCommandParser
 import com.jarvis.assistant.audio.VoskModelManager
 import com.jarvis.assistant.audio.SpeakerMatch
 import com.jarvis.assistant.audio.SpeakerProfileData
@@ -286,6 +293,9 @@ class JarvisConversationService : Service() {
     private var isPendingBackgroundTransition = false
     @Volatile
     private var suppressAudioUntilTurnComplete = false
+    @Volatile
+    private var smartClipboardHandledCurrentTurn = false
+    private var smartClipboardJob: Job? = null
     @Volatile
     private var isExecutingTool = false
     private val currentUtteranceAudioStream = WipingByteArrayOutputStream()
@@ -823,7 +833,26 @@ class JarvisConversationService : Service() {
     private suspend fun generateCurrentSystemPrompt(): String {
         val app = application as? JarvisApp ?: return ""
         return withContext(Dispatchers.IO) {
-            val memoryContext = app.memoryManager.getSystemPromptContext()
+            val memoryContext = buildString {
+                append(app.memoryManager.getSystemPromptContext())
+                if (preferences.isCloudMemoryEnabled) {
+                    val recentQuery = app.chatRepository.currentUserTurns()
+                        .takeLast(3)
+                        .joinToString(" ") { it.userTranscript }
+                        .ifBlank { "Important personal facts, preferences, and recent conversations to remember" }
+                    try {
+                        val cloudContext = app.cloudMemoryRepository.search(recentQuery)
+                        if (cloudContext.isNotBlank()) {
+                            append("\n\n[RELEVANT CLOUD LONG-TERM MEMORY]\n")
+                            append(cloudContext)
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        _events.emit("Cloud long-term memory could not be loaded: ${error.message ?: "service unavailable"}")
+                    }
+                }
+            }
             val favSong = app.memoryManager.resolveSongQuery("my favorite song")
             val prompt = com.jarvis.assistant.util.PromptGenerator.generateSystemPrompt(
                 personality = preferences.personality,
@@ -1098,6 +1127,13 @@ class JarvisConversationService : Service() {
                             }
                             if (trimmed.isNotEmpty()) {
                                 val startsNewUserTurn = currentTurnUserText.isEmpty()
+                                if (startsNewUserTurn) {
+                                    if (smartClipboardHandledCurrentTurn) {
+                                        smartClipboardJob?.cancel()
+                                        HopeSpeech.stop()
+                                    }
+                                    smartClipboardHandledCurrentTurn = false
+                                }
                                 val answeringTaskBlocker = startsNewUserTurn && isAutonomousTaskRunning && autonomousWaitingForUser
                                 if (answeringTaskBlocker) {
                                     autonomousWaitingForUser = false
@@ -1136,6 +1172,12 @@ class JarvisConversationService : Service() {
                                 _liveUserTranscript.value = merged
                                 if (_conversationState.value == ConversationState.IDLE) {
                                     setConversationState(ConversationState.LISTENING)
+                                }
+                                val clipboardRequest = SmartClipboardVoiceCommandParser.parse(merged)
+                                if (clipboardRequest != null) {
+                                    handleSmartClipboardRequest(clipboardRequest)
+                                    updateNotification()
+                                    return
                                 }
                             }
                             lastResponseTimedOut = false
@@ -1278,8 +1320,13 @@ class JarvisConversationService : Service() {
                             updateNotification()
 
                             val userUtterance = currentTurnUserText.toString().trim()
+                            val clipboardRequest = SmartClipboardVoiceCommandParser.parse(userUtterance)
+                            if (clipboardRequest != null && !smartClipboardHandledCurrentTurn) {
+                                handleSmartClipboardRequest(clipboardRequest)
+                            }
                             val isClipboardTurn =
-                                VoiceClipboardCommandParser.parse(userUtterance) != null
+                                VoiceClipboardCommandParser.parse(userUtterance) != null ||
+                                    clipboardRequest != null
                             val requestedStandby = isExplicitStandbyCommand(userUtterance)
                             if (requestedStandby) {
                                 hasExecutedCommandInCurrentTurn = true
@@ -1911,6 +1958,9 @@ class JarvisConversationService : Service() {
      * (when owner is already verified) and from processPendingToolCalls (after verification completes).
      */
     private fun handleToolCallExecution(callId: String, name: String, args: JSONObject) {
+        val userTurnText = synchronized(currentTurnUserText) {
+            currentTurnUserText.toString().trim()
+        }
         val job = serviceScope.launch(Dispatchers.IO) {
             val thisJob = coroutineContext[Job]
             if (thisJob != null) activeToolJobs.add(thisJob)
@@ -2008,6 +2058,24 @@ class JarvisConversationService : Service() {
                 val result = JSONObject()
 
                 when (name) {
+                    "list_calendar_events",
+                    "list_device_calendars",
+                    "create_calendar_event",
+                    "update_calendar_event",
+                    "delete_calendar_event",
+                    "create_reminder",
+                    "list_reminders",
+                    "complete_reminder",
+                    "manage_alarm" -> {
+                        val timeResult = com.jarvis.assistant.time.TimeToolHandler(applicationContext)
+                            .execute(name, args, userTurnText)
+                        val keys = timeResult.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            result.put(key, timeResult.get(key))
+                        }
+                    }
+
                     "take_screenshot" -> {
                         val a11y = com.jarvis.assistant.automation.accessibility.JarvisAccessibilityService.instance
                         if (a11y == null &&
@@ -2879,6 +2947,27 @@ class JarvisConversationService : Service() {
                         }
                     }
 
+                    "search_long_term_memory" -> {
+                        val query = args.optString("query").trim().ifBlank { userTurnText }
+                        if (!preferences.isCloudMemoryEnabled) {
+                            result.put("success", false)
+                            result.put("message", "Cloud long-term memory is off. Ask the user to enable it in Settings > Neural Memory Bank.")
+                        } else if (query.isBlank()) {
+                            result.put("success", false)
+                            result.put("message", "No specific memory search question was provided.")
+                        } else {
+                            try {
+                                result.put("success", true)
+                                result.put("memory_context", app.cloudMemoryRepository.search(query))
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                result.put("success", false)
+                                result.put("message", "Long-term memory search failed: ${error.message ?: "service unavailable"}")
+                            }
+                        }
+                    }
+
                     "manage_whatsapp_auto_reply" -> {
                         val action = when (args.optString("action").lowercase(Locale.ROOT)) {
                             "start" -> com.jarvis.assistant.autoreply.WhatsAppAutoReplyCommand.START
@@ -3636,6 +3725,194 @@ class JarvisConversationService : Service() {
         }
     }
 
+    private fun handleSmartClipboardRequest(request: SmartClipboardRequest) {
+        if (smartClipboardHandledCurrentTurn) return
+        smartClipboardHandledCurrentTurn = true
+        hasExecutedCommandInCurrentTurn = true
+        suppressAudioUntilTurnComplete = true
+        audioPlayer?.flush()
+        currentTurnAssistantText.clear()
+        _liveAssistantResponse.value = ""
+        smartClipboardJob?.cancel()
+        setConversationState(ConversationState.THINKING)
+
+        smartClipboardJob = serviceScope.launch {
+            try {
+            val app = application as? JarvisApp
+            if (app == null) {
+                speakSmartClipboard("Boss, clipboard feature abhi available nahi hai.")
+                return@launch
+            }
+            if (!app.preferences.isSmartClipboardEnabled) {
+                speakSmartClipboard("Boss, Smart Clipboard Intelligence settings mein paused hai. Pehle ise enable kar do.")
+                return@launch
+            }
+
+            val activity = app.currentResumedActivity
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                (activity == null || activity.isFinishing || activity.isDestroyed)
+            ) {
+                val notificationShown = ClipboardAccessNotification.show(
+                    this@JarvisConversationService,
+                    request
+                )
+                val explanation = if (notificationShown) {
+                    "Boss, Android background mein clipboard access allow nahi karta. Notification tap karo; HOPE khulne par main copied content read karunga."
+                } else {
+                    "Boss, Android background mein clipboard access allow nahi karta. HOPE ko foreground mein kholo aur clipboard read command dobara bolo. Notification permission bhi check kar lo."
+                }
+                speakSmartClipboard(explanation)
+                return@launch
+            }
+
+            if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
+                activity.startActivity(
+                    Intent(activity, com.jarvis.assistant.ui.clipboard.SmartClipboardActivity::class.java).apply {
+                        putExtra(
+                            com.jarvis.assistant.ui.clipboard.SmartClipboardActivity.EXTRA_READ_ON_RESUME,
+                            true
+                        )
+                        putExtra(
+                            com.jarvis.assistant.ui.clipboard.SmartClipboardActivity.EXTRA_REQUEST,
+                            request.name
+                        )
+                        addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    }
+                )
+                return@launch
+            }
+
+            when (val read = app.clipboardAnalysisManager.readCurrentClip(activity)) {
+                ClipboardReadResult.Empty ->
+                    speakSmartClipboard("Boss, clipboard khaali hai ya usmein supported text/image nahi mila.")
+                ClipboardReadResult.BackgroundRestricted -> {
+                    val notificationShown = ClipboardAccessNotification.show(
+                        this@JarvisConversationService,
+                        request
+                    )
+                    speakSmartClipboard(
+                        if (notificationShown) {
+                            "Boss, Android ne background clipboard access roka hai. Notification tap karke HOPE open karo."
+                        } else {
+                            "Boss, background clipboard access unavailable hai. HOPE kholo aur command dobara bolo."
+                        }
+                    )
+                }
+                is ClipboardReadResult.Unavailable ->
+                    speakSmartClipboard("Boss, clipboard read nahi ho paaya. ${read.reason.take(160)}")
+                is ClipboardReadResult.Content ->
+                    analyzeRequestedClipboard(app, read.value, request)
+            }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.e("JarvisService", "Smart clipboard analysis failed.", error)
+                val detail = error.message?.take(160)
+                speakSmartClipboard(
+                    if (detail.isNullOrBlank()) {
+                        "Boss, clipboard content analyze nahi ho paaya. Network ya Gemini settings check karke dobara try karo."
+                    } else {
+                        "Boss, clipboard content analyze nahi ho paaya. $detail"
+                    }
+                )
+            }
+        }
+    }
+
+    private suspend fun analyzeRequestedClipboard(
+        app: JarvisApp,
+        content: ClipboardContent,
+        request: SmartClipboardRequest
+    ) {
+        if (content.isSensitive ||
+            (content.type == ClipboardContentType.TEXT &&
+                content.text?.let(ClipboardPrivacyGuard::isSensitive) == true)
+        ) {
+            speakSmartClipboard("Boss, copied content password, verification code, ya payment credential jaisa lagta hai. Maine ise Gemini ko nahi bheja.")
+            return
+        }
+        if (content.isTooLarge) {
+            speakSmartClipboard("Boss, copied text bahut lamba hai. Chhota hissa copy karke dobara try karo.")
+            return
+        }
+        if (request == SmartClipboardRequest.EXPLAIN_IMAGE &&
+            content.type != ClipboardContentType.IMAGE
+        ) {
+            speakSmartClipboard("Boss, clipboard par copied image nahi mili. Supported image copy karke phir se bolo.")
+            return
+        }
+
+        val result = when (content.type) {
+            ClipboardContentType.TEXT -> {
+                if (!app.preferences.isSmartClipboardTextAnalysisEnabled) {
+                    speakSmartClipboard("Boss, text analysis settings mein disabled hai.")
+                    return
+                }
+                app.clipboardAIRepository.analyzeText(
+                    content.text.orEmpty(),
+                    request = request
+                )
+            }
+            ClipboardContentType.IMAGE -> {
+                if (!app.preferences.isSmartClipboardImageAnalysisEnabled) {
+                    speakSmartClipboard("Boss, image analysis disabled hai. Smart Clipboard screen mein image analysis enable karke dobara try karo.")
+                    return
+                }
+                val uri = content.imageUri
+                if (uri == null) {
+                    speakSmartClipboard("Boss, copied image ka URI accessible nahi hai.")
+                    return
+                }
+                app.clipboardAIRepository.analyzeImage(
+                    uri,
+                    content.mimeType,
+                    request = request
+                )
+            }
+        }
+        if (app.preferences.isSmartClipboardHistoryEnabled) {
+            val saved = app.preferences.saveSmartClipboardHistoryEntry(
+                if (content.type == ClipboardContentType.TEXT) content.text.orEmpty() else "[Copied image]",
+                result,
+                content.type.name
+            )
+            speakSmartClipboard(
+                if (saved) "Boss, $result" else "Boss, $result History secure storage mein save nahi ho paayi."
+            )
+        } else {
+            speakSmartClipboard("Boss, $result")
+        }
+    }
+
+    private fun speakSmartClipboard(text: String) {
+        val app = application as? JarvisApp
+        if (app?.preferences?.isSmartClipboardVoiceResponseEnabled == false) {
+            serviceScope.launch {
+                _events.emit(text)
+                setConversationState(if (_isSessionOn.value) ConversationState.LISTENING else ConversationState.IDLE)
+            }
+            return
+        }
+        val started = HopeSpeech.speak(
+            applicationContext,
+            text,
+            app?.preferences?.language ?: "Auto",
+            "smart_clipboard_${System.currentTimeMillis()}",
+            queueMode = TextToSpeech.QUEUE_FLUSH
+        ) { completed ->
+            if (!completed) Log.w("JarvisService", "Smart clipboard voice response did not complete.")
+            if (smartClipboardHandledCurrentTurn) {
+                setConversationState(if (_isSessionOn.value) ConversationState.LISTENING else ConversationState.IDLE)
+            }
+        }
+        if (!started) {
+            Log.e("JarvisService", "Smart clipboard voice response could not be started.")
+            serviceScope.launch { _events.emit("Smart Clipboard response could not be spoken.") }
+        } else {
+            setConversationState(ConversationState.SPEAKING)
+        }
+    }
+
     private fun finalizeTurn() {
         val rawReply = currentTurnAssistantText.toString().trim()
         val reply = rawReply.replace(Regex("\\s+"), " ")
@@ -3644,14 +3921,15 @@ class JarvisConversationService : Service() {
         val app = application as? JarvisApp
 
         val isOwnerCheckPassed = !preferences.isOwnerVoiceEnabled || isCurrentTurnOwnerVoiceVerified
-        val isClipboardTurn = VoiceClipboardCommandParser.parse(query) != null
+        val isClipboardTurn = VoiceClipboardCommandParser.parse(query) != null ||
+            SmartClipboardVoiceCommandParser.parse(query) != null
         if (query.isNotEmpty() && isOwnerCheckPassed && !isClipboardTurn) {
             app?.memoryManager?.learnPreferencesFromConversation(query)
         }
 
         if (reply.isNotEmpty() && app != null && !isClipboardTurn) {
             if (isOwnerCheckPassed) {
-                app.chatRepository.addTurn(
+                val savedTurn = app.chatRepository.addTurn(
                     userText = query.ifEmpty { "Spoken user query" },
                     jarvisText = reply
                 )
@@ -3659,6 +3937,18 @@ class JarvisConversationService : Service() {
                     userText = query.ifEmpty { "Spoken user query" },
                     jarvisText = reply
                 )
+                if (preferences.isCloudMemoryEnabled && savedTurn != null) {
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            app.cloudMemoryRepository.saveTurn(savedTurn, "live_voice")
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            Log.e("JarvisService", "Cloud long-term memory sync failed.", error)
+                            _events.emit("Voice conversation completed, but cloud memory could not be saved.")
+                        }
+                    }
+                }
             }
         }
         currentTurnAssistantText.clear()

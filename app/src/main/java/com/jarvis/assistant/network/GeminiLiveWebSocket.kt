@@ -818,6 +818,26 @@ class GeminiLiveWebSocket(
                             })
                         })
 
+                        put(JSONObject().apply {
+                            put("name", "search_long_term_memory")
+                            put(
+                                "description",
+                                "Searches HOPE's private long-term memory only when the user asks what HOPE remembers, asks about a previous conversation/session, or asks to recall a personal fact that may have been discussed before. Do not use for ordinary questions. The search is read-only and scoped to the signed-in Firebase account."
+                            )
+                            put("parameters", JSONObject().apply {
+                                put("type", "OBJECT")
+                                put("properties", JSONObject().put(
+                                    "query",
+                                    JSONObject().apply {
+                                        put("type", "STRING")
+                                        put("description", "A concise natural-language description of the specific previous topic or fact to recall.")
+                                    }
+                                ))
+                                put("required", JSONArray().put("query"))
+                            })
+                        })
+
+                        TimeToolDeclarations.addTo(this)
                     })
                 }))
             })

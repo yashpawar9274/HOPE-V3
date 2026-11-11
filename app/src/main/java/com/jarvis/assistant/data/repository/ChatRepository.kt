@@ -6,7 +6,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class ChatRepository(private val preferences: AppPreferences) {
+class ChatRepository(
+    private val preferences: AppPreferences,
+    private val currentOwnerUid: () -> String? = { null },
+) {
 
     private val _turns = MutableStateFlow<List<ChatTurn>>(emptyList())
     val turns: StateFlow<List<ChatTurn>> = _turns.asStateFlow()
@@ -16,25 +19,30 @@ class ChatRepository(private val preferences: AppPreferences) {
     }
 
     @Synchronized
-    fun addTurn(userText: String, jarvisText: String, engineName: String? = null) {
+    fun addTurn(userText: String, jarvisText: String, engineName: String? = null): ChatTurn? {
         val cleanUser = userText.trim()
         val cleanJarvis = jarvisText.trim()
+        val ownerUid = currentOwnerUid()
 
-        if (cleanUser.isEmpty() && cleanJarvis.isEmpty()) return
+        if (cleanUser.isEmpty() && cleanJarvis.isEmpty()) return null
 
         val currentList = _turns.value.toMutableList()
 
         if (currentList.isNotEmpty()) {
             val last = currentList.last()
-            if (last.userTranscript == cleanUser && last.jarvisResponse == cleanJarvis) {
-                return
+            if (last.ownerUid == ownerUid &&
+                last.userTranscript == cleanUser &&
+                last.jarvisResponse == cleanJarvis
+            ) {
+                return last
             }
         }
 
         val newTurn = ChatTurn(
             userTranscript = cleanUser.ifEmpty { "(Audio query)" },
             jarvisResponse = cleanJarvis.ifEmpty { "(Audio response)" },
-            engineName = engineName
+            engineName = engineName,
+            ownerUid = ownerUid
         )
 
         currentList.add(newTurn)
@@ -44,11 +52,17 @@ class ChatRepository(private val preferences: AppPreferences) {
 
         _turns.value = currentList
         preferences.saveChatHistory(currentList)
+        return newTurn
     }
 
     @Synchronized
     fun clearHistory() {
         _turns.value = emptyList()
         preferences.clearChatHistory()
+    }
+
+    fun currentUserTurns(): List<ChatTurn> {
+        val ownerUid = currentOwnerUid() ?: return emptyList()
+        return _turns.value.filter { it.ownerUid == ownerUid }
     }
 }

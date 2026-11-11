@@ -1,6 +1,7 @@
 package com.jarvis.assistant.voice
 
 import android.app.Activity
+import android.app.KeyguardManager
 import android.content.Intent
 import android.os.Bundle
 import com.jarvis.assistant.ui.home.MainActivity
@@ -13,8 +14,14 @@ import com.jarvis.assistant.ui.home.MainActivity
 class HopeAssistActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val keyguard = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+        val target = if (keyguard.isKeyguardLocked) {
+            LockScreenActivity::class.java
+        } else {
+            MainActivity::class.java
+        }
         startActivity(
-            Intent(this, MainActivity::class.java).apply {
+            Intent(this, target).apply {
                 addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TOP or

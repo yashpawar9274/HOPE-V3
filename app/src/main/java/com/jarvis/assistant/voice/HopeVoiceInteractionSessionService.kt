@@ -1,6 +1,7 @@
 package com.jarvis.assistant.voice
 
 import android.content.Intent
+import android.app.KeyguardManager
 import android.service.voice.VoiceInteractionSession
 import android.service.voice.VoiceInteractionSessionService
 import com.jarvis.assistant.ui.home.MainActivity
@@ -20,7 +21,13 @@ private class HopeVoiceInteractionSession(
 ) : VoiceInteractionSession(context) {
     override fun onShow(args: android.os.Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
-        val launchIntent = Intent(context, MainActivity::class.java).apply {
+        val keyguard = context.getSystemService(android.content.Context.KEYGUARD_SERVICE) as KeyguardManager
+        val target = if (keyguard.isKeyguardLocked) {
+            LockScreenActivity::class.java
+        } else {
+            MainActivity::class.java
+        }
+        val launchIntent = Intent(context, target).apply {
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or

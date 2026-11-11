@@ -11,6 +11,14 @@ import com.jarvis.assistant.data.model.ChatTurn
 import com.jarvis.assistant.data.model.GeminiConstants
 import com.jarvis.assistant.ai.AiMode
 import com.jarvis.assistant.ai.GemmaBackend
+import org.json.JSONArray
+
+data class SmartClipboardHistoryItem(
+    val timestamp: Long,
+    val type: String,
+    val copiedContent: String,
+    val response: String
+)
 
 class AppPreferences(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -33,6 +41,7 @@ class AppPreferences(context: Context) {
 
     init {
         migrateApiKeyToEncryptedStorage()
+        clearLegacySupabaseAuthTokens()
         val current = prefs.getString(KEY_MODEL, null)
         if (current == null || current !in GeminiConstants.SUPPORTED_MODELS) {
             prefs.edit().putString(KEY_MODEL, GeminiConstants.DEFAULT_MODEL).apply()
@@ -63,6 +72,16 @@ class AppPreferences(context: Context) {
         private const val KEY_WAKE_WORD_ENABLED = "key_wake_word_enabled"
         private const val KEY_WAKE_WORD_CONFIDENCE = "key_wake_word_confidence"
         private const val KEY_VOICE_CLIPBOARD_ENABLED = "key_voice_clipboard_enabled"
+        private const val KEY_SMART_CLIPBOARD_ENABLED = "key_smart_clipboard_enabled"
+        private const val KEY_SMART_CLIPBOARD_IMAGE_ANALYSIS_ENABLED = "key_smart_clipboard_image_analysis_enabled"
+        private const val KEY_SMART_CLIPBOARD_TEXT_ANALYSIS_ENABLED = "key_smart_clipboard_text_analysis_enabled"
+        private const val KEY_SMART_CLIPBOARD_VOICE_RESPONSE_ENABLED = "key_smart_clipboard_voice_response_enabled"
+        private const val KEY_SMART_CLIPBOARD_HISTORY_ENABLED = "key_smart_clipboard_history_enabled"
+        private const val KEY_SMART_CLIPBOARD_HISTORY = "key_smart_clipboard_history"
+        private const val KEY_CLOUD_MEMORY_ENABLED = "key_cloud_memory_enabled"
+        private const val KEY_CLOUD_MEMORY_OWNER_ID = "key_cloud_memory_owner_id"
+        private const val KEY_CLOUD_MEMORY_HISTORY_OWNER_ID = "key_cloud_memory_history_owner_id"
+        private const val KEY_CLOUD_MEMORY_HISTORY_BACKED_UP_FOR_USER = "key_cloud_memory_history_backed_up_for_user"
         private const val KEY_CHAT_HISTORY = "key_chat_history"
         private const val KEY_FAVORITE_SONG = "key_favorite_song"
         private const val KEY_FAVORITE_APP = "key_favorite_app"
@@ -260,6 +279,7 @@ class AppPreferences(context: Context) {
             prefs.edit().remove(KEY_API_KEY).commit()
             return
         }
+
         try {
             val existing = secure.getString(KEY_API_KEY, null)
             if (existing.isNullOrEmpty()) {
@@ -269,6 +289,15 @@ class AppPreferences(context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Legacy API-key migration to encrypted storage failed", e)
         }
+    }
+
+    private fun clearLegacySupabaseAuthTokens() {
+        secureApiPrefs?.edit()
+            ?.remove("key_supabase_access_token")
+            ?.remove("key_supabase_refresh_token")
+            ?.remove("key_supabase_user_id")
+            ?.remove("key_supabase_expires_at")
+            ?.apply()
     }
 
     private fun isValidVoiceVector(vector: FloatArray?): Boolean =
@@ -357,7 +386,7 @@ class AppPreferences(context: Context) {
 
     var appTheme: String
         get() {
-            val stored = prefs.getString(KEY_APP_THEME, "sunset") ?: "sunset"
+            val stored = prefs.getString(KEY_APP_THEME, "light") ?: "light"
             return when (stored) {
                 "light", "pearl_white" -> "light"
                 "dark", "midnight_onyx", "cyberpunk_neon", "emerald_obsidian" -> "dark"
@@ -481,6 +510,102 @@ class AppPreferences(context: Context) {
     var isVoiceClipboardEnabled: Boolean
         get() = prefs.getBoolean(KEY_VOICE_CLIPBOARD_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_VOICE_CLIPBOARD_ENABLED, value).apply()
+
+    var isSmartClipboardEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SMART_CLIPBOARD_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_SMART_CLIPBOARD_ENABLED, value).apply()
+
+    var isSmartClipboardImageAnalysisEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SMART_CLIPBOARD_IMAGE_ANALYSIS_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_SMART_CLIPBOARD_IMAGE_ANALYSIS_ENABLED, value).apply()
+
+    var isSmartClipboardTextAnalysisEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SMART_CLIPBOARD_TEXT_ANALYSIS_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_SMART_CLIPBOARD_TEXT_ANALYSIS_ENABLED, value).apply()
+
+    var isSmartClipboardVoiceResponseEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SMART_CLIPBOARD_VOICE_RESPONSE_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_SMART_CLIPBOARD_VOICE_RESPONSE_ENABLED, value).apply()
+
+    var isSmartClipboardHistoryEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SMART_CLIPBOARD_HISTORY_ENABLED, false)
+        set(value) {
+            prefs.edit().putBoolean(KEY_SMART_CLIPBOARD_HISTORY_ENABLED, value).apply()
+            if (!value) {
+                secureApiPrefs?.edit()?.remove(KEY_SMART_CLIPBOARD_HISTORY)?.apply()
+            }
+        }
+
+    @Synchronized
+    fun saveSmartClipboardHistoryEntry(
+        copiedContent: String,
+        response: String,
+        type: String
+    ): Boolean {
+        if (!isSmartClipboardHistoryEnabled) return true
+        val securePrefs = secureApiPrefs ?: run {
+            Log.e(TAG, "Clipboard history is enabled but encrypted storage is unavailable.")
+            return false
+        }
+        return try {
+            val entries = JSONArray(securePrefs.getString(KEY_SMART_CLIPBOARD_HISTORY, "[]") ?: "[]")
+            val updated = JSONArray().put(
+                org.json.JSONObject()
+                    .put("timestamp", System.currentTimeMillis())
+                    .put("type", type)
+                    .put("copiedContent", copiedContent.take(30_000))
+                    .put("response", response.take(8_000))
+            )
+            for (index in 0 until minOf(entries.length(), 19)) {
+                updated.put(entries.getJSONObject(index))
+            }
+            securePrefs.edit().putString(KEY_SMART_CLIPBOARD_HISTORY, updated.toString()).commit()
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not securely save Smart Clipboard history.", error)
+            false
+        }
+    }
+
+    @Synchronized
+    fun getSmartClipboardHistory(): List<SmartClipboardHistoryItem>? {
+        val securePrefs = secureApiPrefs ?: return null
+        return try {
+            val entries = JSONArray(securePrefs.getString(KEY_SMART_CLIPBOARD_HISTORY, "[]") ?: "[]")
+            List(entries.length()) { index ->
+                val item = entries.getJSONObject(index)
+                SmartClipboardHistoryItem(
+                    timestamp = item.getLong("timestamp"),
+                    type = item.getString("type"),
+                    copiedContent = item.getString("copiedContent"),
+                    response = item.getString("response")
+                )
+            }
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not read encrypted Smart Clipboard history.", error)
+            null
+        }
+    }
+
+    @Synchronized
+    fun clearSmartClipboardHistory() {
+        secureApiPrefs?.edit()?.remove(KEY_SMART_CLIPBOARD_HISTORY)?.apply()
+    }
+
+    var isCloudMemoryEnabled: Boolean
+        get() = prefs.getBoolean(KEY_CLOUD_MEMORY_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_CLOUD_MEMORY_ENABLED, value).apply()
+
+    var cloudMemoryOwnerId: String
+        get() = prefs.getString(KEY_CLOUD_MEMORY_OWNER_ID, "").orEmpty()
+        set(value) = prefs.edit().putString(KEY_CLOUD_MEMORY_OWNER_ID, value).apply()
+
+    var cloudMemoryHistoryOwnerId: String
+        get() = prefs.getString(KEY_CLOUD_MEMORY_HISTORY_OWNER_ID, "").orEmpty()
+        set(value) = prefs.edit().putString(KEY_CLOUD_MEMORY_HISTORY_OWNER_ID, value).apply()
+
+    var cloudMemoryHistoryBackedUpForUserId: String
+        get() = prefs.getString(KEY_CLOUD_MEMORY_HISTORY_BACKED_UP_FOR_USER, "").orEmpty()
+        set(value) = prefs.edit().putString(KEY_CLOUD_MEMORY_HISTORY_BACKED_UP_FOR_USER, value).apply()
 
     var isSilentExecutionMode: Boolean
         get() = prefs.getBoolean(KEY_SILENT_EXECUTION_MODE, false)

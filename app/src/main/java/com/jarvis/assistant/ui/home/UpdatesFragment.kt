@@ -31,6 +31,21 @@ class UpdatesFragment : Fragment() {
         val features = listOf(
             FeatureNotice(
                 "HOPE 2.0",
+                "Smart Clipboard Intelligence",
+                "Smart Clipboard now reads nothing until you explicitly ask HOPE what you copied or tap Check Clipboard. Voice requests can explain text, suggest replies, translate content, explain copied code, or analyze an image; text and image analysis have separate settings, and suggested messages are never sent. Its controls are under Settings → AI Features & Cloud Identity, not on Home. Sensitive-looking text is blocked locally, with best-effort detection. HOPE reuses its existing ORB and shared speech engine. Android 10+ may block clipboard access in the background; HOPE then explains the restriction and offers a notification to open the visible clipboard screen rather than bypassing OS rules. Optional clipboard history is off by default and uses encrypted storage when enabled."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "Cloud Long-Term Memory with Mem0",
+                "Supabase is now intended only as HOPE's memory backend—there is no separate Supabase account screen. Cloud memory reuses the existing Firebase sign-in, is off by default, and asks for consent before backing up up to 100 local turns already associated with that Firebase user or saving later text chats and regular voice transcripts. Older untagged history is not copied. Supabase stores the transcripts behind Firebase-UID owner policies; Mem0 extracts and searches relevant memories. Voice audio, clipboard requests, and automation-only turns are excluded. Settings → Neural Memory Bank can pause cloud memory or clear transcripts and queue Mem0 deletion. The Firebase third-party auth connection, database migration, Mem0 secret, and Edge Functions still require deployment and live testing; do not treat cloud memory as connected yet."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
+                "Calendar, alarms and reminders",
+                "Time Manager reads and creates events in Android calendars, opens the installed clock app for alarms and timers, and stores one-time or recurring reminders with WorkManager. Calendar access and notification delivery require Android permissions. Reminder delivery is inexact and may be delayed by battery restrictions; event deletion and scheduling conflicts require explicit confirmation."
+            ),
+            FeatureNotice(
+                "HOPE 2.0",
                 "Login and licence key",
                 "Sign in with Firebase (Email/Password or Google) and activate HOPE with your licence key. The key must belong to the same account that bought HOPE on the website; the server checks it and limits how many phones can use it. The licence is re-checked on every start and at least every 24 hours, and works offline for up to 72 hours from a signed licence token. The unlock screens use the same HOPE ORB as the home screen."
             ),
@@ -91,8 +106,8 @@ class UpdatesFragment : Fragment() {
             ),
             FeatureNotice(
                 "HOPE 2.0",
-                "New HOPE logo",
-                "A new launcher icon with an adaptive background and a themed icon for Android 13 and later."
+                "Custom illustrated HOPE app logo",
+                "The app launcher icon now uses the supplied HOPE artwork across Android's standard, round, and adaptive icon variants. The adaptive version keeps the complete logo inside Android's safe area so launcher masks do not cut off the portrait or wordmark."
             ),
             FeatureNotice(
                 "HOPE 2.0",
@@ -190,7 +205,7 @@ class UpdatesFragment : Fragment() {
             FeatureNotice("Spotify", "Song search and playback checks", "Searches can inspect results and verify playback before reporting success; physical-device behavior still depends on the Spotify screen and account."),
             FeatureNotice("Permissions", "Per-feature access status", "The System Authorizations page lists microphone, location, notifications, overlay, Accessibility, contacts, phone, camera, Bluetooth, battery, and brightness access."),
             FeatureNotice("AI persona", "Operator profile preview", "Preview your selected assistant voice and the name it will use before activating the persona."),
-            FeatureNotice("Appearance", "Sunset theme by default", "Fresh installs start with the sunset theme; you can still select other themes in Settings.")
+            FeatureNotice("Appearance", "Light theme by default", "Fresh installs start with the Light theme; you can still select other themes in Settings.")
         )
         val list = binding.updatesList
         list.removeAllViews()

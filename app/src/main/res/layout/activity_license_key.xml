@@ -56,7 +56,9 @@
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Licence key">
+            android:hint="Licence key"
+            app:boxStrokeColor="@color/hope_auth_input_stroke"
+            app:hintTextColor="@color/hope_auth_input_hint">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/keyInput"
@@ -65,6 +67,8 @@
                 android:imeOptions="actionDone"
                 android:inputType="textCapCharacters|textNoSuggestions"
                 android:maxLines="1"
+                android:textColor="@color/hope_auth_text"
+                android:textColorHint="@color/hope_auth_text_muted"
                 android:textSize="17sp"
                 android:typeface="monospace" />
         </com.google.android.material.textfield.TextInputLayout>
@@ -83,6 +87,7 @@
             android:layout_height="56dp"
             android:layout_marginTop="18dp"
             android:text="Unlock"
+            android:textColor="@android:color/white"
             android:textSize="16sp"
             app:cornerRadius="16dp" />
 

@@ -260,7 +260,10 @@ class HopeOrbView @JvmOverloads constructor(
         val LOOKS = mapOf(
             "ringing" to Look(0xFF4FE3FF.toInt(), 0xFF5B8CFF.toInt(), 1.00f, 1.00f, 1.30f, 0.060f, 1.4f, 1.0f, 0.55f),
             "listening" to Look(0xFF3DF5B0.toInt(), 0xFF4FE3FF.toInt(), 1.00f, 1.00f, 0.90f, 0.050f, 1.0f, 0.8f, 0.40f),
+            "reading" to Look(0xFF4FE3FF.toInt(), 0xFF8B5CF6.toInt(), 0.92f, 0.98f, 0.62f, 0.035f, 0.8f, 0.55f, 0.34f),
             "thinking" to Look(0xFFB28CFF.toInt(), 0xFF5B8CFF.toInt(), 0.90f, 0.97f, 0.70f, 0.040f, 2.2f, 1.0f, 0.50f),
+            "error" to Look(0xFFFF5C72.toInt(), 0xFFFF9A52.toInt(), 0.88f, 0.96f, 0.72f, 0.045f, 0.5f, 0.75f, 0.46f),
+            "responding" to Look(0xFF5B8CFF.toInt(), 0xFF4FE3FF.toInt(), 0.95f, 1.00f, 0.42f, 0.035f, 0.9f, 0.35f, 0.3f),
             "active" to Look(0xFF5B8CFF.toInt(), 0xFF4FE3FF.toInt(), 0.85f, 1.00f, 0.25f, 0.025f, 0.6f, 0.0f, 0.30f),
             "idle" to Look(0xFFFFB84F.toInt(), 0xFFFF8A5C.toInt(), 0.55f, 0.92f, 0.15f, 0.015f, 0.2f, 0.0f, 0.30f),
             "disconnected" to Look(0xFFFF4D5E.toInt(), 0xFFFF2D6F.toInt(), 0.35f, 0.85f, 0.10f, 0.010f, 0.1f, 0.0f, 0.30f)

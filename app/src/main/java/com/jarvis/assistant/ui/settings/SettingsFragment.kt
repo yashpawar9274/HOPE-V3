@@ -8,11 +8,13 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.jarvis.assistant.JarvisApp
 import com.jarvis.assistant.R
@@ -24,6 +26,8 @@ import com.jarvis.assistant.ui.security.AppSecurityActivity
 import com.jarvis.assistant.ui.voice.SpeakerProfilesActivity
 import com.jarvis.assistant.ui.voice.VoiceEnrollmentActivity
 import com.jarvis.assistant.util.AssistantRoleHelper
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 class SettingsFragment : Fragment() {
 
@@ -176,6 +180,11 @@ class SettingsFragment : Fragment() {
             startActivity(Intent(requireContext(), PersonaActivity::class.java))
         }
 
+        binding.rowSmartClipboardSettings.setOnClickListener {
+            startActivity(Intent(requireContext(), SmartClipboardSettingsActivity::class.java))
+        }
+
+
         binding.switchSilentMode.setOnCheckedChangeListener { _, isChecked ->
             preferences.isSilentExecutionMode = isChecked
             val msg = if (isChecked) "Silent Execution Mode Enabled" else "Silent Execution Mode Disabled"
@@ -210,6 +219,10 @@ class SettingsFragment : Fragment() {
 
         binding.rowPermissions.setOnClickListener {
             startActivity(Intent(requireContext(), PermissionActivity::class.java))
+        }
+
+        binding.rowTimeManager.setOnClickListener {
+            startActivity(Intent(requireContext(), TimeManagerActivity::class.java))
         }
 
         binding.rowLocationAwareness.setOnClickListener {
@@ -289,6 +302,9 @@ class SettingsFragment : Fragment() {
             openUrl("https://wa.me/+917385066631")
         }
     }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
     private fun updateMeetingModeStatus() {
         val context = requireContext()

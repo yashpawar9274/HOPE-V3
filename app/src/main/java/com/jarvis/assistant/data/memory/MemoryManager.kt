@@ -15,6 +15,7 @@ class MemoryManager(
     private val repository: MemoryRepository,
     private val preferences: AppPreferences,
     private val chatRepository: com.jarvis.assistant.data.repository.ChatRepository,
+    private val cloudMemoryRepository: CloudMemoryRepository,
     private val scope: CoroutineScope
 ) {
     companion object {
@@ -84,6 +85,9 @@ class MemoryManager(
             return "I didn't catch what you'd like me to remember, Sir."
         }
 
+        if (preferences.isCloudMemoryEnabled) {
+            cloudMemoryRepository.rememberNote(clean)
+        }
         learnPreferencesFromConversation(clean)
 
         val lower = clean.lowercase(Locale.ROOT)
@@ -133,6 +137,16 @@ class MemoryManager(
     }
 
     suspend fun getWhatDoYouRemember(): String {
+        if (preferences.isCloudMemoryEnabled) {
+            val cloudMemories = cloudMemoryRepository.search(
+                "Important personal facts, preferences, and previous conversations the user may ask HOPE to remember"
+            )
+            if (cloudMemories.isNotBlank()) {
+                val response = "Here are relevant things I remember from your cloud memory: ${cloudMemories.take(2_000)}"
+                chatRepository.addTurn("What do you remember about me?", response)
+                return response
+            }
+        }
         val all = repository.getAllMemories()
         if (all.isEmpty()) {
             return "My memory core is currently clear, Sir. Tell me anything about your life, habits, or preferences and I will never forget it."
@@ -450,7 +464,7 @@ class MemoryManager(
         }
 
         // Persistent Dialogue History across App Restarts
-        val recentTurns = chatRepository.turns.value.takeLast(15)
+        val recentTurns = chatRepository.currentUserTurns().takeLast(15)
         if (recentTurns.isNotEmpty()) {
             sb.append("\n[PERSISTENT DIALOGUE HISTORY ACROSS APP RESTARTS]:\n")
             sb.append("You remember what was discussed in previous conversations with the user:\n")

@@ -147,9 +147,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     chatRepository.addTurn(prompt, result.message, "On-device WhatsApp auto-reply control")
                     return@launch
                 }
-                val context = chatRepository.turns.value.takeLast(8).joinToString("\n") { turn ->
+                val recentContext = chatRepository.currentUserTurns().takeLast(8).joinToString("\n") { turn ->
                     "User: ${turn.userTranscript}\nHOPE: ${turn.jarvisResponse}"
                 }
+                val cloudMemoryContext = if (preferences.isCloudMemoryEnabled) {
+                    try {
+                        (getApplication<JarvisApp>()).cloudMemoryRepository.search(prompt)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        _chatErrors.emit("Cloud memory could not be searched: ${error.message ?: "service unavailable"}")
+                        ""
+                    }
+                } else {
+                    ""
+                }
+                val context = listOf(
+                    recentContext,
+                    cloudMemoryContext.takeIf(String::isNotBlank)?.let {
+                        "[RELEVANT CLOUD MEMORIES AND PAST CONVERSATIONS]\n$it"
+                    }.orEmpty()
+                ).filter(String::isNotBlank).joinToString("\n\n")
                 val personaTaskContext = "$context\n$prompt"
                 val voice = preferences.voice
                 if (LocationQuestionPolicy.isCurrentLocationQuestion(prompt)) {
@@ -222,7 +240,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     context = context,
                     prompt = prompt
                 )
-                chatRepository.addTurn(prompt, result.text, result.engine.displayName)
+                val savedTurn = chatRepository.addTurn(prompt, result.text, result.engine.displayName)
+                if (preferences.isCloudMemoryEnabled && savedTurn != null) {
+                    try {
+                        getApplication<JarvisApp>().cloudMemoryRepository.saveTurn(savedTurn, "chat")
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        _chatErrors.emit("Reply succeeded, but cloud memory could not be saved: ${error.message ?: "service unavailable"}")
+                    }
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {

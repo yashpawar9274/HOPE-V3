@@ -5,6 +5,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.CompoundButton
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Spinner
@@ -18,7 +19,9 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.jarvis.assistant.JarvisApp
 import com.jarvis.assistant.R
 import com.jarvis.assistant.data.memory.MemoryEntity
+import com.jarvis.assistant.data.supabase.SupabaseConfiguration
 import com.jarvis.assistant.databinding.ActivityMemoryBinding
+import com.jarvis.assistant.license.LicenseManager
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -28,6 +31,7 @@ class MemoryActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMemoryBinding
     private val memoryRepo by lazy { JarvisApp.instance.memoryRepository }
     private lateinit var adapter: MemoryAdapter
+    private lateinit var cloudMemoryListener: CompoundButton.OnCheckedChangeListener
 
     private var allMemories: List<MemoryEntity> = emptyList()
     private var selectedCategory: String = "All"
@@ -41,6 +45,7 @@ class MemoryActivity : AppCompatActivity() {
         com.jarvis.assistant.util.ThemeManager.applyDynamicBackground(binding.root)
 
         setupToolbar()
+        setupCloudMemoryControls()
         setupRecyclerView()
         setupCategoryChips()
         setupSearch()
@@ -50,6 +55,132 @@ class MemoryActivity : AppCompatActivity() {
     private fun setupToolbar() {
         binding.btnBack.setOnClickListener { finish() }
         binding.btnAddMemory.setOnClickListener { showAddMemoryDialog() }
+    }
+
+    private fun setupCloudMemoryControls() {
+        val preferences = JarvisApp.instance.preferences
+        val currentUserId = LicenseManager.currentUser(this)?.uid
+        if (currentUserId != null && preferences.isCloudMemoryEnabled &&
+            preferences.cloudMemoryOwnerId != currentUserId
+        ) {
+            preferences.isCloudMemoryEnabled = false
+        }
+        binding.switchCloudMemory.isChecked =
+            currentUserId != null && preferences.isCloudMemoryEnabled &&
+                preferences.cloudMemoryOwnerId == currentUserId
+        cloudMemoryListener = object : CompoundButton.OnCheckedChangeListener {
+            override fun onCheckedChanged(button: CompoundButton, enabled: Boolean) {
+                if (!enabled) {
+                    preferences.isCloudMemoryEnabled = false
+                    return
+                }
+
+                button.setOnCheckedChangeListener(null)
+                button.isChecked = false
+                button.setOnCheckedChangeListener(this)
+
+                if (!SupabaseConfiguration.publicClient.isConfigured) {
+                    Toast.makeText(this@MemoryActivity, "Cloud memory backend is not configured.", Toast.LENGTH_LONG).show()
+                    return
+                }
+                if (LicenseManager.currentUser(this@MemoryActivity) == null) {
+                    Toast.makeText(this@MemoryActivity, "Sign in to your existing HOPE account before enabling cloud memory.", Toast.LENGTH_LONG).show()
+                    return
+                }
+
+                MaterialAlertDialogBuilder(this@MemoryActivity)
+                    .setTitle("Enable Cloud Long-Term Memory?")
+                    .setMessage(
+                        "When enabled, completed text chats and regular voice transcripts are sent to HOPE's Supabase database and Mem0 under your Firebase account ID. Up to 100 existing local turns already associated with this Firebase account are backed up once; older untagged history is not copied. Mem0 extracts searchable memories, and HOPE may use relevant saved memories in later replies. Voice audio is not stored; clipboard and automation-only turns are excluded. You can turn this off or clear cloud memories here at any time."
+                    )
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Enable") { _, _ ->
+                        val userId = LicenseManager.currentUser(this@MemoryActivity)?.uid
+                        if (userId == null) {
+                            Toast.makeText(this@MemoryActivity, "Sign-in expired. Sign in again to enable cloud memory.", Toast.LENGTH_LONG).show()
+                            return@setPositiveButton
+                        }
+                        preferences.cloudMemoryOwnerId = userId
+                        preferences.isCloudMemoryEnabled = true
+                        binding.switchCloudMemory.setOnCheckedChangeListener(null)
+                        binding.switchCloudMemory.isChecked = true
+                        binding.switchCloudMemory.setOnCheckedChangeListener(cloudMemoryListener)
+                        if (preferences.cloudMemoryHistoryBackedUpForUserId != userId) {
+                            val canImportHistory = preferences.cloudMemoryHistoryOwnerId.isBlank() ||
+                                preferences.cloudMemoryHistoryOwnerId == userId
+                            if (!canImportHistory) {
+                                preferences.cloudMemoryHistoryBackedUpForUserId = userId
+                                Toast.makeText(
+                                    this@MemoryActivity,
+                                    "Cloud memory enabled. Previous device history was not copied because it may belong to another Firebase account.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                return@setPositiveButton
+                            }
+                            lifecycleScope.launch {
+                                try {
+                                    JarvisApp.instance.cloudMemoryRepository.backUpHistory(
+                                        JarvisApp.instance.chatRepository.turns.value
+                                    )
+                                    preferences.cloudMemoryHistoryOwnerId = userId
+                                    preferences.cloudMemoryHistoryBackedUpForUserId = userId
+                                    Toast.makeText(
+                                        this@MemoryActivity,
+                                        "Existing chat history backed up to cloud memory.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                    throw cancelled
+                                } catch (error: Exception) {
+                                    Toast.makeText(
+                                        this@MemoryActivity,
+                                        "Cloud memory is on, but old history backup failed: ${error.message ?: "service unavailable"}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                        }
+                    }
+                    .show()
+            }
+        }
+        binding.switchCloudMemory.setOnCheckedChangeListener(cloudMemoryListener)
+
+        binding.btnClearCloudMemory.setOnClickListener {
+            if (!SupabaseConfiguration.publicClient.isConfigured) {
+                Toast.makeText(this, "Cloud memory backend is not configured.", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            if (LicenseManager.currentUser(this) == null) {
+                Toast.makeText(this, "Sign in to your existing HOPE account to clear cloud memory.", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Clear all cloud memories?")
+                .setMessage(
+                    "This deletes stored chat and voice transcripts and queues deletion of your Mem0 memories. This cannot be undone."
+                )
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Clear all") { _, _ ->
+                    lifecycleScope.launch {
+                        try {
+                            JarvisApp.instance.cloudMemoryRepository.clearAll()
+                            Toast.makeText(
+                                this@MemoryActivity,
+                                "Cloud transcripts deleted; Mem0 deletion queued.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } catch (error: Exception) {
+                            Toast.makeText(
+                                this@MemoryActivity,
+                                error.message ?: "Cloud memories could not be cleared.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+                .show()
+        }
     }
 
     private fun setupRecyclerView() {
@@ -190,13 +321,32 @@ class MemoryActivity : AppCompatActivity() {
                 val category = spinner.selectedItem.toString()
                 if (fact.isNotBlank()) {
                     lifecycleScope.launch {
-                        memoryRepo.saveMemory(
-                            rawText = fact,
-                            category = category,
-                            key = fact.take(30).trim(),
-                            value = fact
-                        )
-                        Toast.makeText(this@MemoryActivity, "Memory saved", Toast.LENGTH_SHORT).show()
+                        try {
+                            memoryRepo.saveMemory(
+                                rawText = fact,
+                                category = category,
+                                key = fact.take(30).trim(),
+                                value = fact
+                            )
+                            if (JarvisApp.instance.preferences.isCloudMemoryEnabled) {
+                                JarvisApp.instance.cloudMemoryRepository.rememberNote(fact)
+                            }
+                            Toast.makeText(
+                                this@MemoryActivity,
+                                if (JarvisApp.instance.preferences.isCloudMemoryEnabled) {
+                                    "Memory saved on this device and to cloud memory."
+                                } else {
+                                    "Memory saved on this device."
+                                },
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } catch (error: Exception) {
+                            Toast.makeText(
+                                this@MemoryActivity,
+                                error.message ?: "Memory could not be saved to cloud.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     }
                 }
             }

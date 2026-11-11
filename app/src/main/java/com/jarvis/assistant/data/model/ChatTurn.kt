@@ -10,7 +10,8 @@ data class ChatTurn(
     val userTranscript: String,
     val jarvisResponse: String,
     val engineName: String? = null,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val ownerUid: String? = null
 ) {
     val formattedTime: String
         get() {
