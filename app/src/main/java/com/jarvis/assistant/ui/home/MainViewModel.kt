@@ -168,6 +168,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "[RELEVANT CLOUD MEMORIES AND PAST CONVERSATIONS]\n$it"
                     }.orEmpty()
                 ).filter(String::isNotBlank).joinToString("\n\n")
+                if (cloudMemoryContext.isNotBlank()) {
+                    preferences.cloudMemoryLastContextInjectionAt = System.currentTimeMillis()
+                    preferences.cloudMemoryContextInjectionOwnerId = preferences.cloudMemoryOwnerId
+                }
                 val personaTaskContext = "$context\n$prompt"
                 val voice = preferences.voice
                 if (LocationQuestionPolicy.isCurrentLocationQuestion(prompt)) {

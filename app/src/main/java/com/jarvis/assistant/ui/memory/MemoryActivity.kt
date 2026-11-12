@@ -1,6 +1,7 @@
 package com.jarvis.assistant.ui.memory
 
 import android.os.Bundle
+import android.content.Intent
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -18,6 +19,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.jarvis.assistant.JarvisApp
 import com.jarvis.assistant.R
+import com.jarvis.assistant.data.memory.CloudMemoryItem
 import com.jarvis.assistant.data.memory.MemoryEntity
 import com.jarvis.assistant.data.supabase.SupabaseConfiguration
 import com.jarvis.assistant.databinding.ActivityMemoryBinding
@@ -32,6 +34,7 @@ class MemoryActivity : AppCompatActivity() {
     private val memoryRepo by lazy { JarvisApp.instance.memoryRepository }
     private lateinit var adapter: MemoryAdapter
     private lateinit var cloudMemoryListener: CompoundButton.OnCheckedChangeListener
+    private lateinit var cloudAgentListener: CompoundButton.OnCheckedChangeListener
 
     private var allMemories: List<MemoryEntity> = emptyList()
     private var selectedCategory: String = "All"
@@ -46,10 +49,12 @@ class MemoryActivity : AppCompatActivity() {
 
         setupToolbar()
         setupCloudMemoryControls()
+        setupCloudAgentControls()
         setupRecyclerView()
         setupCategoryChips()
         setupSearch()
         observeMemories()
+        refreshCloudMemoryStatus()
     }
 
     private fun setupToolbar() {
@@ -65,6 +70,7 @@ class MemoryActivity : AppCompatActivity() {
         ) {
             preferences.isCloudMemoryEnabled = false
         }
+
         binding.switchCloudMemory.isChecked =
             currentUserId != null && preferences.isCloudMemoryEnabled &&
                 preferences.cloudMemoryOwnerId == currentUserId
@@ -72,6 +78,20 @@ class MemoryActivity : AppCompatActivity() {
             override fun onCheckedChanged(button: CompoundButton, enabled: Boolean) {
                 if (!enabled) {
                     preferences.isCloudMemoryEnabled = false
+                    lifecycleScope.launch {
+                        try {
+                            JarvisApp.instance.cloudMemoryRepository.pausePendingJobs()
+                            refreshCloudMemoryStatus()
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            Toast.makeText(
+                                this@MemoryActivity,
+                                "Cloud memory is off on this device, but pending server jobs could not be paused.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
                     return
                 }
 
@@ -105,6 +125,7 @@ class MemoryActivity : AppCompatActivity() {
                         binding.switchCloudMemory.setOnCheckedChangeListener(null)
                         binding.switchCloudMemory.isChecked = true
                         binding.switchCloudMemory.setOnCheckedChangeListener(cloudMemoryListener)
+                        refreshCloudMemoryStatus()
                         if (preferences.cloudMemoryHistoryBackedUpForUserId != userId) {
                             val canImportHistory = preferences.cloudMemoryHistoryOwnerId.isBlank() ||
                                 preferences.cloudMemoryHistoryOwnerId == userId
@@ -126,9 +147,10 @@ class MemoryActivity : AppCompatActivity() {
                                     preferences.cloudMemoryHistoryBackedUpForUserId = userId
                                     Toast.makeText(
                                         this@MemoryActivity,
-                                        "Existing chat history backed up to cloud memory.",
+                                        "Existing transcripts uploaded; Mem0 extraction is queued and will update in Cloud Memory Status.",
                                         Toast.LENGTH_LONG
                                     ).show()
+                                    refreshCloudMemoryStatus()
                                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                                     throw cancelled
                                 } catch (error: Exception) {
@@ -138,6 +160,7 @@ class MemoryActivity : AppCompatActivity() {
                                         Toast.LENGTH_LONG
                                     ).show()
                                 }
+                                refreshCloudMemoryStatus()
                             }
                         }
                     }
@@ -145,6 +168,34 @@ class MemoryActivity : AppCompatActivity() {
             }
         }
         binding.switchCloudMemory.setOnCheckedChangeListener(cloudMemoryListener)
+        binding.btnRefreshCloudMemoryStatus.setOnClickListener { refreshCloudMemoryStatus() }
+        binding.btnSearchCloudMemories.setOnClickListener { showCloudMemorySearchDialog() }
+        binding.btnRetryCloudMemory.setOnClickListener {
+            if (!preferences.isCloudMemoryEnabled) {
+                Toast.makeText(this, "Enable Cloud Long-Term Memory before retrying jobs.", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            lifecycleScope.launch {
+                try {
+                    val queued = JarvisApp.instance.cloudMemoryRepository.retryFailedJobs()
+                    Toast.makeText(
+                        this@MemoryActivity,
+                        if (queued > 0) "$queued failed extraction job(s) queued for retry."
+                        else "There are no failed extraction jobs to retry.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    refreshCloudMemoryStatus()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Toast.makeText(
+                        this@MemoryActivity,
+                        error.message ?: "Failed extraction jobs could not be retried.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
 
         binding.btnClearCloudMemory.setOnClickListener {
             if (!SupabaseConfiguration.publicClient.isConfigured) {
@@ -158,18 +209,23 @@ class MemoryActivity : AppCompatActivity() {
             MaterialAlertDialogBuilder(this)
                 .setTitle("Clear all cloud memories?")
                 .setMessage(
-                    "This deletes stored chat and voice transcripts and queues deletion of your Mem0 memories. This cannot be undone."
+                    "This deletes stored chat and voice transcripts and requests deletion of your Mem0 memories. Mem0 deletion is asynchronous and will be verified in Cloud Memory Status. This cannot be undone."
                 )
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Clear all") { _, _ ->
                     lifecycleScope.launch {
                         try {
-                            JarvisApp.instance.cloudMemoryRepository.clearAll()
+                            val status = JarvisApp.instance.cloudMemoryRepository.clearAll()
                             Toast.makeText(
                                 this@MemoryActivity,
-                                "Cloud transcripts deleted; Mem0 deletion queued.",
+                                if (status == "pending") {
+                                    "Cloud transcripts deleted; Mem0 deletion is pending. Refresh status to verify."
+                                } else {
+                                    "Cloud transcripts deleted; Mem0 deletion status: $status."
+                                },
                                 Toast.LENGTH_LONG
                             ).show()
+                            refreshCloudMemoryStatus()
                         } catch (error: Exception) {
                             Toast.makeText(
                                 this@MemoryActivity,
@@ -181,6 +237,262 @@ class MemoryActivity : AppCompatActivity() {
                 }
                 .show()
         }
+    }
+
+    private fun setupCloudAgentControls() {
+        val repository = JarvisApp.instance.cloudAgentRepository
+        val preferences = JarvisApp.instance.preferences
+        val currentUserId = LicenseManager.currentUser(this)?.uid
+        if (currentUserId != null && preferences.cloudAgentOwnerId != currentUserId) {
+            preferences.isCloudAgentEnabled = false
+        }
+        binding.switchCloudAgent.isChecked = repository.isEnabledForCurrentUser()
+        binding.btnOpenCloudTasks.setOnClickListener {
+            startActivity(Intent(this, com.jarvis.assistant.ui.agent.CloudAgentTaskActivity::class.java))
+        }
+        cloudAgentListener = CompoundButton.OnCheckedChangeListener { button, enabled ->
+            if (!enabled) {
+                lifecycleScope.launch {
+                    try {
+                        repository.setEnabled(false)
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        binding.switchCloudAgent.setOnCheckedChangeListener(null)
+                        binding.switchCloudAgent.isChecked = repository.isEnabledForCurrentUser()
+                        binding.switchCloudAgent.setOnCheckedChangeListener(cloudAgentListener)
+                        Toast.makeText(
+                            this@MemoryActivity,
+                            "Cloud Agent remains enabled because the server could not confirm the change. ${error.message.orEmpty()}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+                return@OnCheckedChangeListener
+            }
+
+            button.setOnCheckedChangeListener(null)
+            button.isChecked = false
+            button.setOnCheckedChangeListener(cloudAgentListener)
+            if (!SupabaseConfiguration.publicClient.isConfigured) {
+                Toast.makeText(this, "Cloud Agent backend is not configured.", Toast.LENGTH_LONG).show()
+                return@OnCheckedChangeListener
+            }
+            if (LicenseManager.currentUser(this) == null) {
+                Toast.makeText(this, "Sign in to your existing HOPE account before enabling Cloud Agent.", Toast.LENGTH_LONG).show()
+                return@OnCheckedChangeListener
+            }
+
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Enable Cloud Agent Tasks?")
+                .setMessage(
+                    "Task objectives are sent to Gemini to create a plan, and task status and the plan are stored in HOPE's cloud gateway under your existing Firebase account. Device readings are shared only after you approve a specific request. Cloud Memory is separate and will not be read unless separately enabled. No device action runs without your confirmation here. You can turn Cloud Agent off here at any time."
+                )
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Enable") { _, _ ->
+                    lifecycleScope.launch {
+                        try {
+                            repository.setEnabled(true)
+                            binding.switchCloudAgent.setOnCheckedChangeListener(null)
+                            binding.switchCloudAgent.isChecked = true
+                            binding.switchCloudAgent.setOnCheckedChangeListener(cloudAgentListener)
+                            Toast.makeText(
+                                this@MemoryActivity,
+                                "Cloud Agent enabled for task coordination.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            Toast.makeText(
+                                this@MemoryActivity,
+                                error.message ?: "Cloud Agent consent could not be saved.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+                .show()
+        }
+        binding.switchCloudAgent.setOnCheckedChangeListener(cloudAgentListener)
+    }
+
+    private fun refreshCloudMemoryStatus() {
+        val user = LicenseManager.currentUser(this)
+        val enabled = user != null &&
+            JarvisApp.instance.preferences.isCloudMemoryEnabled &&
+            JarvisApp.instance.preferences.cloudMemoryOwnerId == user.uid
+        val configReady = SupabaseConfiguration.publicClient.isConfigured
+        binding.tvCloudMemoryStatus.text =
+            "Supabase: ${if (configReady) "configured" else "not configured"} · Firebase: ${if (user != null) "signed in" else "signed out"} · Cloud Memory: ${if (enabled) "on" else "off"}"
+        if (!configReady || user == null) return
+
+        binding.btnRefreshCloudMemoryStatus.isEnabled = false
+        lifecycleScope.launch {
+            try {
+                val status = JarvisApp.instance.cloudMemoryRepository.getSyncStatus()
+                val currentUser = LicenseManager.currentUser(this@MemoryActivity)
+                val currentEnabled = currentUser != null &&
+                    JarvisApp.instance.preferences.isCloudMemoryEnabled &&
+                    JarvisApp.instance.preferences.cloudMemoryOwnerId == currentUser.uid
+                binding.tvCloudMemoryStatus.text = buildString {
+                    append("Supabase: configured · Firebase: ${if (status.authenticated) "authenticated" else "not authenticated"}")
+                    append(" · Cloud Memory: ${if (currentEnabled) "on" else "off"}")
+                    append("\nMem0 API: ${status.mem0KeyStatus}")
+                    append("\nExtraction: ${status.queued} queued, ${status.processing} processing, ${status.pending} pending, ${status.retryWait} retrying, ${status.failed} failed")
+                    append("\nSuccessful extractions: ${status.succeeded}")
+                    status.lastSuccessfulExtractionAt?.let { append("\nLast successful extraction: $it") }
+                    status.lastRetrievalAt?.let {
+                        append("\nLast retrieval: $it (${status.lastMem0ResultCount} Mem0, ${status.lastTranscriptResultCount} transcript results)")
+                    }
+                    val appPreferences = JarvisApp.instance.preferences
+                    val injectedAt = appPreferences.cloudMemoryLastContextInjectionAt
+                    if (injectedAt > 0L && appPreferences.cloudMemoryContextInjectionOwnerId == currentUser?.uid) {
+                        append("\nGemini context injection: ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(injectedAt))}")
+                    } else {
+                        append("\nGemini context injection: no non-empty cloud results injected on this device yet")
+                    }
+                    status.lastErrorCategory?.let { append("\nLast error category: $it") }
+                    if (status.lastDeleteStatus != "none") {
+                        append("\nLast clear-all status: ${status.lastDeleteStatus}")
+                    }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                binding.tvCloudMemoryStatus.text =
+                    "Cloud memory status unavailable: ${error.message ?: "service unavailable"}"
+            } finally {
+                binding.btnRefreshCloudMemoryStatus.isEnabled = true
+            }
+        }
+    }
+
+    private fun showCloudMemorySearchDialog() {
+        if (!JarvisApp.instance.preferences.isCloudMemoryEnabled) {
+            Toast.makeText(this, "Enable Cloud Long-Term Memory to search Mem0.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val queryInput = EditText(this).apply {
+            hint = "Search saved cloud memories"
+            setTextColor(ContextCompat.getColor(this@MemoryActivity, R.color.text_primary))
+            setPadding(24, 20, 24, 20)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Search Mem0 Memories")
+            .setView(queryInput)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("SEARCH", null)
+            .create()
+            .also { dialog ->
+                dialog.setOnShowListener {
+                    dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val query = queryInput.text.toString().trim()
+                        if (query.isBlank()) {
+                            queryInput.error = "Enter a search phrase."
+                            return@setOnClickListener
+                        }
+                        dialog.dismiss()
+                        lifecycleScope.launch {
+                            try {
+                                val memories = JarvisApp.instance.cloudMemoryRepository.searchCloudMemories(query)
+                                showCloudMemoryResults(memories)
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                Toast.makeText(
+                                    this@MemoryActivity,
+                                    error.message ?: "Cloud memories could not be searched.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    }
+                }
+                dialog.show()
+            }
+    }
+
+    private fun showCloudMemoryResults(memories: List<CloudMemoryItem>) {
+        if (memories.isEmpty()) {
+            Toast.makeText(this, "No matching Mem0 memories were found.", Toast.LENGTH_LONG).show()
+            return
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Mem0 Memories (${memories.size})")
+            .setItems(memories.map { it.text }.toTypedArray()) { _, index ->
+                showCloudMemoryActions(memories[index])
+            }
+            .setPositiveButton("Done", null)
+            .show()
+    }
+
+    private fun showCloudMemoryActions(memory: CloudMemoryItem) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Cloud Memory")
+            .setMessage(memory.text)
+            .setPositiveButton("EDIT") { _, _ -> showEditCloudMemoryDialog(memory) }
+            .setNegativeButton("DELETE") { _, _ -> confirmDeleteCloudMemory(memory) }
+            .setNeutralButton("Close", null)
+            .show()
+    }
+
+    private fun showEditCloudMemoryDialog(memory: CloudMemoryItem) {
+        val editor = EditText(this).apply {
+            setText(memory.text)
+            setSelection(text.length)
+            setPadding(24, 20, 24, 20)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Correct Cloud Memory")
+            .setView(editor)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("SAVE") { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        JarvisApp.instance.cloudMemoryRepository.updateCloudMemory(
+                            memory.id,
+                            editor.text.toString()
+                        )
+                        Toast.makeText(this@MemoryActivity, "Cloud memory updated and verified.", Toast.LENGTH_LONG).show()
+                        refreshCloudMemoryStatus()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Toast.makeText(
+                            this@MemoryActivity,
+                            error.message ?: "Cloud memory could not be updated.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun confirmDeleteCloudMemory(memory: CloudMemoryItem) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Delete this cloud memory?")
+            .setMessage("This removes the selected Mem0 memory for your account.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("DELETE") { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        JarvisApp.instance.cloudMemoryRepository.deleteCloudMemory(memory.id)
+                        Toast.makeText(this@MemoryActivity, "Cloud memory deleted and verified.", Toast.LENGTH_LONG).show()
+                        refreshCloudMemoryStatus()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Toast.makeText(
+                            this@MemoryActivity,
+                            error.message ?: "Cloud memory could not be deleted.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+            .show()
     }
 
     private fun setupRecyclerView() {

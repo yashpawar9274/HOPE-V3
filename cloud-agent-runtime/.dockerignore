@@ -1,0 +1,7 @@
+.gradle/
+build/
+.env
+.env.*
+*.key
+*.pem
+local.properties

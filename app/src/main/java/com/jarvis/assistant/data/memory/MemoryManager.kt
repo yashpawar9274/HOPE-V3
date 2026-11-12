@@ -111,7 +111,7 @@ class MemoryManager(
             key = key,
             value = clean
         )
-        Log.i(TAG, "Saved long-term memory in category '$category': $clean")
+        Log.i(TAG, "Saved long-term memory in category '$category'.")
         val response = "Sir, I have permanently committed that to memory: $clean."
         chatRepository.addTurn(clean, response)
         return response
@@ -218,7 +218,7 @@ class MemoryManager(
         if (clean.isBlank() || clean.equals("my favorite song", ignoreCase = true) || clean.equals("favorite song", ignoreCase = true)) return
 
         val currentFav = preferences.recordSongPlay(clean)
-        Log.i(TAG, "Tracked song play: '$clean'. Current top favorite: '$currentFav'")
+        Log.i(TAG, "Updated song preference history.")
 
         scope.launch(Dispatchers.IO) {
             repository.saveMemory(

@@ -5,14 +5,52 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.9.6-4169E1" alt="Version 1.9.6">
+  <img src="https://img.shields.io/badge/Version-2.0.0-4169E1" alt="Version 2.0.0">
   <img src="https://img.shields.io/badge/Android-API%2026%2B-3DDC84?logo=android&logoColor=white" alt="Android 8.0+">
   <img src="https://img.shields.io/badge/Package-com.jarvis.assistant-6A5ACD" alt="Android package">
+</p>
+
+<p align="center">
+  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="HOPE AI app icon" width="160">
+</p>
+
+<p align="center">
+  <a href="./CHANGELOG.md">Changelog</a> ·
+  <a href="./docs/architecture/cloud-agent-implementation.md">Cloud Agent build guide</a> ·
+  <a href="./docs/architecture/cloud-agent-gateway.md">Cloud Agent architecture</a> ·
+  <a href="./SUPABASE_SETUP.md">Supabase setup</a> ·
+  <a href="./docs/README.md">All documentation</a> ·
+  <a href="https://github.com/yashpawar9274/HOPE-V3/releases">GitHub releases</a>
 </p>
 
 ## 👋 About HOPE AI
 
 HOPE is an Android voice assistant with conversational voice features, phone and contact tools, notification intelligence, and on-screen task automation. It combines Gemini Live and Android voice capabilities with system integrations that work when the required permissions and services are enabled.
+
+## 🚀 Get started
+
+1. 📥 **Install HOPE:** download a release-signed APK from [GitHub Releases](https://github.com/yashpawar9274/HOPE-V3/releases) when one is attached. If no APK asset is available, build the debug APK using the steps below.
+2. 🔐 **Sign in:** use the Firebase sign-in configured for this app. Cloud features are unavailable until their backend is deployed.
+3. 🛡️ **Grant access deliberately:** allow only the Android permissions or system services needed for the features you choose.
+4. 🎛️ **Choose features:** enable optional experiences separately in HOPE settings. Cloud Memory, Cloud Agent, clipboard analysis, standby listening, and other integrations are opt-in.
+
+## 🧭 Cloud Agent at a glance
+
+The Cloud Agent is implemented in source across three phases. It is **not production-deployed**: its Supabase migrations and gateway function, and its Cloud Run worker, still need review and deployment before tasks can run end-to-end.
+
+```mermaid
+flowchart LR
+    A[Android app<br/>explicit consent] -->|Firebase ID token| B[Supabase gateway]
+    B --> C[(RLS-protected task data)]
+    C --> D[Cloud Run ADK planner]
+    D -->|bounded, allowlisted proposal| B
+    B --> E[Android approval screen]
+    E -->|per-action approval| F[Local tool bridge]
+    F -->|read-back verification| E
+    E -->|verified result| B
+```
+
+See the [implementation process](./docs/architecture/cloud-agent-implementation.md), [security and architecture details](./docs/architecture/cloud-agent-gateway.md), and [deployment instructions](./SUPABASE_SETUP.md#6-cloud-agent-gateway-and-runtime-phases-1-3).
 
 ## 🌟 App features
 
@@ -52,6 +90,14 @@ HOPE is an Android voice assistant with conversational voice features, phone and
 - When enabled with consent in **Settings → Neural Memory Bank**, HOPE backs up up to 100 locally retained turns already associated with the current Firebase account once, then stores completed text chats and regular voice transcripts in Supabase and asks Mem0 to extract searchable memories. Older untagged history is not copied. Clipboard and automation-only turns are excluded; audio is not stored. Cloud memory is off by default and includes controls to pause and clear cloud data.
 - The project URL/publishable key are public client values. Firebase project ID and `MEM0_API_KEY` belong in Supabase Function Secrets; the service-role key is used only inside the Edge Function and never in Android. The memory function verifies Firebase ID tokens and scopes database operations to the verified Firebase UID. Deploy both database migrations and the Edge Function, then test with two Firebase accounts. See [SUPABASE_SETUP.md](./SUPABASE_SETUP.md).
 - Existing Gemini requests remain client-side to preserve current functionality. The optional Edge text gateway is not yet a replacement; client-held Gemini keys remain extractable and Gemini Live has not been proxied.
+
+### 🤖 Cloud Agent Tasks — new in 2.0.0
+- Submit an objective through the opt-in Cloud Agent screen, review task state and ordered events, and pause, resume, or cancel tasks.
+- A Kotlin/JVM Google ADK worker produces a bounded plan; it has no callable device tools. Android independently validates every proposed tool call.
+- The current local bridge is restricted to device-context reads and lowering screen brightness. Every proposal requires explicit approval; brightness changes require Android's special settings access and read-back verification.
+- Consent is separate from Cloud Memory consent. Objectives are sent to Gemini only after Cloud Agent consent; device context is sent only after approval of that specific request.
+- **Deployment status:** the gateway, migrations `202611120003` and `202611120004`, and Cloud Run worker are not deployed. Cloud tasks will not progress end-to-end until deployment and server-side configuration are completed.
+- The worker does not retrieve Mem0 memory and its ADK session state is in-memory only. See the [detailed implementation guide](./docs/architecture/cloud-agent-implementation.md).
 
 ### 🎙️ Voice assistant
 - Talk with HOPE using the app’s voice controls and supported live voice experience.
@@ -112,42 +158,38 @@ HOPE’s system integrations require the relevant Android permissions or user-en
 
 The HOPE app-lock verifier and encrypted security settings remain on-device. App-lock credentials are entered only in the security screen and are not included in AI prompts, notification content, analytics, or cloud requests. Notification history and screenshots are handled on-device where supported. AI features that use Gemini require network access and may send the content needed to answer your request to the configured Gemini service. Review the in-app settings and Android permission prompts before enabling integrations.
 
-## 🆕 Changes in version 1.9.6
+## 🆕 Changes in version 2.0.0
 
-- Added speaker profiles, explicit spoken consent for enrollment, device-authenticated profile management, three-sample local x-vector enrollment, configurable conservative match thresholds, and neutral UNKNOWN/ambiguous handling.
-- Added Keystore-backed AES-GCM encryption for speaker embeddings and profile metadata; enrollment audio is not persisted.
-- Added opt-in personalized addressing in the existing live conversation path without changing HOPE's configured voice; disclosure explains that preferred address and language are sent to the configured AI service.
-- Added explicit text and voice commands to start, stop, and check WhatsApp auto-reply, with prerequisite checks, persistent opt-in, pending in-process cancellation on stop, duplicate protection, and visible last-result status.
-- Reused HOPE's configured AI router for AI-generated replies, added bounded retries and send-failure reporting, and re-checks permissions, monitoring, rule authorization, quiet hours, and exclusions before submitting a reply action.
-- On notification-listener reconnection, existing active notifications are recorded without being treated as new messages for auto-reply.
-- Improved Hey HOPE conversation entry with an activation-scoped greeting guard, suppression of a synthetic greeting when speech is already underway, transcript overlap merging, reconnect-safe greeting behavior, and concise context-aware language guidance.
-- Updated the app version to **1.9.6** (version code **152**).
-
-## Previous changes in version 1.9.5
-
-- Added the HOPE-only app lock with PIN, pattern, and password credentials, change/disable/recovery flows, timed lockout, configurable background timeout, and secure-window protection.
-- Added a PBKDF2-HMAC-SHA256 password verifier and Android Keystore-backed AES-GCM local security storage.
-- Added optional BiometricPrompt unlock and a voice action that requests Android's keyguard UI without collecting or entering device credentials.
-- Added opt-in voice clipboard commands for supported selections, links, focused editable fields, and select-all, with truthful verification and no clipboard history.
-- Added local Hey HOPE standby listening, a configurable confidence threshold, explicit standby commands, foreground-service disclosure, and a manual stop/wake control.
-- Deferred loading the offline Vosk models until a voice feature is explicitly requested.
+- Added Cloud Agent Phases 1–3: consent-gated task gateway, Kotlin/JVM ADK planning worker, Android task review screen, and a confirmation-based local tool bridge.
+- Added database-enforced task ownership, quotas, idempotency, ordered events, expiring tool requests, atomic plan publication, and consent revocation handling.
+- Restricted device actions to context reads and lowering brightness; actions require explicit approval, platform permission checks, and read-back verification.
+- Updated the app version to **2.0.0** (version code **153**).
+- Cloud Agent backend components remain source-only and must be deployed before tasks can execute end-to-end. See [CHANGELOG.md](./CHANGELOG.md) for the full release history and validation status.
 
 ## ✅ Verification
 
 - Debug APK build: **passed** with `.\gradlew.bat assembleDebug`
 - Unit tests: **passed** with `.\gradlew.bat testDebugUnitTest`
 - Debug APK output: `app/build/outputs/apk/debug/app-debug.apk`
+- Cloud Agent worker tests and distribution build: **passed** with `.\gradlew.bat -p cloud-agent-runtime test installDist`
+- Supabase Edge Function checks and policy tests: **passed** with `deno check` and `deno test`
+- Cloud Agent migrations and worker deployment: **not performed**
 - Device tests for WhatsApp notification formats, inline reply availability and acceptance, screen-off processing, process recreation, Android Keystore persistence, biometrics/recovery UI, app lifecycle relocking, OS keyguard requests, clipboard interoperability, wake false activations, and Android/OEM background limits: **not performed**
 
 ## 📲 Install
 
-Download the APK from **Assets** below and install it on a device running Android 8.0 (API 26) or later. Android may ask you to allow installation from the source you used to download the APK.
+Install a release-signed APK from [GitHub Releases](https://github.com/yashpawar9274/HOPE-V3/releases) when one is attached. Otherwise, build a debug APK locally:
 
-> **Release maintainer:** Attach a release-signed APK to this GitHub Release before publishing. The verified APK from this build is a debug APK, not a release-signed APK.
+```powershell
+.\gradlew.bat testDebugUnitTest
+.\gradlew.bat assembleDebug
+```
+
+The debug APK is written to `app\build\outputs\apk\debug\app-debug.apk`. It is not a release-signed APK. Install on Android 8.0 (API 26) or later; Android may ask you to allow installation from the source used to download the APK.
 
 ## 🏷️ Topics
 
-`hope-ai` · `android` · `voice-assistant` · `phone-dialer` · `notifications` · `auto-reply` · `accessibility` · `security-manager` · `speaker-recognition` · `v1.9.6`
+`hope-ai` · `android` · `voice-assistant` · `phone-dialer` · `notifications` · `auto-reply` · `accessibility` · `security-manager` · `speaker-recognition` · `cloud-agent` · `v2.0.0`
 
 ---
 

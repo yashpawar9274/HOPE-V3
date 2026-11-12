@@ -53,9 +53,9 @@ object CapabilityRegistry {
         ),
         CapabilityDescriptor(
             "calendar_service",
-            CapabilityAvailability.UNAVAILABLE,
-            "A separately integrated calendar provider",
-            "The current app does not provide calendar access."
+            CapabilityAvailability.REQUIRES_RUNTIME_CHECK,
+            "Android Calendar read/write permission and an available device calendar",
+            "Calendar event and reminder operations use Android providers; each operation still validates permissions and asks for confirmation where required."
         ),
         CapabilityDescriptor(
             "general_file_analysis",

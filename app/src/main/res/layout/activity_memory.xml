@@ -85,6 +85,72 @@
                 android:textColor="?attr/themeTextMuted"
                 android:textSize="12sp" />
 
+            <TextView
+                android:id="@+id/tvCloudMemoryStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Cloud memory status is not checked yet."
+                android:textColor="?attr/themeTextSecondary"
+                android:textSize="12sp" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchCloudAgent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Cloud Agent Tasks"
+                android:textColor="?attr/themeTextPrimary"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Off by default. With consent, task objectives go to Gemini for planning and task state is stored in HOPE's cloud gateway under your Firebase account. Device readings are shared only after you approve a request; memory access remains separate."
+                android:textColor="?attr/themeTextMuted"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnOpenCloudTasks"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:text="OPEN CLOUD TASKS"
+                android:textColor="?attr/themeAccent" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:orientation="vertical">
+
+                <Button
+                    android:id="@+id/btnSearchCloudMemories"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="SEARCH MEM0"
+                    android:textColor="?attr/themeAccent" />
+
+                <Button
+                    android:id="@+id/btnRefreshCloudMemoryStatus"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="REFRESH STATUS"
+                    android:textColor="?attr/themeAccent" />
+
+                <Button
+                    android:id="@+id/btnRetryCloudMemory"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="RETRY FAILED"
+                    android:textColor="?attr/themeAccent" />
+            </LinearLayout>
+
             <Button
                 android:id="@+id/btnClearCloudMemory"
                 style="@style/Widget.Material3.Button.TextButton"

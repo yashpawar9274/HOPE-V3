@@ -32,6 +32,7 @@ class VoicePersonaRegistryTest {
     @Test
     fun capabilityGuidanceDoesNotClaimUnavailableResearchTools() {
         assertTrue(CapabilityRegistry.promptGuidance().contains("live_web_research: UNAVAILABLE"))
+        assertTrue(CapabilityRegistry.promptGuidance().contains("calendar_service: REQUIRES_RUNTIME_CHECK"))
         assertTrue(CapabilityRegistry.promptGuidance().contains("A persona profile does not add tools"))
     }
 }

@@ -845,6 +845,8 @@ class JarvisConversationService : Service() {
                         if (cloudContext.isNotBlank()) {
                             append("\n\n[RELEVANT CLOUD LONG-TERM MEMORY]\n")
                             append(cloudContext)
+                            preferences.cloudMemoryLastContextInjectionAt = System.currentTimeMillis()
+                            preferences.cloudMemoryContextInjectionOwnerId = preferences.cloudMemoryOwnerId
                         }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -2957,8 +2959,13 @@ class JarvisConversationService : Service() {
                             result.put("message", "No specific memory search question was provided.")
                         } else {
                             try {
+                                val memoryContext = app.cloudMemoryRepository.search(query)
                                 result.put("success", true)
-                                result.put("memory_context", app.cloudMemoryRepository.search(query))
+                                result.put("memory_context", memoryContext)
+                                if (memoryContext.isNotBlank()) {
+                                    preferences.cloudMemoryLastContextInjectionAt = System.currentTimeMillis()
+                                    preferences.cloudMemoryContextInjectionOwnerId = preferences.cloudMemoryOwnerId
+                                }
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (error: Exception) {

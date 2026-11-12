@@ -21,6 +21,7 @@ import com.jarvis.assistant.data.memory.MemoryDatabase
 import com.jarvis.assistant.data.memory.MemoryManager
 import com.jarvis.assistant.data.memory.MemoryRepository
 import com.jarvis.assistant.data.memory.CloudMemoryRepository
+import com.jarvis.assistant.data.agent.CloudAgentRepository
 import com.jarvis.assistant.data.preferences.AppPreferences
 import com.jarvis.assistant.data.preferences.YouTubePreferences
 import com.jarvis.assistant.data.repository.ChatRepository
@@ -67,6 +68,9 @@ class JarvisApp : Application() {
         private set
 
     lateinit var cloudMemoryRepository: CloudMemoryRepository
+        private set
+
+    lateinit var cloudAgentRepository: CloudAgentRepository
         private set
 
     lateinit var memoryManager: MemoryManager
@@ -118,6 +122,7 @@ class JarvisApp : Application() {
         memoryDatabase = MemoryDatabase.getInstance(this)
         memoryRepository = MemoryRepository(memoryDatabase.memoryDao())
         cloudMemoryRepository = CloudMemoryRepository(this)
+        cloudAgentRepository = CloudAgentRepository(this)
         memoryManager = MemoryManager(
             memoryRepository,
             preferences,

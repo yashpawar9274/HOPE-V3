@@ -82,6 +82,10 @@ class AppPreferences(context: Context) {
         private const val KEY_CLOUD_MEMORY_OWNER_ID = "key_cloud_memory_owner_id"
         private const val KEY_CLOUD_MEMORY_HISTORY_OWNER_ID = "key_cloud_memory_history_owner_id"
         private const val KEY_CLOUD_MEMORY_HISTORY_BACKED_UP_FOR_USER = "key_cloud_memory_history_backed_up_for_user"
+        private const val KEY_CLOUD_MEMORY_LAST_CONTEXT_INJECTION = "key_cloud_memory_last_context_injection"
+        private const val KEY_CLOUD_MEMORY_CONTEXT_INJECTION_OWNER = "key_cloud_memory_context_injection_owner"
+        private const val KEY_CLOUD_AGENT_ENABLED = "key_cloud_agent_enabled"
+        private const val KEY_CLOUD_AGENT_OWNER_ID = "key_cloud_agent_owner_id"
         private const val KEY_CHAT_HISTORY = "key_chat_history"
         private const val KEY_FAVORITE_SONG = "key_favorite_song"
         private const val KEY_FAVORITE_APP = "key_favorite_app"
@@ -606,6 +610,22 @@ class AppPreferences(context: Context) {
     var cloudMemoryHistoryBackedUpForUserId: String
         get() = prefs.getString(KEY_CLOUD_MEMORY_HISTORY_BACKED_UP_FOR_USER, "").orEmpty()
         set(value) = prefs.edit().putString(KEY_CLOUD_MEMORY_HISTORY_BACKED_UP_FOR_USER, value).apply()
+
+    var cloudMemoryLastContextInjectionAt: Long
+        get() = prefs.getLong(KEY_CLOUD_MEMORY_LAST_CONTEXT_INJECTION, 0L)
+        set(value) = prefs.edit().putLong(KEY_CLOUD_MEMORY_LAST_CONTEXT_INJECTION, value).apply()
+
+    var cloudMemoryContextInjectionOwnerId: String
+        get() = prefs.getString(KEY_CLOUD_MEMORY_CONTEXT_INJECTION_OWNER, "").orEmpty()
+        set(value) = prefs.edit().putString(KEY_CLOUD_MEMORY_CONTEXT_INJECTION_OWNER, value).apply()
+
+    var isCloudAgentEnabled: Boolean
+        get() = prefs.getBoolean(KEY_CLOUD_AGENT_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_CLOUD_AGENT_ENABLED, value).apply()
+
+    var cloudAgentOwnerId: String
+        get() = prefs.getString(KEY_CLOUD_AGENT_OWNER_ID, "").orEmpty()
+        set(value) = prefs.edit().putString(KEY_CLOUD_AGENT_OWNER_ID, value).apply()
 
     var isSilentExecutionMode: Boolean
         get() = prefs.getBoolean(KEY_SILENT_EXECUTION_MODE, false)

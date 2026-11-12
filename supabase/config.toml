@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.hope-memory]
 verify_jwt = false
+
+[functions.hope-agent-gateway]
+verify_jwt = false
