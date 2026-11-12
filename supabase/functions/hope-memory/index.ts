@@ -55,7 +55,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
         return jsonResponse({ error: "Unsupported conversation source." }, 400);
       }
 
-      const database = memoryDatabaseClient(user);
+      const database = memoryDatabaseClient();
       const { error: saveError } = await database
         .from("hope_conversation_turns")
         .upsert(
@@ -129,7 +129,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
         });
       }
 
-      const database = memoryDatabaseClient(user);
+      const database = memoryDatabaseClient();
       const { error: saveError } = await database
         .from("hope_conversation_turns")
         .upsert(
@@ -168,7 +168,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
         payload.query.length > 2_000) {
         return jsonResponse({ error: "Memory query must contain 1 to 2,000 characters." }, 400);
       }
-      const database = memoryDatabaseClient(user);
+      const database = memoryDatabaseClient();
       const [mem0Response, transcriptResult] = await Promise.all([
         fetch(`${MEM0_BASE_URL}/v3/memories/search/`, {
           method: "POST",
@@ -186,6 +186,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
         }),
         database.rpc("search_hope_conversation_turns", {
           search_query: payload.query.trim(),
+          owner_user_id: user.id,
           max_results: 5,
         }),
       ]);
@@ -215,7 +216,7 @@ Deno.serve(async (request: Request): Promise<Response> => {
 
     if (operation === "clear") {
       if (!apiKey) return jsonResponse({ error: "Long-term memory service is not configured." }, 503);
-      const database = memoryDatabaseClient(user);
+      const database = memoryDatabaseClient();
       const [mem0Response, transcriptResult] = await Promise.all([
         fetch(`${MEM0_BASE_URL}/v1/memories/?user_id=${encodeURIComponent(user.id)}`, {
           method: "DELETE",

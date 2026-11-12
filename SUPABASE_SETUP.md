@@ -15,11 +15,11 @@ SUPABASE_PUBLISHABLE_KEY=sb_publishable_YOUR_KEY
 
 Or provide the same names as Gradle environment variables. Rebuild the app after configuration. Never put a Supabase secret/service-role key, `MEM0_API_KEY`, or Gemini server key in Android or Gradle properties.
 
-## 2. Connect existing Firebase identity to Supabase RLS
+## 2. Authenticate requests with the existing Firebase account
 
-In the Supabase Dashboard, configure Firebase as a **Third-Party Auth provider** for the same Firebase project used by HOPE. This lets PostgREST validate Firebase ID tokens and expose their `sub` claim to RLS. Do not enable Supabase email sign-up for HOPE memory users.
+The Android app sends its Firebase ID token to `hope-memory`. The function verifies the signature using Google's published signing certificates and checks the configured Firebase project ID, issuer, audience, expiry, auth time, and subject. Its `verify_jwt` gateway check is disabled because Firebase tokens are not Supabase-issued JWTs; no operation runs before this explicit verification succeeds.
 
-The `hope-memory` Edge Function independently verifies Firebase ID tokens using Google's published signing certificates and checks the configured Firebase project ID, issuer, audience, expiry, auth time, and subject. Its `verify_jwt` gateway check is disabled because Firebase tokens are not Supabase-issued JWTs; no function operation runs before this explicit verification succeeds.
+After verification, the function uses Supabase's server-provided `SUPABASE_SERVICE_ROLE_KEY` to access the database. Every stored or searched owner ID comes only from the verified Firebase token; the request body cannot choose a `user_id`. The service-role key stays inside the Edge Function and must never be added to Android, Gradle properties, or client responses. This server-side pattern avoids requiring a Firebase custom `role: authenticated` claim or a Supabase Third-Party Auth dashboard integration.
 
 ## 3. Apply the database migration
 
@@ -31,9 +31,9 @@ supabase link --project-ref YOUR_PROJECT_REF
 supabase db push
 ```
 
-`supabase/migrations/202611110001_hope_long_term_memory.sql` creates one transcript table. RLS is enabled and forced; policies use the verified Firebase JWT `sub` claim, stored as text because Firebase UIDs are not necessarily UUIDs. The search RPC is `SECURITY INVOKER`, so it remains subject to those owner policies. No service-role key is used by the app or the Edge Functions.
+`supabase/migrations/202611110001_hope_long_term_memory.sql` creates one transcript table with RLS enabled and forced. Owner policies use the Firebase JWT `sub` claim, stored as text because Firebase UIDs are not necessarily UUIDs. The follow-up migration changes the search RPC to accept an owner ID and grants it only to `service_role`; the Edge Function supplies the ID only after verifying the Firebase token. The app never accesses the database directly and never receives the service-role key.
 
-After enabling Firebase third-party auth, test with two Firebase accounts: each should read, insert, search, and delete only their own rows. An unauthenticated request and a request with another user's token must be rejected.
+Test with two Firebase accounts: each should save, search, and clear only their own rows. An unauthenticated request must be rejected, and a request body containing a forged owner ID must never affect another user's rows.
 
 ## 4. Set server-side Firebase and Mem0 configuration
 
@@ -44,9 +44,9 @@ supabase secrets set FIREBASE_PROJECT_ID=YOUR_FIREBASE_PROJECT_ID MEM0_API_KEY=Y
 supabase functions deploy hope-memory
 ```
 
-`MEM0_API_KEY` is used only by the Edge Function to call Mem0's `/v3/memories/add/`, `/v3/memories/search/`, and user-scoped deletion endpoint. The verified Firebase UID is passed as Mem0 `user_id`; clients cannot supply or override it. Transcript inserts and deletes use the user's Firebase token with the Supabase publishable key, relying on the configured Firebase third-party auth integration and RLS.
+`MEM0_API_KEY` is used only by the Edge Function to call Mem0's `/v3/memories/add/`, `/v3/memories/search/`, and user-scoped deletion endpoint. The verified Firebase UID is passed as Mem0 `user_id`; clients cannot supply or override it. `SUPABASE_SERVICE_ROLE_KEY` is provided to the Edge Function runtime by Supabase and is used only for server-side database access.
 
-The app's existing Gradle config already accepts `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. Never share the Mem0 key or put it in `local.properties`, app source, `BuildConfig`, or the APK. The Edge Function does not need a Supabase service-role key.
+The app's existing Gradle config already accepts `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. Never share the Mem0 key or put it in `local.properties`, app source, `BuildConfig`, or the APK. Supabase provides the service-role key to the Edge Function runtime; do not copy it into Android or expose it to clients.
 
 ## 5. Deploy the optional Gemini gateway
 
@@ -65,5 +65,5 @@ This key belongs only in Supabase Function Secrets. The gateway is not wired int
 - Search combines Mem0 memories with matching transcript turns. Semantic recall is not guaranteed to find every conversation verbatim; exact old transcripts remain in the private database and can be searched by text.
 - Existing local chat history is capped by the app at 100 turns; only turns tagged to the currently signed-in Firebase account can be backed up when cloud memory is first enabled. Older untagged history and earlier deleted local turns cannot be recovered.
 - Clearing memory deletes transcripts immediately and requests user-scoped Mem0 deletion; Mem0 processes deletion asynchronously.
-- Supabase project configuration, migration, Firebase third-party auth, Mem0 secrets, and functions must be deployed and tested before cloud memory is considered connected.
+- The production project has both migrations and the `hope-memory` Edge Function deployed. Cloud memory still needs an authenticated save/search test from the Android app; Mem0 extraction is asynchronous.
 - Existing Gemini credentials remain client-held and can be recovered from a compromised or instrumented device. The optional gateway does not silently replace the existing paths.

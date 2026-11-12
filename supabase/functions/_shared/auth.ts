@@ -9,7 +9,6 @@ export const corsHeaders = {
 
 export type VerifiedUser = {
   id: string;
-  token: string;
 };
 
 let firebaseCertificates: Record<string, string> | null = null;
@@ -49,7 +48,7 @@ export async function verifiedUser(request: Request): Promise<VerifiedUser | nul
     if (typeof payload.sub !== "string" || payload.sub.length < 1 || payload.sub.length > 128) {
       return null;
     }
-    return { id: payload.sub, token };
+    return { id: payload.sub };
   } catch {
     return null;
   }
@@ -85,15 +84,13 @@ async function loadFirebaseCertificates(): Promise<Record<string, string>> {
   return validCertificates;
 }
 
-export function memoryDatabaseClient(user: VerifiedUser) {
+export function memoryDatabaseClient() {
   const url = Deno.env.get("SUPABASE_URL");
-  const publishableKey = Deno.env.get("SUPABASE_ANON_KEY") ??
-    Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
-  if (!url || !publishableKey) {
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !serviceRoleKey) {
     throw new Error("Supabase memory database configuration is incomplete.");
   }
-  return createClient(url, publishableKey, {
-    global: { headers: { Authorization: `Bearer ${user.token}` } },
+  return createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
