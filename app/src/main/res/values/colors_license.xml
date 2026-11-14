@@ -1,15 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="hope_auth_bg_top">#0B1026</color>
-    <color name="hope_auth_bg_bottom">#2A1B6B</color>
-    <color name="hope_auth_primary">#7C5CFF</color>
-    <color name="hope_auth_primary_dark">#5B3FE0</color>
-    <color name="hope_auth_cyan">#69E8FF</color>
-    <color name="hope_auth_surface">#151A3A</color>
-    <color name="hope_auth_surface_variant">#1E2450</color>
-    <color name="hope_auth_text">#EEF0FF</color>
-    <color name="hope_auth_text_muted">#C4CAEB</color>
-    <color name="hope_auth_outline">#4B548F</color>
-    <color name="hope_auth_error">#FF6B7A</color>
-    <color name="hope_auth_info">#4FE3FF</color>
+    <color name="hope_auth_bg_top">#F3F5FF</color>
+    <color name="hope_auth_bg_bottom">#E3E8FA</color>
+    <color name="hope_auth_primary">#6446D8</color>
+    <color name="hope_auth_primary_dark">#4F35B8</color>
+    <color name="hope_auth_cyan">#00677F</color>
+    <color name="hope_auth_surface">#FFFFFF</color>
+    <color name="hope_auth_surface_variant">#F5F6FC</color>
+    <color name="hope_auth_input_background">#FFFFFF</color>
+    <color name="hope_auth_text">#151A2D</color>
+    <color name="hope_auth_text_muted">#505B73</color>
+    <color name="hope_auth_outline">#8B96AE</color>
+    <color name="hope_auth_error">#B3263E</color>
+    <color name="hope_auth_error_background">#FFF1F2</color>
+    <color name="hope_auth_error_border">#DEA0A8</color>
+    <color name="hope_auth_info">#006579</color>
+    <color name="hope_auth_info_background">#EAF7FA</color>
+    <color name="hope_auth_info_border">#8ABFC9</color>
 </resources>

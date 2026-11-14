@@ -49,12 +49,14 @@ class GeminiLiveWebSocket(
         else -> if (model.isNotBlank() && !model.contains("2.5")) model else GeminiConstants.DEFAULT_MODEL
     }
 
+    @Volatile
     private var webSocket: WebSocket? = null
     private val isConnected = AtomicBoolean(false)
     private val isSetupComplete = AtomicBoolean(false)
     private val isManuallyStopped = AtomicBoolean(false)
     private val connectionAttemptActive = AtomicBoolean(false)
     private val connectionAttempt = AtomicLong(0)
+    private val hasUsedModelFallback = AtomicBoolean(false)
     private var coroutineScope: CoroutineScope? = null
 
     private var sessionRenewalJob: Job? = null
@@ -66,6 +68,7 @@ class GeminiLiveWebSocket(
     fun connect(scope: CoroutineScope) {
         coroutineScope = scope
         isManuallyStopped.set(false)
+        hasUsedModelFallback.set(false)
         Log.i(TAG, "Opening or reusing the current Gemini Live voice session.")
         initiateConnection()
     }
@@ -95,6 +98,7 @@ class GeminiLiveWebSocket(
 
             webSocket = client.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
+                    if (!isCurrentSocket(attempt, webSocket)) return
                     Log.d(TAG, "WebSocket connected to Gemini Live. Sending BidiSetup...")
                     isConnected.set(true)
                     isSetupComplete.set(false)
@@ -104,19 +108,23 @@ class GeminiLiveWebSocket(
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
+                    if (!isCurrentSocket(attempt, webSocket)) return
                     handleIncomingMessage(text)
                 }
 
                 override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                    if (!isCurrentSocket(attempt, webSocket)) return
                     handleIncomingMessage(bytes.utf8())
                 }
 
                 override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    if (!isCurrentSocket(attempt, webSocket)) return
                     Log.d(TAG, "WebSocket closing: $code / $reason")
                     webSocket.close(1000, null)
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    if (!isCurrentSocket(attempt, webSocket)) return
                     Log.d(TAG, "WebSocket closed: $code / $reason")
                     isConnected.set(false)
                     isSetupComplete.set(false)
@@ -148,9 +156,14 @@ class GeminiLiveWebSocket(
                                            reason.contains("not found", ignoreCase = true) ||
                                            reason.contains("not supported", ignoreCase = true)
                         if (isModelError) {
-                            if (activeModel != GeminiConstants.MODEL_3_8_LIVE) {
-                                Log.w(TAG, "Model $activeModel rejected by Gemini ($reason). Auto-falling back to ${GeminiConstants.MODEL_3_8_LIVE}")
-                                activeModel = GeminiConstants.MODEL_3_8_LIVE
+                            if (hasUsedModelFallback.compareAndSet(false, true)) {
+                                val fallbackModel = if (activeModel == GeminiConstants.MODEL_3_8_LIVE) {
+                                    GeminiConstants.MODEL_3_1_FLASH
+                                } else {
+                                    GeminiConstants.MODEL_3_8_LIVE
+                                }
+                                Log.w(TAG, "Model $activeModel rejected by Gemini ($reason). Trying $fallbackModel once.")
+                                activeModel = fallbackModel
                                 listener.onConnectionStateChanged("RECONNECTING...")
                                 scheduleReconnect()
                                 return
@@ -167,6 +180,7 @@ class GeminiLiveWebSocket(
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    if (!isCurrentSocket(attempt, webSocket)) return
                     val code = response?.code ?: 0
                     val responseBody = try { response?.body?.string() } catch (_: Exception) { null }
                     val errorMsg = t.message ?: "WebSocket connection failure"
@@ -218,6 +232,9 @@ class GeminiLiveWebSocket(
             listener.onConnectionStateChanged("OFFLINE")
         }
     }
+
+    private fun isCurrentSocket(attempt: Long, socket: WebSocket): Boolean =
+        connectionAttempt.get() == attempt && webSocket === socket && !isManuallyStopped.get()
 
     private fun sendSetupMessage(ws: WebSocket) {
         val effectivePrompt = systemPrompt
@@ -1151,6 +1168,7 @@ class GeminiLiveWebSocket(
 
     fun disconnect() {
         isManuallyStopped.set(true)
+        connectionAttempt.incrementAndGet()
         connectionAttemptActive.set(false)
         stopTimers()
         reconnectJob?.cancel()

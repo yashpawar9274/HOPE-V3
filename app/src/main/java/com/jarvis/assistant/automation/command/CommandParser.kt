@@ -250,7 +250,18 @@ object CommandParser {
             return ParsedCommandResult(JarvisCommand.RecallRoutine, 0.98f, "MEMORY_RECALL_ROUTINE")
         }
 
-        // 8. Calling & Messaging (Strict Intent Filtering)
+        // 8. Word Search: explicit game launch only
+        val wordSearchPatterns = listOf(
+            Regex("""^(?:please\s+)?(?:start|open|play|launch|let's play|lets play|chalu|shuru)\s+(?:the\s+)?(?:word\s+search|word search game|wordsearch|a\s+word\s+search\s+puzzle|word\s+search\s+puzzle)$"""),
+            Regex("""^(?:start|open|play|launch|shuru)\s+(?:the\s+)?word\s+search(?:\s+game)?$"""),
+            Regex("""^(?:word\s+search|word search game)\s+(?:shuru\s+karo|khelo|khelna\s+hai|start\s+karo)$"""),
+            Regex("""^(?:hope,?\s*)?(?:start|open|play|launch)\s+(?:the\s+)?word\s+search(?:\s+game)?\.?$""")
+        )
+        if (wordSearchPatterns.any { it.matches(clean) }) {
+            return ParsedCommandResult(JarvisCommand.StartWordSearch, 0.98f, "START_WORD_SEARCH")
+        }
+
+        // 9. Calling & Messaging (Strict Intent Filtering)
 
         // 0. WhatsApp Delete Message ("delete for everyone" must be checked before the
         //    generic "delete message" pattern so intent isn't lost)

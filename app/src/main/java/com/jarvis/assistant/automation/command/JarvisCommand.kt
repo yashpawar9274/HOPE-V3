@@ -27,5 +27,6 @@ sealed class JarvisCommand {
     object RecallBirthday : JarvisCommand()
     object RecallFavoriteSong : JarvisCommand()
     object RecallRoutine : JarvisCommand()
+    object StartWordSearch : JarvisCommand()
     object GoToBackground : JarvisCommand()
 }

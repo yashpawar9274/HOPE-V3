@@ -5,8 +5,10 @@ import {
   readJsonObject,
   verifiedUser,
 } from "../_shared/auth.ts";
+import { withStructuredRequestLogging } from "../_shared/request_logging.ts";
 import {
   isAgentUuid,
+  isStructuredToolResult,
   isToolResultStatus,
   parseEventPage,
   stableJson,
@@ -37,7 +39,7 @@ async function appendEvent(
   return !error;
 }
 
-Deno.serve(async (request: Request): Promise<Response> => {
+async function handleAgentGatewayRequest(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -221,7 +223,13 @@ Deno.serve(async (request: Request): Promise<Response> => {
       return jsonResponse({
         task,
         events: events ?? [],
-        toolRequests: taskCanAcceptDeviceActions ? toolRequests ?? [] : [],
+        toolRequests: taskCanAcceptDeviceActions
+          ? (toolRequests ?? []).map((toolRequest) => ({
+            ...toolRequest,
+            task_id: task.task_id,
+            session_id: task.session_id,
+          }))
+          : [],
       });
     }
 
@@ -313,13 +321,32 @@ Deno.serve(async (request: Request): Promise<Response> => {
       }
       const { data: call, error } = await database
         .from("hope_agent_tool_calls")
-        .select("tool_call_id,status,expires_at,result_idempotency_key,result")
+        .select("tool_call_id,tool_name,parameters,permission_scope,risk_category,status,expires_at,result_idempotency_key,result")
         .eq("user_id", user.id)
         .eq("task_id", taskId)
         .eq("tool_call_id", callId)
         .maybeSingle();
       if (error) return jsonResponse({ error: "Tool request could not be checked." }, 502);
       if (!call) return jsonResponse({ error: "Tool request was not found for this account." }, 404);
+      if (payload.sessionId !== task.session_id ||
+        payload.expiresAt !== call.expires_at ||
+        payload.toolName !== call.tool_name ||
+        payload.permissionScope !== call.permission_scope ||
+        payload.riskCategory !== call.risk_category ||
+        !isObject(payload.authorizedParameters) ||
+        stableJson(payload.authorizedParameters) !== stableJson(call.parameters)) {
+        return jsonResponse({ error: "Tool result does not match its authorized request envelope." }, 403);
+      }
+      if (!isStructuredToolResult(result, {
+        taskId,
+        sessionId: task.session_id,
+        toolCallId: callId,
+        toolName: call.tool_name,
+        parameters: call.parameters,
+        resultStatus,
+      })) {
+        return jsonResponse({ error: "Tool result does not match the supported result schema." }, 400);
+      }
       const storedStatus = resultStatus === "SUCCESS" ? "executed" : resultStatus.toLowerCase();
       if (call.result_idempotency_key) {
         if (call.result_idempotency_key === resultKey && call.status === storedStatus &&
@@ -387,4 +414,12 @@ Deno.serve(async (request: Request): Promise<Response> => {
     console.error("agent_gateway_request_failed");
     return jsonResponse({ error: "The agent gateway request could not be completed." }, 500);
   }
-});
+}
+
+Deno.serve((request: Request): Promise<Response> =>
+  withStructuredRequestLogging(
+    request,
+    "hope-agent-gateway",
+    () => handleAgentGatewayRequest(request),
+  )
+);

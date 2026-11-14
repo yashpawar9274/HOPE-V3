@@ -25,6 +25,8 @@ import com.jarvis.assistant.data.agent.CloudAgentRepository
 import com.jarvis.assistant.data.preferences.AppPreferences
 import com.jarvis.assistant.data.preferences.YouTubePreferences
 import com.jarvis.assistant.data.repository.ChatRepository
+import com.jarvis.assistant.autoreply.ContactReplyProfileDatabase
+import com.jarvis.assistant.autoreply.ContactReplyProfileRepository
 import com.jarvis.assistant.license.LicenseManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -85,6 +87,9 @@ class JarvisApp : Application() {
     lateinit var contactResolver: ContactResolver
         private set
 
+    lateinit var contactReplyProfileRepository: ContactReplyProfileRepository
+        private set
+
     lateinit var phoneControlManager: PhoneControlManager
         private set
 
@@ -135,6 +140,9 @@ class JarvisApp : Application() {
         youTubePreferences = YouTubePreferences(this)
         youTubeAutomationManager = YouTubeAutomationManager(this, youTubePreferences)
         contactResolver = ContactResolver(this)
+        contactReplyProfileRepository = ContactReplyProfileRepository(
+            ContactReplyProfileDatabase.getInstance(this).profileDao()
+        )
         phoneControlManager = PhoneControlManager(this, contactResolver)
         whatsAppAssistant = WhatsAppAssistant(this, contactResolver)
 

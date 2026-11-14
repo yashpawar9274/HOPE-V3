@@ -268,6 +268,12 @@ class JarvisConversationService : Service() {
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Volatile
+    private var conversationGeneration = 0L
+
+    private fun isCurrentConversation(generation: Long): Boolean =
+        generation == conversationGeneration && _isSessionOn.value
+
     private var taskProgressOverlay: com.jarvis.assistant.ui.agent.TaskProgressOverlay? = null
     private var taskProgressOverlayJob: Job? = null
     private var overlayPermissionWarningTaskId: String? = null
@@ -283,6 +289,8 @@ class JarvisConversationService : Service() {
     private var lastUserSpeechDetectedTime = 0L
     @Volatile private var lastAssistantActivityTime = 0L
     private var lastPlaybackEndTime = 0L
+    private val voiceBargeInDetector = com.jarvis.assistant.audio.VoiceBargeInDetector()
+    private val bargeInAudioBuffer = java.util.ArrayDeque<ByteArray>(12)
     @Volatile
     private var hasSpeechInCurrentUtterance = false
     private var hasSignalledUtteranceEnd = false
@@ -508,7 +516,13 @@ class JarvisConversationService : Service() {
             ConversationState.THINKING -> VoiceConversationPhase.THINKING
             ConversationState.SPEAKING -> VoiceConversationPhase.SPEAKING
         }
-        if (!voiceConversationCoordinator.transitionTo(phase)) {
+        val activationId = activeVoiceActivationId
+        val accepted = if (activationId == null) {
+            voiceConversationCoordinator.transitionTo(phase)
+        } else {
+            voiceConversationCoordinator.transitionTo(activationId, phase)
+        }
+        if (!accepted) {
             Log.w("VoiceConversation", "Ignored invalid state transition ${voiceConversationCoordinator.phase} -> $phase")
         }
         if (previous != state) {
@@ -593,6 +607,8 @@ class JarvisConversationService : Service() {
     @Volatile
     private var pendingWakeActivationId: Long? = null
     private val voiceConversationCoordinator = VoiceConversationCoordinator()
+    @Volatile
+    private var activeVoiceActivationId: Long? = null
     private var headsetAudioRouter: com.jarvis.assistant.audio.HeadsetAudioRouter? = null
 
     override fun onCreate() {
@@ -880,8 +896,12 @@ class JarvisConversationService : Service() {
         }
     }
 
+    @Synchronized
     private fun beginActiveConversation(wakeTriggered: Boolean = false) {
         if (_isSessionOn.value) return
+        if (wakeTriggered && pendingWakeActivationId == null) return
+        val sessionGeneration = ++conversationGeneration
+        activeVoiceActivationId = if (wakeTriggered) pendingWakeActivationId else null
         Log.i("VoiceConversation", "Starting a voice session; wakeTriggered=$wakeTriggered")
         com.jarvis.assistant.automation.agent.AgentTaskEngine.resetForSession()
         isAutonomousContinuationTurn = false
@@ -973,6 +993,7 @@ class JarvisConversationService : Service() {
 
         audioPlayer = AudioPlayer(
             onPlaybackStateChanged = { isPlaying ->
+                if (!isCurrentConversation(sessionGeneration)) return@AudioPlayer
                 if (isPlaying) {
                     Log.i("VoiceConversation", "Live response playback started.")
                     setConversationState(ConversationState.SPEAKING)
@@ -986,7 +1007,9 @@ class JarvisConversationService : Service() {
                 }
             },
             onPlaybackAmplitude = { amp ->
-                if (_conversationState.value == ConversationState.SPEAKING) {
+                if (isCurrentConversation(sessionGeneration) &&
+                    _conversationState.value == ConversationState.SPEAKING
+                ) {
                     _audioLevel.value = amp
                     _audioFrequency.value = com.jarvis.assistant.audio.AudioFrequencyData(
                         amplitude = amp,
@@ -1003,7 +1026,7 @@ class JarvisConversationService : Service() {
             val systemPrompt = generateCurrentSystemPrompt()
 
             withContext(Dispatchers.Main) {
-                if (!_isSessionOn.value) return@withContext
+                if (!isCurrentConversation(sessionGeneration)) return@withContext
                 liveWebSocket = GeminiLiveWebSocket(
                     apiKey = apiKey,
                     model = preferences.aiModel,
@@ -1011,6 +1034,7 @@ class JarvisConversationService : Service() {
                     systemPrompt = systemPrompt,
                     listener = object : GeminiLiveWebSocket.Listener {
                         override fun onConnectionStateChanged(status: String) {
+                            if (!isCurrentConversation(sessionGeneration)) return
                             _connectionStatus.value = status
                             updateNotification()
                             if (status == "LIVE") {
@@ -1059,6 +1083,7 @@ class JarvisConversationService : Service() {
                         private var audioChunksReceivedInTurn = 0
 
                         override fun onAudioDataReceived(pcmData: ByteArray) {
+                            if (!isCurrentConversation(sessionGeneration)) return
                             thinkingTimeoutJob?.cancel()
                             thinkingTimeoutJob = null
                             lastResponseTimedOut = false
@@ -1097,6 +1122,7 @@ class JarvisConversationService : Service() {
                         }
 
                         override fun onAssistantTextReceived(textChunk: String) {
+                            if (!isCurrentConversation(sessionGeneration)) return
                             if (textChunk.isEmpty()) return
                             Log.d("VoiceConversation", "Assistant response text received.")
                             thinkingTimeoutJob?.cancel()
@@ -1114,6 +1140,7 @@ class JarvisConversationService : Service() {
                         }
 
                         override fun onUserTextReceived(textChunk: String) {
+                            if (!isCurrentConversation(sessionGeneration)) return
                             lastUserSpeechDetectedTime = System.currentTimeMillis()
                             val trimmed = textChunk.trim()
                             if (trimmed.isNotEmpty()) {
@@ -1194,6 +1221,7 @@ class JarvisConversationService : Service() {
                         }
 
                         override fun onInterrupted() {
+                            if (!isCurrentConversation(sessionGeneration)) return
                             val hasHeadset = headsetAudioRouter?.isHeadsetConnected() == true
                             Log.w("JarvisService", "onInterrupted received from server (hasHeadset=$hasHeadset, state=${_conversationState.value})")
                             val userTurnInProgress = hasSpeechInCurrentUtterance || currentTurnUserText.isNotBlank()
@@ -1247,6 +1275,7 @@ class JarvisConversationService : Service() {
                         }
 
                         override fun onTurnCompleted() {
+                            if (!isCurrentConversation(sessionGeneration)) return
                             Log.i("VoiceConversation", "Gemini response turn completed.")
                             autoResumeAwaitingResponse = false
                             thinkingTimeoutJob?.cancel()
@@ -1286,6 +1315,8 @@ class JarvisConversationService : Service() {
                             }
                             val assistantTurnText = synchronized(currentTurnAssistantText) { currentTurnAssistantText.toString().trim() }
                             val assistantProducedAudio = audioChunksReceivedInTurn > 0
+                            val wasAutonomousContinuationTurn = isAutonomousContinuationTurn
+                            val hadCompletedTaskSummary = !lastCompletedTaskSummary.isNullOrBlank()
                             if (isAutonomousContinuationTurn) {
                                 isAutonomousContinuationTurn = false
                                 val bufferedAudio = synchronized(autonomousAudioLock) {
@@ -1384,6 +1415,57 @@ class JarvisConversationService : Service() {
                                         applicationContext, summaryToSpeak, "Auto", "task_done",
                                         queueMode = TextToSpeech.QUEUE_FLUSH
                                     )
+                                }
+                            }
+
+                            val shouldUseLocalSpeechFallback =
+                                VoiceConversationPolicy.outputPath(
+                                    isLiveSession = true,
+                                    hasGeminiAudio = assistantProducedAudio
+                                ) == com.jarvis.assistant.voice.VoiceResponsePath.LOCAL_TTS &&
+                                    assistantTurnText.isNotBlank() &&
+                                    !wasAutonomousContinuationTurn &&
+                                    !isAutonomousTaskRunning &&
+                                    !hadCompletedTaskSummary &&
+                                    !isClipboardTurn &&
+                                    !preferences.isSilentExecutionMode &&
+                                    pendingToolCalls.isEmpty() &&
+                                    !isExecutingTool
+                            if (shouldUseLocalSpeechFallback) {
+                                setConversationState(ConversationState.THINKING)
+                                val started = HopeSpeech.speak(
+                                    applicationContext,
+                                    assistantTurnText,
+                                    preferences.language,
+                                    "gemini_text_fallback_${sessionGeneration}_${System.currentTimeMillis()}",
+                                    requireAudioFocus = true,
+                                    queueMode = TextToSpeech.QUEUE_FLUSH
+                                ) { completed ->
+                                    if (isCurrentConversation(sessionGeneration)) {
+                                        val userInterrupted = hasSpeechInCurrentUtterance
+                                        if (!completed && !userInterrupted) {
+                                            Log.w("VoiceConversation", "Local TTS fallback did not finish.")
+                                            serviceScope.launch {
+                                                _events.emit("HOPE's local voice output could not finish.")
+                                            }
+                                        }
+                                        if (!userInterrupted) finalizeTurn()
+                                        if (!userInterrupted &&
+                                            _conversationState.value == ConversationState.SPEAKING
+                                        ) {
+                                            setConversationState(ConversationState.LISTENING)
+                                        }
+                                    }
+                                }
+                                if (started) {
+                                    setConversationState(ConversationState.SPEAKING)
+                                } else {
+                                    Log.e("VoiceConversation", "Could not start local TTS fallback.")
+                                    serviceScope.launch {
+                                        _events.emit("Gemini returned text but HOPE could not start local speech output.")
+                                    }
+                                    finalizeTurn()
+                                    setConversationState(ConversationState.LISTENING)
                                 }
                             }
 
@@ -1529,8 +1611,11 @@ class JarvisConversationService : Service() {
                         }
 
                         override fun onError(message: String, isFatal: Boolean, errorCode: String?) {
+                            if (!isCurrentConversation(sessionGeneration)) return
                             if (isFatal) {
-                                voiceConversationCoordinator.transitionTo(VoiceConversationPhase.ERROR)
+                                activeVoiceActivationId?.let {
+                                    voiceConversationCoordinator.transitionTo(it, VoiceConversationPhase.ERROR)
+                                } ?: voiceConversationCoordinator.transitionTo(VoiceConversationPhase.ERROR)
                                 _voiceAssistantState.value = HopeAssistantState.ERROR
                                 Log.e("VoiceConversation", "Voice session entered ERROR (code=$errorCode).")
                             }
@@ -1583,6 +1668,7 @@ class JarvisConversationService : Service() {
                         }
 
                         override fun onToolCall(callId: String, name: String, args: JSONObject) {
+                            if (!isCurrentConversation(sessionGeneration)) return
                             val hasIncomingSpeech = hasSpeechInCurrentUtterance || currentTurnUserText.isNotEmpty()
                             val isOwnerVerifiedOrAutonomous = isCurrentTurnOwnerVoiceVerified ||
                                 (!hasIncomingSpeech && isAutonomousTaskRunning)
@@ -1613,7 +1699,7 @@ class JarvisConversationService : Service() {
         }
 
         audioRecorder = AudioRecorder { chunk, amplitude, frequencyData ->
-            if (_isSessionOn.value) {
+            if (isCurrentConversation(sessionGeneration)) {
                 val now = System.currentTimeMillis()
                 var chunkBufferedInUtterance = false
 
@@ -1622,6 +1708,8 @@ class JarvisConversationService : Service() {
                 // does not bounce into Gemini Live and cause false self-interruption.
                 if (now - lastPlaybackEndTime < 150L) {
                     consecutiveVoicedFrames = 0
+                    voiceBargeInDetector.reset()
+                    clearBargeInAudioBuffer()
                     return@AudioRecorder
                 }
 
@@ -1631,47 +1719,33 @@ class JarvisConversationService : Service() {
 
                 if (isSpeakerActive) {
                     val hasHeadset = headsetAudioRouter?.isHeadsetConnected() == true
-                    // Only allow voice barge-in if headphones/headset are connected AND assistant is already speaking!
-                    // Over the phone loudspeaker, acoustic leakage from speaker into microphone
-                    // hits amplitudes of 0.8-1.0, which causes false self-interruption ("talks in middle and cuts off").
-                    // Over loudspeaker, users tap mic/orb to interrupt, as prompted on screen.
-                    if (hasHeadset) {
-                        if (amplitude > 0.25f) {
-                            consecutiveVoicedFrames++
-                            if (consecutiveVoicedFrames >= 4) {
-                                Log.i("VoiceConversation", "Headset barge-in detected; cancelling obsolete speech playback.")
-                                audioPlayer?.flush()
-                                try { HopeSpeech.stop() } catch (_: Exception) {}
-                                setConversationState(ConversationState.LISTENING)
-                                lastUserSpeechDetectedTime = now
-                                hasSpeechInCurrentUtterance = true
-                                hasSignalledUtteranceEnd = false
-                                currentTurnUserText.clear()
-                                currentTurnAssistantText.clear()
-                                _liveUserTranscript.value = ""
-                                _liveAssistantResponse.value = ""
-                                hasExecutedCommandInCurrentTurn = false
-                                totalVoicedFramesInCurrentUtterance = 4
-                                synchronized(currentUtteranceAudioStream) {
-                                    currentUtteranceAudioStream.reset()
-                                    currentUtteranceAudioStream.write(chunk)
-                                }
-                                resetOwnerInputAudioPosition()
-                                ownerVerificationGeneration++
-                                speakerMatchRequestedForTurn = false
-                                clearSpeakerEmbedding()
-                                isCurrentTurnOwnerVoiceVerified = !preferences.isOwnerVoiceEnabled
-                                discardOwnerGatedAudio()
-                                return@AudioRecorder
-                            }
-                        } else {
-                            consecutiveVoicedFrames = 0
-                        }
+                    val echoCancellationEnabled = audioRecorder?.isEchoCancellationEnabled == true
+                    val bargeInDetected = voiceBargeInDetector.observe(
+                        amplitude = amplitude,
+                        ambientNoiseFloor = ambientNoiseFloor,
+                        headsetConnected = hasHeadset,
+                        echoCancellationEnabled = echoCancellationEnabled
+                    )
+                    if (bargeInDetected) {
+                        val initialAudio = bargeInAudioBuffer.map { it.copyOf() }
+                        clearBargeInAudioBuffer()
+                        beginVoiceBargeIn(initialAudio, now, hasHeadset)
+                        initialAudio.forEach { it.fill(0) }
                     } else {
-                        consecutiveVoicedFrames = 0
+                        if (voiceBargeInDetector.isTrackingSpeech && chunk.isNotEmpty()) {
+                            while (bargeInAudioBuffer.size >= 12) {
+                                bargeInAudioBuffer.removeFirst().fill(0)
+                            }
+                            bargeInAudioBuffer.addLast(chunk.copyOf())
+                        } else {
+                            clearBargeInAudioBuffer()
+                        }
+                        // Keep assistant playback out of the live microphone stream until barge-in is confirmed.
+                        return@AudioRecorder
                     }
-                    // Suppress mic audio from streaming to Gemini ONLY while assistant is physically speaking over loudspeaker.
-                    return@AudioRecorder
+                } else {
+                    voiceBargeInDetector.reset()
+                    clearBargeInAudioBuffer()
                 }
 
                 // Track ambient noise floor adaptively when quiet
@@ -1939,6 +2013,52 @@ class JarvisConversationService : Service() {
         }.apply {
             setMuted(preferences.isMicMuted)
             start(serviceScope)
+        }
+    }
+
+    private fun beginVoiceBargeIn(
+        initialAudio: List<ByteArray>,
+        now: Long,
+        headsetConnected: Boolean
+    ) {
+        Log.i(
+            "VoiceConversation",
+            if (headsetConnected) "Headset voice barge-in detected." else "Echo-cancelled speaker voice barge-in detected."
+        )
+        audioPlayer?.flush()
+        finalizeTurn()
+        HopeSpeech.stop()
+        lastPlaybackEndTime = System.currentTimeMillis() - 150L
+        setConversationState(ConversationState.LISTENING)
+        lastUserSpeechDetectedTime = now
+        hasSpeechInCurrentUtterance = true
+        hasSignalledUtteranceEnd = false
+        currentTurnUserText.clear()
+        currentTurnAssistantText.clear()
+        _liveUserTranscript.value = ""
+        _liveAssistantResponse.value = ""
+        hasExecutedCommandInCurrentTurn = false
+        consecutiveVoicedFrames = initialAudio.size
+        totalVoicedFramesInCurrentUtterance = initialAudio.size
+        synchronized(currentUtteranceAudioStream) {
+            currentUtteranceAudioStream.reset()
+            initialAudio.forEach { currentUtteranceAudioStream.write(it) }
+        }
+        synchronized(preSpeechRingBuffer) {
+            preSpeechRingBuffer.clear()
+        }
+        resetSpeakerInputGate(initialAudio)
+        resetOwnerInputAudioPosition()
+        ownerVerificationGeneration++
+        speakerMatchRequestedForTurn = false
+        clearSpeakerEmbedding()
+        isCurrentTurnOwnerVoiceVerified = !preferences.isOwnerVoiceEnabled
+        discardOwnerGatedAudio()
+    }
+
+    private fun clearBargeInAudioBuffer() {
+        while (bargeInAudioBuffer.isNotEmpty()) {
+            bargeInAudioBuffer.removeFirst().fill(0)
         }
     }
 
@@ -3694,6 +3814,16 @@ class JarvisConversationService : Service() {
     }
 
     private fun executeDetectedCommand(command: com.jarvis.assistant.automation.command.JarvisCommand, source: String) {
+        if (command is com.jarvis.assistant.automation.command.JarvisCommand.StartWordSearch) {
+            val intent = Intent(applicationContext, com.jarvis.assistant.ui.wordsearch.WordSearchActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            applicationContext.startActivity(intent)
+            serviceScope.launch { _events.emit("Word Search is ready.") }
+            hasExecutedCommandInCurrentTurn = true
+            lastCommandExecutionTime = System.currentTimeMillis()
+            return
+        }
         if (command is com.jarvis.assistant.automation.command.JarvisCommand.GoToBackground) {
             val explicit = isExplicitStandbyCommand(currentTurnUserText.toString())
             if (!explicit) {
@@ -3981,9 +4111,15 @@ class JarvisConversationService : Service() {
         resetOwnerInputAudioPosition()
     }
 
+    @Synchronized
     private fun stopActiveConversation() {
+        conversationGeneration++
+        activeVoiceActivationId?.let(voiceConversationCoordinator::endActivation)
+        activeVoiceActivationId = null
         inactivityJob?.cancel()
         inactivityJob = null
+        thinkingTimeoutJob?.cancel()
+        thinkingTimeoutJob = null
         cancelAllActiveTools()
         com.jarvis.assistant.automation.agent.AgentTaskEngine.resetForSession()
         _isSessionOn.value = false
@@ -4004,6 +4140,7 @@ class JarvisConversationService : Service() {
         audioPlayer?.flush()
         audioPlayer?.release()
         audioPlayer = null
+        HopeSpeech.stop()
 
         liveWebSocket?.disconnect()
         liveWebSocket = null

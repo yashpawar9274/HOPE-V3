@@ -13,8 +13,7 @@ enum class VoiceConversationPhase {
 
 enum class VoiceResponsePath {
     GEMINI_AUDIO,
-    LOCAL_TTS,
-    NONE
+    LOCAL_TTS
 }
 
 class VoiceConversationCoordinator {
@@ -43,10 +42,23 @@ class VoiceConversationCoordinator {
     }
 
     @Synchronized
+    fun transitionTo(activationId: Long, next: VoiceConversationPhase): Boolean {
+        if (activeActivationId != activationId) return false
+        return transitionTo(next)
+    }
+
+    @Synchronized
     fun transitionTo(next: VoiceConversationPhase): Boolean {
         if (phase == next) return true
         if (next !in allowedTransitions.getValue(phase)) return false
         phase = next
+        return true
+    }
+
+    @Synchronized
+    fun endActivation(activationId: Long): Boolean {
+        if (activeActivationId != activationId) return false
+        resetForStandby()
         return true
     }
 
@@ -114,6 +126,7 @@ object VoiceConversationPolicy {
             - The exact wake-only input "Hey HOPE" starts a new conversation: give one short, natural greeting and then listen. Do not add another greeting to that same response.
             - If a real request is already present, answer the request directly instead of greeting first.
             - Across later turns in this session, use conversation context and answer directly. Never append a generic greeting or repeat a question already answered.
+            - Estimate emotional tone probabilistically from the words and delivery; cues can be ambiguous, so never claim certainty about the user's feelings. Adapt phrasing calmly for happy, excited, sad, angry, frustrated, confused, curious, serious, relaxed, or playful cues.
             - When the user asks what you remember, asks about a previous session, or asks to recall a personal fact that may have been discussed before, use the read-only search_long_term_memory tool if cloud memory is enabled. Never invent a recalled fact; say when no matching memory is found.
             - A brief acknowledgment is appropriate only when the user explicitly interrupts or asks you to listen; then continue with the user's request.
             - Do not repeat prior assistant audio or text after reconnecting. Do not narrate internal reasoning, invent memory, or claim to have heard or done anything unsupported by the conversation or tools.
@@ -123,7 +136,6 @@ object VoiceConversationPolicy {
 
     fun outputPath(isLiveSession: Boolean, hasGeminiAudio: Boolean): VoiceResponsePath = when {
         isLiveSession && hasGeminiAudio -> VoiceResponsePath.GEMINI_AUDIO
-        isLiveSession -> VoiceResponsePath.NONE
         else -> VoiceResponsePath.LOCAL_TTS
     }
 }

@@ -430,7 +430,7 @@ class HomeFragment : Fragment() {
                                     setOrbState("speaking")
                                     binding.tvListeningStatus.text = "HOPE SPEAKING..."
                                     binding.tvListeningStatus.setTextColor(Color.parseColor("#06B6D4"))
-                                    binding.tvHoldHint.text = "Tap mic to interrupt"
+                                    binding.tvHoldHint.text = "Speak to interrupt • Tap mic to stop"
                                     binding.dotStatusGlow.backgroundTintList = ColorStateList.valueOf(
                                         Color.parseColor("#06B6D4")
                                     )

@@ -13,6 +13,7 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -26,6 +27,8 @@ import com.jarvis.assistant.databinding.ActivityMemoryBinding
 import com.jarvis.assistant.license.LicenseManager
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Locale
 
 class MemoryActivity : AppCompatActivity() {
@@ -35,6 +38,15 @@ class MemoryActivity : AppCompatActivity() {
     private lateinit var adapter: MemoryAdapter
     private lateinit var cloudMemoryListener: CompoundButton.OnCheckedChangeListener
     private lateinit var cloudAgentListener: CompoundButton.OnCheckedChangeListener
+
+    private val exportMemoryLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+            if (uri != null) exportMemoryArchive(uri)
+        }
+    private val importMemoryLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) importMemoryArchive(uri)
+        }
 
     private var allMemories: List<MemoryEntity> = emptyList()
     private var selectedCategory: String = "All"
@@ -170,6 +182,7 @@ class MemoryActivity : AppCompatActivity() {
         binding.switchCloudMemory.setOnCheckedChangeListener(cloudMemoryListener)
         binding.btnRefreshCloudMemoryStatus.setOnClickListener { refreshCloudMemoryStatus() }
         binding.btnSearchCloudMemories.setOnClickListener { showCloudMemorySearchDialog() }
+        binding.btnOpenMemoryKnowledge.setOnClickListener { showKnowledgeDashboard() }
         binding.btnRetryCloudMemory.setOnClickListener {
             if (!preferences.isCloudMemoryEnabled) {
                 Toast.makeText(this, "Enable Cloud Long-Term Memory before retrying jobs.", Toast.LENGTH_LONG).show()
@@ -209,7 +222,7 @@ class MemoryActivity : AppCompatActivity() {
             MaterialAlertDialogBuilder(this)
                 .setTitle("Clear all cloud memories?")
                 .setMessage(
-                    "This deletes stored chat and voice transcripts and requests deletion of your Mem0 memories. Mem0 deletion is asynchronous and will be verified in Cloud Memory Status. This cannot be undone."
+                    "This permanently deletes stored transcripts, individual messages, structured facts, projects, knowledge-graph records, summaries, and import/export history, then requests deletion of your Mem0 memories. A minimal deletion audit event is retained. Mem0 deletion is asynchronous and will be verified in Cloud Memory Status. This cannot be undone."
                 )
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Clear all") { _, _ ->
@@ -411,6 +424,414 @@ class MemoryActivity : AppCompatActivity() {
                 }
                 dialog.show()
             }
+    }
+
+    private fun showKnowledgeDashboard() {
+        lifecycleScope.launch {
+            try {
+                val dashboard = JarvisApp.instance.cloudMemoryRepository.getKnowledgeDashboard()
+                val stats = dashboard.optJSONObject("stats") ?: JSONObject()
+                val indexes = dashboard.optJSONObject("searchIndexes") ?: JSONObject()
+                val latestImport = dashboard.optJSONObject("latestImport")
+                val text = buildString {
+                    appendLine("Conversations with source IDs: ${stats.optInt("conversationCount")}")
+                    appendLine("Stored turns: ${stats.optInt("turnCount")}")
+                    appendLine("Indexed messages: ${stats.optInt("messageCount")}")
+                    appendLine("Current structured memories: ${stats.optInt("currentFactCount")}")
+                    appendLine("Projects: ${stats.optInt("projectCount")}")
+                    appendLine("Knowledge graph: ${stats.optInt("entityCount")} entities · ${stats.optInt("relationshipCount")} relationships")
+                    appendLine("Failed extraction jobs: ${stats.optInt("failedExtractionJobs")}")
+                    appendLine("Failed consolidation jobs: ${stats.optInt("failedConsolidationJobs")}")
+                    appendLine("Last successful indexing: ${stats.optString("lastIndexedAt").takeUnless { it == "null" } ?: "not available"}")
+                    appendLine("Search indexes: messages ${indexStatus(indexes, "conversation_messages")}, facts ${indexStatus(indexes, "memory_facts")}, turns ${indexStatus(indexes, "conversation_turns")}")
+                    appendLine("Structured extractor: ${if (dashboard.optBoolean("memoryExtractorConfigured")) "configured" else "not configured"}")
+                    appendLine("Last export: ${stats.optString("lastExportAt").takeUnless { it == "null" } ?: "none recorded"}")
+                    appendLine("Verified server backups: ${stats.optInt("verifiedExportCount")}")
+                    latestImport?.let {
+                        appendLine("Latest import: ${it.optString("status")} · ${it.optInt("completed_batches")}/${it.optInt("expected_batches")} batches")
+                        appendLine("Imported ${it.optInt("imported_turns")} turns · excluded ${it.optInt("rejected_turns")} sensitive turns")
+                    } ?: appendLine("Historical imports: none")
+                }.trim()
+                showKnowledgeDashboardActions(text)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Toast.makeText(
+                    this@MemoryActivity,
+                    error.message ?: "Memory dashboard could not be loaded. Apply the latest Supabase migration first.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    private fun indexStatus(indexes: JSONObject, index: String): String =
+        if (indexes.optBoolean(index)) "ready" else "missing"
+
+    private fun showKnowledgeDashboardActions(summary: String) {
+        val actions = arrayOf(
+            "Search history & knowledge",
+            "Personal knowledge",
+            "Projects & knowledge graph",
+            "Import history",
+            "Export memory archive",
+            "Import history records"
+        )
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Memory & Knowledge")
+            .setMessage(summary)
+            .setItems(actions) { _, selected ->
+                when (selected) {
+                    0 -> showKnowledgeSearchDialog()
+                    1 -> showPersonalKnowledge()
+                    2 -> showProjectsAndGraph()
+                    3 -> showImportHistory()
+                    4 -> {
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle("Export your memory archive?")
+                            .setMessage(
+                                "The selected JSON file will contain your stored transcripts, message sources, structured memories, projects, entities, relationships and summaries. HOPE computes a SHA-256 checksum and records its metadata, but does not claim that this is a verified server backup."
+                            )
+                            .setNegativeButton("Cancel", null)
+                            .setPositiveButton("Continue") { _, _ ->
+                                exportMemoryLauncher.launch("hope-memory-export.json")
+                            }
+                            .show()
+                    }
+                    5 -> confirmHistoryImport()
+                }
+            }
+            .setPositiveButton("Refresh") { _, _ -> showKnowledgeDashboard() }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun showKnowledgeSearchDialog() {
+        val queryInput = EditText(this).apply {
+            hint = "Search old conversations, projects, decisions"
+            setTextColor(ContextCompat.getColor(this@MemoryActivity, R.color.text_primary))
+            setPadding(24, 20, 24, 20)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Search Memory & History")
+            .setView(queryInput)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("SEARCH", null)
+            .create()
+            .also { dialog ->
+                dialog.setOnShowListener {
+                    dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val query = queryInput.text.toString().trim()
+                        if (query.isBlank()) {
+                            queryInput.error = "Enter a search phrase."
+                            return@setOnClickListener
+                        }
+                        dialog.dismiss()
+                        lifecycleScope.launch {
+                            try {
+                                val result = JarvisApp.instance.cloudMemoryRepository.searchKnowledge(query)
+                                val matches = buildString {
+                                    val facts = result.optJSONArray("facts") ?: JSONArray()
+                                    for (index in 0 until facts.length()) {
+                                        val fact = facts.optJSONObject(index) ?: continue
+                                        appendLine("FACT · ${fact.optString("content")}")
+                                        appendLine("Source: ${fact.optString("source_type")} · ${fact.optString("source_created_at")}")
+                                        appendLine()
+                                    }
+                                    val messages = result.optJSONArray("messages") ?: JSONArray()
+                                    for (index in 0 until messages.length()) {
+                                        val message = messages.optJSONObject(index) ?: continue
+                                        appendLine("${message.optString("role")} · ${message.optString("createdAt")}")
+                                        appendLine(message.optString("content"))
+                                        appendLine("Conversation: ${message.optString("conversationId")} · message: ${message.optString("sourceMessageId")}")
+                                        appendLine()
+                                    }
+                                    val cloudMemories = result.optJSONArray("memories") ?: JSONArray()
+                                    for (index in 0 until cloudMemories.length()) {
+                                        appendLine("MEMORY · ${cloudMemories.optJSONObject(index)?.optString("memory").orEmpty()}")
+                                    }
+                                }.trim().ifBlank { "No matching imported history or memory was found." }
+                                MaterialAlertDialogBuilder(this@MemoryActivity)
+                                    .setTitle("Memory Search Results")
+                                    .setMessage(matches)
+                                    .setPositiveButton("Done", null)
+                                    .show()
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                Toast.makeText(this@MemoryActivity, error.message ?: "Memory search failed.", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                }
+                dialog.show()
+            }
+    }
+
+    private fun showPersonalKnowledge() {
+        lifecycleScope.launch {
+            try {
+                val facts = JarvisApp.instance.cloudMemoryRepository.getStructuredFacts()
+                if (facts.length() == 0) {
+                    Toast.makeText(this@MemoryActivity, "No structured personal knowledge is available yet.", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                val items = (0 until facts.length()).mapNotNull { index ->
+                    facts.optJSONObject(index)?.let { fact ->
+                        "${fact.optString("content")}\n${fact.optString("verification_status")} · ${fact.optString("source_type")}"
+                    }
+                }
+                MaterialAlertDialogBuilder(this@MemoryActivity)
+                    .setTitle("Personal Knowledge (${facts.length()})")
+                    .setItems(items.toTypedArray()) { _, index ->
+                        facts.optJSONObject(index)?.let(::showStructuredMemoryActions)
+                    }
+                    .setPositiveButton("Done", null)
+                    .show()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Toast.makeText(this@MemoryActivity, error.message ?: "Personal knowledge could not be loaded.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun showStructuredMemoryActions(fact: JSONObject) {
+        val memoryId = fact.optString("memory_id")
+        if (memoryId.isBlank()) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Correct or delete memory?")
+            .setMessage(
+                "${fact.optString("content")}\n\nSource: ${fact.optString("source_type")} · ${fact.optString("source_created_at")}\nVerification: ${fact.optString("verification_status")}"
+            )
+            .setNeutralButton("Correct") { _, _ -> showCorrectMemoryDialog(memoryId, fact.optString("content")) }
+            .setNegativeButton("Delete") { _, _ ->
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("Delete this memory?")
+                    .setMessage("All versions associated with this memory identity will be deleted. Its source conversation remains available.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Delete") { _, _ ->
+                        lifecycleScope.launch {
+                            try {
+                                JarvisApp.instance.cloudMemoryRepository.deleteStructuredMemory(memoryId)
+                                Toast.makeText(this@MemoryActivity, "Memory deleted.", Toast.LENGTH_LONG).show()
+                                showPersonalKnowledge()
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                Toast.makeText(this@MemoryActivity, error.message ?: "Memory could not be deleted.", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                    .show()
+            }
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun showCorrectMemoryDialog(memoryId: String, currentContent: String) {
+        val editor = EditText(this).apply {
+            setText(currentContent)
+            setSelection(text.length)
+            setPadding(24, 20, 24, 20)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Correct Memory")
+            .setView(editor)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save correction") { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        JarvisApp.instance.cloudMemoryRepository.correctStructuredMemory(
+                            memoryId,
+                            editor.text.toString()
+                        )
+                        Toast.makeText(this@MemoryActivity, "Correction saved as a new verified version.", Toast.LENGTH_LONG).show()
+                        showPersonalKnowledge()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        Toast.makeText(this@MemoryActivity, error.message ?: "Memory correction failed.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun showProjectsAndGraph() {
+        lifecycleScope.launch {
+            try {
+                val repository = JarvisApp.instance.cloudMemoryRepository
+                val projects = repository.getProjects()
+                val graph = repository.getKnowledgeGraph()
+                val entities = graph.optJSONArray("entities") ?: JSONArray()
+                val relationships = graph.optJSONArray("relationships") ?: JSONArray()
+                val entityNames = (0 until entities.length()).mapNotNull { index ->
+                    entities.optJSONObject(index)?.let { it.optString("entity_id") to it.optString("name") }
+                }.toMap()
+                val summary = buildString {
+                    appendLine("PROJECTS (${projects.length()})")
+                    for (index in 0 until projects.length()) {
+                        val project = projects.optJSONObject(index) ?: continue
+                        appendLine("• ${project.optString("name")} — ${project.optString("project_status")}")
+                        appendLine("  ${project.optString("summary")}")
+                        val stack = project.optJSONArray("technology_stack")
+                        if (stack != null && stack.length() > 0) {
+                            appendLine("  Stack: ${(0 until stack.length()).joinToString { stack.optString(it) }}")
+                        }
+                    }
+                    appendLine("\nKNOWLEDGE GRAPH (${entities.length()} entities, ${relationships.length()} relationships)")
+                    for (index in 0 until entities.length()) {
+                        val entity = entities.optJSONObject(index) ?: continue
+                        appendLine("• ${entity.optString("entity_type")}: ${entity.optString("name")}")
+                    }
+                    for (index in 0 until relationships.length()) {
+                        val relation = relationships.optJSONObject(index) ?: continue
+                        val sourceId = relation.optString("source_entity_id")
+                        val targetId = relation.optString("target_entity_id")
+                        appendLine("• ${entityNames[sourceId] ?: sourceId} ${relation.optString("relationship")} ${entityNames[targetId] ?: targetId}")
+                    }
+                }.trim()
+                MaterialAlertDialogBuilder(this@MemoryActivity)
+                    .setTitle("Projects & Knowledge Graph")
+                    .setMessage(summary)
+                    .setNeutralButton("Update project") { _, _ -> showProjectStatusDialog(projects) }
+                    .setPositiveButton("Done", null)
+                    .show()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Toast.makeText(this@MemoryActivity, error.message ?: "Projects and knowledge graph could not be loaded.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun showProjectStatusDialog(projects: JSONArray) {
+        val projectEntries = (0 until projects.length()).mapNotNull { index ->
+            projects.optJSONObject(index)?.let { it.optString("project_id") to it.optString("name") }
+        }
+        if (projectEntries.isEmpty()) {
+            Toast.makeText(this, "There are no project records to update.", Toast.LENGTH_LONG).show()
+            return
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Select Project")
+            .setItems(projectEntries.map { it.second }.toTypedArray()) { _, projectIndex ->
+                val projectId = projectEntries[projectIndex].first
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("Set project status")
+                    .setItems(arrayOf("Active", "Paused", "Completed", "Archived")) { _, statusIndex ->
+                        val status = arrayOf("active", "paused", "completed", "archived")[statusIndex]
+                        lifecycleScope.launch {
+                            try {
+                                JarvisApp.instance.cloudMemoryRepository.updateProjectStatus(projectId, status)
+                                Toast.makeText(this@MemoryActivity, "Project status updated.", Toast.LENGTH_LONG).show()
+                                showProjectsAndGraph()
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                Toast.makeText(this@MemoryActivity, error.message ?: "Project status could not be updated.", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showImportHistory() {
+        lifecycleScope.launch {
+            try {
+                val imports = JarvisApp.instance.cloudMemoryRepository.getImportHistory()
+                val summary = if (imports.length() == 0) {
+                    "No history imports have been recorded."
+                } else {
+                    buildString {
+                        for (index in 0 until imports.length()) {
+                            val item = imports.optJSONObject(index) ?: continue
+                            appendLine("${item.optString("status")} · ${item.optString("started_at")}")
+                            appendLine("${item.optInt("completed_batches")}/${item.optInt("expected_batches")} batches · ${item.optInt("imported_turns")} imported · ${item.optInt("rejected_turns")} excluded")
+                            appendLine()
+                        }
+                    }.trim()
+                }
+                MaterialAlertDialogBuilder(this@MemoryActivity)
+                    .setTitle("Historical Import Records")
+                    .setMessage(summary)
+                    .setPositiveButton("Done", null)
+                    .show()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Toast.makeText(this@MemoryActivity, error.message ?: "Import history could not be loaded.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun confirmHistoryImport() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Import authorized history?")
+            .setMessage(
+                "Choose a JSON history file that you own or are authorized to import. Supported formats are HOPE memory exports and hope-history-v1. Timestamps and source references are preserved when supplied; HOPE does not invent missing source data. Sensitive credential-like turns are excluded. Imports are resumable and deduplicated by archive checksum."
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Choose file") { _, _ ->
+                importMemoryLauncher.launch(arrayOf("application/json", "text/json", "application/*"))
+            }
+            .show()
+    }
+
+    private fun importMemoryArchive(uri: android.net.Uri) {
+        lifecycleScope.launch {
+            try {
+                val result = JarvisApp.instance.cloudMemoryRepository.importHistory {
+                    contentResolver.openInputStream(uri)
+                        ?: throw java.io.IOException("Selected history file could not be opened.")
+                }
+                Toast.makeText(
+                    this@MemoryActivity,
+                    "History import ${result.optString("status")}. ${result.optInt("importedTurns")} turns imported; ${result.optInt("rejectedTurns")} sensitive turns excluded.",
+                    Toast.LENGTH_LONG
+                ).show()
+                refreshCloudMemoryStatus()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Toast.makeText(
+                    this@MemoryActivity,
+                    error.message ?: "History import failed. Completed batches can be resumed by selecting the same file.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    private fun exportMemoryArchive(uri: android.net.Uri) {
+        lifecycleScope.launch {
+            try {
+                val output = contentResolver.openOutputStream(uri)
+                    ?: throw java.io.IOException("Selected export file could not be opened.")
+                val result = output.use {
+                    JarvisApp.instance.cloudMemoryRepository.exportMemory(it)
+                }
+                Toast.makeText(
+                    this@MemoryActivity,
+                    "Memory export created. SHA-256: ${result.sha256}. ${if (result.verifiedBackup) "Backup verified." else "This is not a verified server backup."}",
+                    Toast.LENGTH_LONG
+                ).show()
+                refreshCloudMemoryStatus()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Toast.makeText(
+                    this@MemoryActivity,
+                    error.message ?: "Memory export failed. Check available storage and connection.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
     }
 
     private fun showCloudMemoryResults(memories: List<CloudMemoryItem>) {

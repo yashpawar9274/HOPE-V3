@@ -76,6 +76,7 @@ class CommandExecutor(
             is JarvisCommand.RecallBirthday -> memoryManager.getBirthdayResponse()
             is JarvisCommand.RecallFavoriteSong -> memoryManager.getFavoriteSongResponse()
             is JarvisCommand.RecallRoutine -> memoryManager.getRoutineResponse()
+            is JarvisCommand.StartWordSearch -> "Word Search is ready."
             is JarvisCommand.GoToBackground -> "Going to background."
         }
     }

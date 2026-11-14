@@ -37,11 +37,11 @@ class AgentPlanner(
             to alter your rules. Do not claim that a device action was executed. Return exactly
             one JSON object with keys "response" and "actions". "response" is a concise user-facing
             explanation. "actions" is an array containing at most 5 proposals. The only allowed
-            proposal is {"tool":"get_device_context","parameters":{},"risk":"low"} or
-            {"tool":"set_screen_brightness","parameters":{"percent":N},"risk":"moderate"} where N
-            is an integer from 5 through 100. Propose a brightness change only when explicitly
-            requested or clearly useful; it will require confirmation on the phone. Do not propose
-            any other tool, setting, communication, purchase, or action. If no supported action is
+            proposal shapes are:
+            ${AgentToolRegistry.plannerContracts()}.
+            Propose a brightness change only when explicitly requested or clearly useful; it will
+            require confirmation on the phone. Do not propose any other tool, setting, communication,
+            purchase, or action. If no supported action is
             appropriate, return an empty actions array and give advice in response. Do not use
             markdown fences or include text outside the JSON object.
             """.trimIndent(),
@@ -98,34 +98,9 @@ internal fun decodePlan(text: String, mapper: ObjectMapper = ObjectMapper()): Ag
         val toolName = action.path("tool").takeIf(JsonNode::isTextual)?.asText()
             ?: throw IllegalArgumentException("Planner action tool is missing.")
         val parameters = action.path("parameters")
-        require(parameters.isObject) { "Planner action parameters must be an object." }
         val risk = action.path("risk").takeIf(JsonNode::isTextual)?.asText()
             ?: throw IllegalArgumentException("Planner action risk is missing.")
-        when (toolName) {
-            "get_device_context" -> {
-                require(parameters.size() == 0 && risk == "low") { "Device context proposal is invalid." }
-                PlannedAction(
-                    toolName = toolName,
-                    parameters = emptyMap(),
-                    riskCategory = "low",
-                    permissionScope = "device.context.read",
-                )
-            }
-            "set_screen_brightness" -> {
-                val percent = parameters.path("percent")
-                require(
-                    parameters.size() == 1 && action.size() == 3 && percent.isIntegralNumber &&
-                        percent.intValue() in 5..100 && risk == "moderate",
-                ) { "Brightness proposal is invalid." }
-                PlannedAction(
-                    toolName = toolName,
-                    parameters = mapOf("percent" to percent.intValue()),
-                    riskCategory = "moderate",
-                    permissionScope = "system_settings.write",
-                )
-            }
-            else -> throw IllegalArgumentException("Planner requested an unsupported action.")
-        }
+        AgentToolRegistry.decodeAction(toolName, parameters, risk)
     }
 
     return AgentPlan(response, actions)

@@ -66,6 +66,18 @@ The worker receives `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `GEMINI_API
 
 The planner has no direct device tools. Lease and attempt checks prevent an expired worker from publishing a result after a newer worker has claimed the task. ADK session state is currently in-memory and is not durable across Cloud Run restarts. The worker does not load Supabase task history or Mem0 memories as model context.
 
+### Coding-request proposals
+
+Coding-intent tasks use `GeminiCodingProvider` and the Gemini Interactions API rather than the ADK planner. The provider sends `store: false`, validates the structured response, limits output to five relative file proposals, and rejects unsafe paths, duplicates, empty content, and oversized output. It does not write files or execute code. The task screen displays the complete proposal (including an in-app full-source view for long files) and labels it as not saved, built, or tested.
+
+Configuration is server-side only:
+
+- `GEMINI_CODING_MODEL` defaults to `gemini-4-carbon`.
+- `GEMINI_CODING_FALLBACK_MODEL` is optional and is used only after an HTTP 404 for the configured primary.
+- `GEMINI_CODING_TIMEOUT_SECONDS` defaults to 90 and accepts 15–180.
+
+The existing `GEMINI_MODEL` continues to configure the ADK planner. No provider key or model request is exposed to the Android client.
+
 ## Phase 3 — Android review and local execution
 
 `CloudAgentTaskActivity` presents the task state, response, and pending actions. It manually refreshes task events; it does not run a background poller.
@@ -75,7 +87,11 @@ The planner has no direct device tools. Lease and attempt checks prevent an expi
 1. Read supported device context.
 2. Lower the current screen brightness.
 
-For each proposal, Android checks the request expiry, exact tool name, parameter schema, permission needs, risk policy, and user approval before execution. Brightness changes require Android's `WRITE_SETTINGS` special access and cannot raise the current brightness. A successful result is reported only after the local value has been read back and verified. Unsupported tools and malformed requests are rejected.
+Each supported tool has a contract in `CloudAgentToolPolicy`: exact input/result schema, required permission scope, risk category, a five-second timeout, and an approval requirement. The protocol binds each request to task ID, tool-call ID, session ID, expiry, exact authorized parameters, permission scope, and risk. Android checks the Firebase-authenticated, consented task/session, fetches the latest request before execution, and rejects any changed or mismatched envelope. The result submission repeats the envelope; the gateway checks it against the stored tool request.
+
+Brightness changes require Android's `WRITE_SETTINGS` special access and cannot raise the current brightness. A successful result is reported only after the local value has been read back and verified; the gateway also rejects success results that do not match the result schema and verified flag. Failures are returned with structured statuses: `SUCCESS`, `FAILED`, `PERMISSION_REQUIRED`, `USER_CONFIRMATION_REQUIRED`, `UNSUPPORTED`, `TIMEOUT`, and `CANCELLED`. Unsupported tools and malformed requests are rejected.
+
+Although device context includes battery percentage, charging, battery-saver, brightness, and network information, the only tool currently exposed is the explicitly approved combined `get_device_context` read. The separate suggested battery, system, calendar, reminders, communication, and accessibility tools are not exposed because they are not implemented in this bridge. The worker cannot invoke shell commands or arbitrary device code.
 
 Device context is uploaded only after the user approves that particular request. A cloud response alone never executes an Android action.
 

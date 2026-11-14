@@ -22,7 +22,12 @@ import com.jarvis.assistant.data.agent.CloudAgentToolPolicy
 import com.jarvis.assistant.data.agent.CloudAgentToolRequest
 import com.jarvis.assistant.data.agent.ToolResultStatus
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
+import org.json.JSONObject
 
 class CloudAgentTaskActivity : AppCompatActivity() {
     private val repository by lazy { JarvisApp.instance.cloudAgentRepository }
@@ -185,30 +190,115 @@ class CloudAgentTaskActivity : AppCompatActivity() {
         for (index in 0 until plan.length()) {
             val entry = plan.optJSONObject(index) ?: continue
             when (entry.optString("type")) {
-                "response" -> addCard("HOPE", entry.optString("text"))
+                "response" -> {
+                    val model = entry.optString("model")
+                    val usedFallback = entry.optBoolean("usedFallback")
+                    val title = if (model.isBlank()) {
+                        "HOPE"
+                    } else {
+                        "HOPE coding proposal · $model${if (usedFallback) " (configured fallback)" else ""}"
+                    }
+                    addCard(title, entry.optString("text"))
+                    val questions = entry.optJSONArray("questions") ?: continue
+                    for (questionIndex in 0 until questions.length()) {
+                        addCard(
+                            "Clarification needed",
+                            questions.optString(questionIndex),
+                        )
+                    }
+                }
                 "action" -> addCard(
                     "Proposed device action",
                     "${entry.optString("tool_name").replace('_', ' ')} · ${entry.optJSONObject("parameters") ?: "{}"}",
                 )
+                "file_proposal" -> renderFileProposal(entry)
             }
         }
         if (update.events.isEmpty() && plan.length() == 0) {
             addCard("Status", "No plan is available yet. Use Refresh task to check again.")
         }
         if (update.task.state in setOf("awaiting_approval", "waiting_for_device")) {
-            update.toolRequests.forEach(::addToolRequest)
+            update.toolRequests.forEach { addToolRequest(update, it) }
         }
-        if (update.task.state == "completed") {
+        val hasCodingResponse = (0 until plan.length()).any { index ->
+            plan.optJSONObject(index)?.let { entry ->
+                entry.optString("type") == "response" && entry.has("model")
+            } == true
+        }
+        if (update.task.state == "completed" && hasCodingResponse) {
+            addCard(
+                "Proposal only",
+                "This coding response is a proposal only. No project files were saved, executed, built, or tested.",
+            )
+        } else if (update.task.state == "completed") {
             addCard("Result", "Task completed. Device actions report completion only after a local read-back check.")
         } else if (update.task.state == "failed") {
-            addCard("Result", "Task failed or its device action could not be verified.")
+            addCard("Result", taskFailureMessage(update.task.failureCode))
         } else if (update.task.state == "cancelled") {
             addCard("Result", "Task cancelled.")
         }
     }
 
-    private fun addToolRequest(tool: CloudAgentToolRequest) {
-        val invalidReason = CloudAgentToolPolicy.validate(tool)
+    private fun taskFailureMessage(code: String): String = when (code) {
+        "gemini_coding_timeout" ->
+            "The coding assistant timed out. Check your connection and try again."
+        "gemini_coding_network_error", "gemini_coding_provider_unavailable" ->
+            "The coding assistant is temporarily unreachable. Check your connection and retry."
+        "gemini_coding_rate_limited" ->
+            "The coding assistant is busy. Please wait a moment and try again."
+        "gemini_coding_authentication_failed" ->
+            "The coding service is not configured correctly. Please contact support."
+        "gemini_coding_model_unavailable" ->
+            "The configured coding model is unavailable. Please contact support."
+        "gemini_coding_invalid_output", "gemini_coding_empty_response",
+        "gemini_coding_incomplete_response" ->
+            "The coding assistant returned an unusable response. Please try again."
+        else -> "Task failed or its device action could not be verified."
+    }
+
+    private fun renderFileProposal(entry: JSONObject) {
+        val path = entry.optString("path")
+        val purpose = entry.optString("purpose")
+        val content = entry.optString("content")
+        val preview = content.take(MAX_FILE_PREVIEW_CHARACTERS)
+        val suffix = if (content.length > preview.length) "\n\nPreview truncated; open the full proposal to view the rest." else ""
+        val card = addCard(
+            "Suggested file · $path",
+            "$purpose\n\n$preview$suffix",
+        )
+        if (content.length > preview.length) {
+            card.addView(Button(this).apply {
+                text = "View full proposal"
+                setOnClickListener { showFileProposal(path, content) }
+            }, matchWrap())
+        }
+    }
+
+    private fun showFileProposal(path: String, content: String) {
+        val source = TextView(this).apply {
+            text = content
+            textSize = 12f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setTextIsSelectable(true)
+            setTextColor(resolveColor(R.attr.themeTextPrimary, Color.WHITE))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        val scroll = ScrollView(this).apply {
+            addView(source)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(path)
+            .setView(scroll)
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun addToolRequest(update: CloudAgentTaskUpdate, tool: CloudAgentToolRequest) {
+        val invalidReason = CloudAgentToolPolicy.validate(
+            tool,
+            expectedTaskId = update.task.taskId,
+            expectedSessionId = update.task.sessionId,
+        )
         val card = addCard(
             "Approval required",
             invalidReason ?: CloudAgentToolPolicy.confirmationText(tool),
@@ -221,7 +311,7 @@ class CloudAgentTaskActivity : AppCompatActivity() {
                 MaterialAlertDialogBuilder(this@CloudAgentTaskActivity)
                     .setTitle("Approve device action?")
                     .setMessage(CloudAgentToolPolicy.confirmationText(tool))
-                    .setNegativeButton("Not now", null)
+                    .setNegativeButton("Decline") { _, _ -> declineToolRequest(tool) }
                     .setPositiveButton("Approve") { _, _ -> executeTool(tool) }
                     .show()
             }
@@ -229,40 +319,28 @@ class CloudAgentTaskActivity : AppCompatActivity() {
         card.addView(approve, matchWrap())
     }
 
-    private fun executeTool(tool: CloudAgentToolRequest) {
-        val id = taskId ?: return
+    private fun declineToolRequest(tool: CloudAgentToolRequest) {
         if (!processingCalls.add(tool.toolCallId)) return
         lifecycleScope.launch {
             try {
-                val latest = repository.getTask(id)
-                if (latest.task.state !in setOf("awaiting_approval", "waiting_for_device") ||
-                    latest.toolRequests.none { it.toolCallId == tool.toolCallId }
-                ) {
-                    render(latest)
-                    return@launch
-                }
-                val result = bridge.execute(tool)
-                if (result.status == ToolResultStatus.PERMISSION_REQUIRED) {
-                    statusText.text = result.result.optString(
-                        "message",
-                        "Grant the required Android permission, then approve this request again.",
-                    )
-                    return@launch
-                }
                 repository.submitToolResult(
-                    taskId = id,
-                    toolCallId = tool.toolCallId,
-                    status = result.status,
-                    result = result.result,
-                    idempotencyKey = tool.toolCallId,
+                    tool = tool,
+                    status = ToolResultStatus.CANCELLED,
+                    result = structuredToolResult(
+                        tool = tool,
+                        status = ToolResultStatus.CANCELLED,
+                        details = JSONObject()
+                            .put("verified", false)
+                            .put("message", "The user declined this device action."),
+                    ),
                 )
-                val afterResult = repository.getTask(id)
-                if (afterResult.toolRequests.isEmpty() &&
-                    afterResult.task.state in setOf("awaiting_approval", "waiting_for_device")
+                val latest = repository.getTask(tool.taskId)
+                if (latest.toolRequests.isEmpty() &&
+                    latest.task.state in setOf("awaiting_approval", "waiting_for_device")
                 ) {
-                    repository.finishTask(id)
+                    repository.finishTask(tool.taskId)
                 }
-                render(repository.getTask(id))
+                render(repository.getTask(tool.taskId))
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -272,6 +350,96 @@ class CloudAgentTaskActivity : AppCompatActivity() {
             }
         }
     }
+
+    private fun executeTool(tool: CloudAgentToolRequest) {
+        val id = taskId ?: return
+        if (!processingCalls.add(tool.toolCallId)) return
+        lifecycleScope.launch {
+            try {
+                val latest = repository.getTask(id)
+                if (latest.task.state !in setOf("awaiting_approval", "waiting_for_device") ||
+                    latest.task.taskId != tool.taskId ||
+                    latest.task.sessionId != tool.sessionId ||
+                    latest.toolRequests.none {
+                        CloudAgentToolPolicy.matchesAuthorizedRequest(tool, it)
+                    }
+                ) {
+                    render(latest)
+                    return@launch
+                }
+                val result = withTimeout(
+                    CloudAgentToolPolicy.contracts
+                        .first { it.name == tool.toolName }
+                        .timeoutMillis,
+                ) {
+                    withContext(Dispatchers.IO) {
+                        bridge.execute(
+                            tool = tool,
+                            expectedTaskId = latest.task.taskId,
+                            expectedSessionId = latest.task.sessionId,
+                            userApproved = true,
+                        )
+                    }
+                }
+                if (result.status == ToolResultStatus.PERMISSION_REQUIRED) {
+                    statusText.text = result.result.optString(
+                        "message",
+                        "Grant the required Android permission, then approve this request again.",
+                    )
+                    return@launch
+                }
+                repository.submitToolResult(
+                    tool = tool,
+                    status = result.status,
+                    result = structuredToolResult(tool, result.status, result.result),
+                )
+                val afterResult = repository.getTask(id)
+                if (afterResult.toolRequests.isEmpty() &&
+                    afterResult.task.state in setOf("awaiting_approval", "waiting_for_device")
+                ) {
+                    repository.finishTask(id)
+                }
+                render(repository.getTask(id))
+            } catch (_: TimeoutCancellationException) {
+                try {
+                    repository.submitToolResult(
+                        tool = tool,
+                        status = ToolResultStatus.TIMEOUT,
+                        result = structuredToolResult(
+                            tool = tool,
+                            status = ToolResultStatus.TIMEOUT,
+                            details = JSONObject()
+                                .put("verified", false)
+                                .put("message", "The device operation exceeded its execution timeout."),
+                        ),
+                    )
+                    render(repository.getTask(tool.taskId))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    showError(error)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                showError(error)
+            } finally {
+                processingCalls.remove(tool.toolCallId)
+            }
+        }
+    }
+
+    private fun structuredToolResult(
+        tool: CloudAgentToolRequest,
+        status: ToolResultStatus,
+        details: JSONObject,
+    ): JSONObject = JSONObject(details.toString())
+        .put("schemaVersion", 1)
+        .put("taskId", tool.taskId)
+        .put("sessionId", tool.sessionId)
+        .put("toolCallId", tool.toolCallId)
+        .put("toolName", tool.toolName)
+        .put("resultStatus", status.name)
 
     private fun cancelTask() {
         val id = taskId ?: return
@@ -332,5 +500,6 @@ class CloudAgentTaskActivity : AppCompatActivity() {
 
     private companion object {
         const val STATE_TASK_ID = "cloud_agent_task_id"
+        const val MAX_FILE_PREVIEW_CHARACTERS = 2_500
     }
 }

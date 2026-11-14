@@ -73,6 +73,8 @@ as $$
     )
     update public.hope_memory_extraction_jobs as jobs
     set status = 'processing',
+        attempts = jobs.attempts + 1,
+        last_attempt_at = now(),
         lease_expires_at = now() + interval '2 minutes',
         updated_at = now()
     from candidates

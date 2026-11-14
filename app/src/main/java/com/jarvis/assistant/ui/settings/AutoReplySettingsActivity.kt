@@ -24,6 +24,7 @@ import androidx.appcompat.widget.SwitchCompat
 import com.jarvis.assistant.R
 import com.jarvis.assistant.autoreply.AutoReplyCoordinator
 import com.jarvis.assistant.autoreply.AutoReplyPreferences
+import com.jarvis.assistant.autoreply.AutoReplyPolicy
 import com.jarvis.assistant.autoreply.NotificationIntelligenceStore
 import com.jarvis.assistant.autoreply.NotificationRule
 import com.jarvis.assistant.autoreply.NotificationRuleAction
@@ -33,12 +34,18 @@ import com.jarvis.assistant.autoreply.SmartAutoReply
 import com.jarvis.assistant.util.PermissionHelper
 import com.jarvis.assistant.util.HopeSpeech
 import com.jarvis.assistant.util.ThemeManager
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class AutoReplySettingsActivity : AppCompatActivity() {
     private lateinit var root: LinearLayout
     private lateinit var serviceStatus: TextView
     private lateinit var notificationStatus: TextView
     private lateinit var replyStatus: TextView
+    private lateinit var dashboardSummary: TextView
+    private lateinit var dashboardStats: TextView
+    private lateinit var dashboardActivity: TextView
 
     private val requestNotificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -66,10 +73,11 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         ThemeManager.applyDynamicBackground(root)
 
         addLargeTitle(
-            "Auto-Reply",
-            "HOPE reads every new message, understands it and replies by itself using its own name. No template needed."
+            "HOPE AI 3.0",
+            "Smart Auto-Reply dashboard and controls"
         )
         addSmartHeroCard()
+        addDashboardSummary()
 
         addText("SETUP STATUS", 12f, bold = true)
         serviceStatus = addText("", 13f)
@@ -144,7 +152,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         ) { enabled -> NotificationIntelligenceStore.setAnnounceSensitive(this, enabled) }
         addSettingSwitch(
             "Use AI-generated contextual replies",
-            "Message context is sent to your configured Gemini service, or answered on-device with the offline model.",
+            "Allows AI-generated replies for contact profiles. Existing global Smart Auto-Reply keeps its current AI behavior. Cloud use still follows the separate automatic-cloud permission.",
             NotificationIntelligenceStore.aiRepliesEnabled(this)
         ) { enabled -> NotificationIntelligenceStore.setAiRepliesEnabled(this, enabled) }
         addButton(if (NotificationIntelligenceStore.isPaused(this)) "Resume notification intelligence" else "Pause notification intelligence") {
@@ -161,6 +169,35 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             chooseHistoryRetention()
         }
 
+        addText("CONTACT-SPECIFIC PROFILES", 12f, bold = true)
+        addSettingSwitch(
+            "Contact-specific reply profiles",
+            "Locally remember notification identities and apply your per-contact reply preferences. Message contents are not added to these profiles.",
+            NotificationIntelligenceStore.areContactReplyProfilesEnabled(this)
+        ) { enabled ->
+            if (enabled) {
+                AlertDialog.Builder(this)
+                    .setTitle("Enable contact reply profiles?")
+                    .setMessage(
+                        "HOPE will keep local platform/contact identity labels and profile settings so you can configure different behavior per conversation. " +
+                            "Copied message text is not stored in profile records. The existing global Smart Auto-Reply remains the fallback when no profile matches."
+                    )
+                    .setNegativeButton("Cancel") { _, _ ->
+                        NotificationIntelligenceStore.setContactReplyProfilesEnabled(this, false)
+                        recreate()
+                    }
+                    .setPositiveButton("Enable") { _, _ ->
+                        NotificationIntelligenceStore.setContactReplyProfilesEnabled(this, true)
+                        recreate()
+                    }
+                    .show()
+            } else {
+                NotificationIntelligenceStore.setContactReplyProfilesEnabled(this, false)
+            }
+        }
+        addButton("Manage contact reply profiles") {
+            startActivity(Intent(this, ContactReplyProfilesActivity::class.java))
+        }
         addText("CUSTOM RULES (OPTIONAL)", 12f, bold = true)
         addText(
             "Only needed if you want a fixed template for a specific app or contact. A matching rule with a template overrides Smart Auto-Reply for that message.",
@@ -271,6 +308,93 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             setPadding(0, dp(12), 0, 0)
         }, matchWidth())
         root.addView(card, matchWidth().apply { bottomMargin = dp(8) })
+    }
+
+    private fun addDashboardSummary() {
+        group = null
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+            background = rounded(themeColor(R.attr.themeCardBg), 20)
+        }
+        card.addView(TextView(this).apply {
+            text = "SMART AUTO-REPLY OVERVIEW"
+            textSize = 12f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(themeColor(R.attr.themeTextMuted))
+        }, matchWidth())
+        dashboardSummary = TextView(this).apply {
+            textSize = 15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(themeColor(R.attr.themeTextPrimary))
+            setPadding(0, dp(8), 0, dp(6))
+        }
+        dashboardStats = TextView(this).apply {
+            textSize = 13f
+            setTextColor(themeColor(R.attr.themeTextSecondary))
+        }
+        dashboardActivity = TextView(this).apply {
+            textSize = 12f
+            setTextColor(themeColor(R.attr.themeTextMuted))
+            setPadding(0, dp(8), 0, 0)
+        }
+        card.addView(dashboardSummary, matchWidth())
+        card.addView(dashboardStats, matchWidth())
+        card.addView(dashboardActivity, matchWidth())
+        root.addView(card, matchWidth().apply { bottomMargin = dp(12) })
+        refreshDashboard()
+    }
+
+    private fun refreshDashboard() {
+        if (!::dashboardSummary.isInitialized) return
+        val masterEnabled = NotificationIntelligenceStore.isMasterEnabled(this)
+        val smartEnabled = AutoReplyPreferences.isSmartModeEnabled(this)
+        val paused = NotificationIntelligenceStore.isPaused(this)
+        val listenerReady = PermissionHelper.isNotificationListenerEnabled(this) &&
+            NotificationIntelligenceStore.isListenerConnected(this)
+        dashboardSummary.text = when {
+            paused -> "PAUSED • all automatic replies are stopped"
+            !masterEnabled || !smartEnabled -> "OFF • automatic replies are disabled"
+            !listenerReady -> "ON • waiting for Android notification access"
+            else -> "ON • listening for supported message notifications"
+        }
+
+        try {
+            val records = NotificationIntelligenceStore.history(this)
+            val defaultSmsPackage = try {
+                android.provider.Telephony.Sms.getDefaultSmsPackage(this)
+            } catch (error: Exception) {
+                android.util.Log.w(TAG, "Could not identify the default SMS app for dashboard counts.", error)
+                null
+            }
+            val supportedRecords = records.filter {
+                AutoReplyPolicy.isSupportedPackage(it.packageName, defaultSmsPackage)
+            }
+            val activeSince = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+            val activeChats = supportedRecords
+                .filter { it.receivedAt >= activeSince && it.sender.isNotBlank() }
+                .map { "${it.packageName}:${it.sender.trim().lowercase(Locale.ROOT)}" }
+                .distinct()
+                .size
+            val submittedToday = NotificationIntelligenceStore.dailyReplyCount(
+                this,
+                SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date())
+            )
+            dashboardStats.text =
+                "Message records retained: ${supportedRecords.size} • Active chat labels (24h): $activeChats • " +
+                    "Reply actions submitted today: $submittedToday (delivery unconfirmed)"
+            dashboardActivity.text =
+                "Recent activity: ${NotificationIntelligenceStore.lastAutoReplyStatus(this)}\n" +
+                    "Reply tone: adaptive to context and contact preferences; text cues do not represent human feelings.\n" +
+                    "Review: sensitive/high-impact messages are not auto-sent. Suggest-only replies are unsent; " +
+                    "a separate approve/send queue is not currently available.\n" +
+                    "Notification quick reply: WhatsApp, Instagram Direct, and SMS where Android provides a reply action. " +
+                    "Telegram and Facebook Messenger are unsupported."
+        } catch (error: Exception) {
+            android.util.Log.e(TAG, "Could not refresh the auto-reply dashboard.", error)
+            dashboardStats.text = "Local dashboard metrics are unavailable: ${error.message ?: "storage error"}"
+            dashboardActivity.text = "No reply status can be confirmed until local notification storage is available."
+        }
     }
 
     // ---- iOS-style grouped list helpers -------------------------------------------------
@@ -638,12 +762,26 @@ class AutoReplySettingsActivity : AppCompatActivity() {
     }
 
     private fun clearNotificationHistory() {
-        AlertDialog.Builder(this).setTitle("Clear notification history?")
-            .setMessage("Stored notification messages will be removed from this device.")
+        AlertDialog.Builder(this).setTitle("Clear local conversation context?")
+            .setMessage(
+                "This removes retained notification messages, in-memory reply context, and saved first-contact " +
+                    "introduction state from this device. HOPE may introduce itself again after the reset."
+            )
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Clear") { _, _ ->
-                NotificationIntelligenceStore.clearHistory(this)
-                Toast.makeText(this, "History cleared.", Toast.LENGTH_SHORT).show()
+                try {
+                    NotificationIntelligenceStore.clearHistory(this)
+                    AutoReplyCoordinator.clearConversationContext(this)
+                    refreshDashboard()
+                    Toast.makeText(this, "Local conversation context cleared.", Toast.LENGTH_SHORT).show()
+                } catch (error: Exception) {
+                    android.util.Log.e(TAG, "Could not clear local conversation context.", error)
+                    Toast.makeText(
+                        this,
+                        "Could not clear local conversation context: ${error.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }.show()
     }
 
@@ -732,6 +870,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         replyStatus.setTextColor(
             themeColor(if (ready || (smart && enabled)) R.attr.themeAccent else R.attr.themeTextMuted)
         )
+        refreshDashboard()
     }
 
     private fun addText(textValue: String, size: Float, bold: Boolean = false): TextView {

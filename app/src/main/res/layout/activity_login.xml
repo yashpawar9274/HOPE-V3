@@ -16,11 +16,16 @@
         android:paddingEnd="24dp"
         android:paddingBottom="24dp">
 
-        <WebView
-        android:id="@+id/orbView"
-        android:layout_width="170dp"
-        android:layout_height="170dp"
-        android:background="@android:color/transparent" />
+        <FrameLayout
+            android:layout_width="170dp"
+            android:layout_height="170dp">
+
+            <WebView
+                android:id="@+id/orbView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@android:color/transparent" />
+        </FrameLayout>
 
         <TextView
             android:id="@+id/titleText"
@@ -54,11 +59,38 @@
             android:visibility="gone" />
 
         <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/nameLayout"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Full name"
+            android:visibility="gone"
+            app:boxBackgroundColor="@color/hope_auth_input_background"
+            app:boxStrokeColor="@color/hope_auth_input_stroke"
+            app:hintTextColor="@color/hope_auth_input_hint">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/nameInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:imeOptions="actionNext"
+                android:inputType="textPersonName|textCapWords"
+                android:maxLines="1"
+                android:minHeight="56dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:textColor="@color/hope_auth_text"
+                android:textColorHint="@color/hope_auth_text_muted"
+                android:textSize="16sp" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/emailLayout"
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="Email"
+            app:boxBackgroundColor="@color/hope_auth_input_background"
             app:boxStrokeColor="@color/hope_auth_input_stroke"
             app:hintTextColor="@color/hope_auth_input_hint">
 
@@ -69,8 +101,12 @@
                 android:imeOptions="actionNext"
                 android:inputType="textEmailAddress"
                 android:maxLines="1"
+                android:minHeight="56dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
                 android:textColor="@color/hope_auth_text"
-                android:textColorHint="@color/hope_auth_text_muted" />
+                android:textColorHint="@color/hope_auth_text_muted"
+                android:textSize="16sp" />
         </com.google.android.material.textfield.TextInputLayout>
 
         <com.google.android.material.textfield.TextInputLayout
@@ -80,6 +116,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:hint="Password"
+            app:boxBackgroundColor="@color/hope_auth_input_background"
             app:boxStrokeColor="@color/hope_auth_input_stroke"
             app:endIconMode="password_toggle"
             app:hintTextColor="@color/hope_auth_input_hint">
@@ -91,9 +128,24 @@
                 android:imeOptions="actionDone"
                 android:inputType="textPassword"
                 android:maxLines="1"
+                android:minHeight="56dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
                 android:textColor="@color/hope_auth_text"
-                android:textColorHint="@color/hope_auth_text_muted" />
+                android:textColorHint="@color/hope_auth_text_muted"
+                android:textSize="16sp" />
         </com.google.android.material.textfield.TextInputLayout>
+
+        <TextView
+            android:id="@+id/passwordStrengthText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginTop="4dp"
+            android:paddingBottom="2dp"
+            android:textColor="@color/hope_auth_text_muted"
+            android:textSize="12sp"
+            android:visibility="gone" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/confirmLayout"
@@ -103,6 +155,7 @@
             android:layout_marginTop="10dp"
             android:hint="Confirm password"
             android:visibility="gone"
+            app:boxBackgroundColor="@color/hope_auth_input_background"
             app:boxStrokeColor="@color/hope_auth_input_stroke"
             app:endIconMode="password_toggle"
             app:hintTextColor="@color/hope_auth_input_hint">
@@ -114,8 +167,12 @@
                 android:imeOptions="actionDone"
                 android:inputType="textPassword"
                 android:maxLines="1"
+                android:minHeight="56dp"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
                 android:textColor="@color/hope_auth_text"
-                android:textColorHint="@color/hope_auth_text_muted" />
+                android:textColorHint="@color/hope_auth_text_muted"
+                android:textSize="16sp" />
         </com.google.android.material.textfield.TextInputLayout>
 
         <TextView

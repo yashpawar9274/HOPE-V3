@@ -19,6 +19,7 @@ object AutoReplyPreferences {
     private const val KEY_BLOCKED_CHATS = "blocked_chats"
     private const val KEY_SUBMITTED_REPLIES = "submitted_reply_fingerprints"
     private const val KEY_SMART_MODE = "smart_mode_enabled"
+    private const val SMART_INTRO_PREFIX = "smart_intro_"
     private const val SUBMITTED_REPLY_RETENTION_MILLIS = 24 * 60 * 60 * 1000L
     private const val MAX_SUBMITTED_REPLY_FINGERPRINTS = 500
 
@@ -37,10 +38,20 @@ object AutoReplyPreferences {
 
     /** When HOPE last introduced itself in a chat (survives app restarts, so it never re-introduces itself). */
     fun introducedAt(context: Context, chatKey: String): Long =
-        preferences(context).getLong("smart_intro_${chatKey.take(120)}", 0L)
+        preferences(context).getLong("$SMART_INTRO_PREFIX${chatKey.take(120)}", 0L)
 
     fun setIntroducedAt(context: Context, chatKey: String, at: Long) {
-        preferences(context).edit().putLong("smart_intro_${chatKey.take(120)}", at).apply()
+        check(preferences(context).edit()
+            .putLong("$SMART_INTRO_PREFIX${chatKey.take(120)}", at)
+            .commit()
+        ) { "Could not save the first-contact introduction state." }
+    }
+
+    fun clearIntroductions(context: Context) {
+        val store = preferences(context)
+        val editor = store.edit()
+        store.all.keys.filter { it.startsWith(SMART_INTRO_PREFIX) }.forEach(editor::remove)
+        check(editor.commit()) { "Could not clear local conversation introduction state." }
     }
 
     fun isAppEnabled(context: Context, packageName: String): Boolean =
@@ -194,7 +205,7 @@ object AutoReplyPolicy {
             ?: incomingMessages.lastOrNull()?.trim().orEmpty()
 
     private val sensitiveContentPattern = Regex(
-        """\b(?:otp|code|one[- ]time(?: password| code)?|verification|passcode|password|pin(?: code)?|bank(?:ing)?|upi|payment|transaction|credit card|debit card|cvv|security code|security alert|login|sign[- ]?in|authentication|account balance|credited|debited|aadhaar|aadhar|ssn|passport|medical advice|diagnosis|prescription|legal advice|lawsuit|court case|emergency|investment advice|loan application|insurance claim|contract terms)\b|(?:ओटीपी|बैंक|खाता|लेनदेन|भुगतान|रुपये|सुरक्षा कोड|अस्पताल|दवा|कानूनी सलाह)""",
+        """\b(?:otp|code|one[- ]time(?: password| code)?|verification|passcode|password|pin(?: code)?|bank(?:ing)?|upi|payment|transaction|credit card|debit card|cvv|security code|security alert|login|sign[- ]?in|authentication|account balance|credited|debited|aadhaar|aadhar|ssn|passport|medical(?: advice| treatment)?|diagnosis|prescription|legal(?: advice)?|lawsuit|court case|emergency|investment(?: advice)?|loan(?: application)?|insurance claim|contract(?: terms)?|financial decision|confidential|private information|send money|money transfer|accept (?:the )?(?:offer|agreement)|sign (?:the )?(?:contract|agreement))\b|(?:ओटीपी|बैंक|खाता|लेनदेन|भुगतान|रुपये|सुरक्षा कोड|अस्पताल|दवा|कानूनी सलाह|गोपनीय|निवेश)""",
         RegexOption.IGNORE_CASE
     )
 

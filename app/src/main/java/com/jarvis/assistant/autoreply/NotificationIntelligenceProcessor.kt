@@ -3,9 +3,14 @@ package com.jarvis.assistant.autoreply
 import android.app.Notification
 import android.content.Context
 import android.os.Build
-import android.os.Parcelable
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.jarvis.assistant.JarvisApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -15,6 +20,7 @@ import java.security.MessageDigest
 object NotificationIntelligenceProcessor {
     private const val TAG = "NotificationIntelligence"
     private const val MAX_TEXT = 2000
+    private val profileScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun process(
         context: Context,
@@ -48,6 +54,24 @@ object NotificationIntelligenceProcessor {
 
         val readingEnabled = NotificationIntelligenceStore.isReadingEnabled(context) &&
             NotificationIntelligenceStore.isAppReadingEnabled(context, packageName)
+        val contactProfilesEnabled =
+            NotificationIntelligenceStore.areContactReplyProfilesEnabled(context) &&
+                readingEnabled &&
+                AutoReplyPolicy.isSupportedPackage(packageName, defaultSmsPackage(context)) &&
+                !isGroupNotification(sbn, sender)
+        val replyIdentity = if (contactProfilesEnabled && sender.isNotBlank()) {
+            resolveReplyIdentity(sbn, sender)
+        } else null
+        if (replyIdentity != null) {
+            profileScope.launch {
+                try {
+                    val app = context.applicationContext as JarvisApp
+                    app.contactReplyProfileRepository.recordDiscoveredContact(packageName, replyIdentity)
+                } catch (error: Exception) {
+                    Log.e(TAG, "Could not save an opted-in local contact identity.", error)
+                }
+            }
+        }
 
         if (readingEnabled) {
             try {
@@ -142,7 +166,8 @@ object NotificationIntelligenceProcessor {
         if (allowAutoReply &&
             masterEnabled && readingEnabled && AutoReplyCoordinator.isAppEnabled(context, packageName) &&
             AutoReplyPolicy.isSupportedPackage(packageName, defaultSmsPackage(context)) &&
-            (authorizedReplyRule != null || AutoReplyPreferences.isSmartModeEnabled(context)) &&
+            (authorizedReplyRule != null || AutoReplyPreferences.isSmartModeEnabled(context) ||
+                (contactProfilesEnabled && replyIdentity != null)) &&
             !excluded && !quiet &&
             !hasOutgoingLatestMessage(sbn.notification)
         ) {
@@ -150,7 +175,8 @@ object NotificationIntelligenceProcessor {
                 context,
                 packageName,
                 sbn.notification,
-                authorizedReplyRule
+                authorizedReplyRule,
+                replyIdentity
             )
         } else if (allowAutoReply && AutoReplyPreferences.isSmartModeEnabled(context) &&
             AutoReplyPolicy.isSupportedPackage(packageName, defaultSmsPackage(context))
@@ -231,13 +257,13 @@ object NotificationIntelligenceProcessor {
     private fun notificationContent(notification: Notification): Pair<String, String> {
         val extras = notification.extras ?: return "" to ""
         val latestIncoming = try {
-            Notification.MessagingStyle.Message.getMessagesFromBundleArray(
-                notificationParcelables(extras, Notification.EXTRA_MESSAGES)
-            ).lastOrNull { messageSender(it).isNotBlank() }
+            NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification)
+                ?.messages?.lastOrNull { messageSender(it).isNotBlank() }
         } catch (error: Exception) {
             Log.w(TAG, "Could not read the latest incoming MessagingStyle message", error)
             null
         }
+
         val sender = (
             extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
                 ?: extras.getCharSequence(Notification.EXTRA_TITLE)
@@ -255,6 +281,47 @@ object NotificationIntelligenceProcessor {
             listOfNotNull(latestIncoming?.text?.toString())
         )
         return safeSender to text.take(MAX_TEXT)
+    }
+
+    private fun resolveReplyIdentity(
+        sbn: StatusBarNotification,
+        displayName: String
+    ): ReplyContactIdentity? {
+        val latestIncoming = try {
+            if (sbn.notification.extras == null) return null
+            NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(sbn.notification)
+                ?.messages?.lastOrNull { messageSender(it).isNotBlank() }
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not extract a stable contact identifier from notification messages.", error)
+            null
+        }
+
+        val phoneAddress = latestIncoming?.person?.uri?.toString()
+        val shortcutId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            sbn.notification.shortcutId
+        } else null
+        return try {
+            ReplyContactIdentityResolver.resolve(
+                platformPackage = sbn.packageName,
+                shortcutId = shortcutId,
+                phoneAddress = phoneAddress,
+                notificationKey = sbn.key,
+                displayName = displayName
+            )
+        } catch (error: IllegalArgumentException) {
+            Log.w(TAG, "Could not resolve a stable notification contact identity.", error)
+            null
+        }
+    }
+
+    private fun isGroupNotification(sbn: StatusBarNotification, sender: String): Boolean {
+        val extras = sbn.notification.extras
+        return SmartAutoReply.isGroupConversation(
+            sbn.packageName,
+            extras?.getBoolean("android.isGroupConversation", false) == true,
+            extras?.getCharSequence("android.conversationTitle"),
+            sender
+        )
     }
 
     private fun appName(context: Context, packageName: String): String {
@@ -290,36 +357,24 @@ object NotificationIntelligenceProcessor {
             null
         }
 
-    private fun messageSender(message: Notification.MessagingStyle.Message): String =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            message.senderPerson?.name?.toString()?.trim().orEmpty()
-        } else {
-            @Suppress("DEPRECATION")
-            message.sender?.toString()?.trim().orEmpty()
-        }
-
-    private fun notificationParcelables(extras: android.os.Bundle, key: String): Array<out Parcelable> =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            extras.getParcelableArray(key, Parcelable::class.java).orEmpty()
-        } else {
-            @Suppress("DEPRECATION")
-            extras.getParcelableArray(key).orEmpty()
-        }
+    @Suppress("DEPRECATION")
+    private fun messageSender(message: NotificationCompat.MessagingStyle.Message): String =
+        (message.person?.name ?: message.sender)?.toString()?.trim().orEmpty()
 
     private fun hasOutgoingLatestMessage(notification: Notification): Boolean {
         val extras = notification.extras ?: return false
-        val bundles = notificationParcelables(extras, Notification.EXTRA_MESSAGES)
         val latest = try {
-            Notification.MessagingStyle.Message.getMessagesFromBundleArray(bundles).lastOrNull()
+            NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification)
+                ?.messages?.lastOrNull()
         } catch (_: Exception) {
             null
         } ?: return false
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) latest.senderPerson == null
-        else {
-            @Suppress("DEPRECATION")
-            latest.sender == null
-        }
+        return isOutgoingMessage(latest)
     }
+
+    @Suppress("DEPRECATION")
+    private fun isOutgoingMessage(message: NotificationCompat.MessagingStyle.Message): Boolean =
+        message.person == null && message.sender.isNullOrBlank()
 
     private fun postRuleNotification(context: Context, appName: String, sender: String, message: String) {
         AutoReplyCoordinator.postIntelligenceNotification(

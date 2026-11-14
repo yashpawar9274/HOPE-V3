@@ -138,6 +138,11 @@
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize" />
         <activity
+            android:name=".ui.wordsearch.WordSearchActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".ui.agent.CloudAgentTaskActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
@@ -196,6 +201,9 @@
 
         <activity
             android:name=".ui.settings.AutoReplySettingsActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ui.settings.ContactReplyProfilesActivity"
             android:exported="false" />
         <activity
             android:name=".ui.settings.MeetingModeActivity"

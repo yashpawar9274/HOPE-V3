@@ -30,6 +30,66 @@ class UpdatesFragment : Fragment() {
     private fun renderFeatureUpdates() {
         val features = listOf(
             FeatureNotice(
+                "HOPE AI 3.0",
+                "Advanced Memory & Knowledge dashboard",
+                "Cloud Memory now has source-linked conversation messages and structured, versioned facts; project records, entities, relationships, and conversation summaries; full-text plus Mem0 semantic retrieval; correction and deletion controls; and database-backed counts, indexing health, and import status. You can import an authorized HOPE/hope-history-v1 JSON archive in resumable batches or export a paginated JSON archive with a SHA-256 checksum. Unavailable history is not fabricated. An export checksum is recorded but is not a verified server backup, and re-import currently rebuilds structured facts from source turns rather than restoring every derived record. Apply the new Supabase memory migration and deploy the updated `hope-memory` function before using these features."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.0",
+                "Cloud Agent coding proposals",
+                "Cloud Agent can route software-development requests to a stateless Gemini coding provider, validate structured output and safe relative file paths, and show up to five file proposals or clarification questions. An explicitly configured fallback is used only when the primary model returns HTTP 404. Proposals are saved to task history only; HOPE does not write project files, execute code, or claim builds/tests/deployments succeeded. The updated runtime and required server-side model configuration must be deployed before this is available in production."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.0",
+                "Context-aware Smart Auto-Reply",
+                "HOPE introduces itself with the exact first-contact message “Hey, I'm HOPE 😼” once per saved conversation, uses up to the latest five available messages, and adapts reply style to conversational tone and configured contact preferences. Sensitive or high-impact messages are held for manual review rather than auto-sent. Context remains local with notification-history retention controls. Automatic sends still use only authorized Android notification quick-reply actions; WhatsApp, Instagram Direct, and SMS are supported when an action is available. Telegram and Facebook Messenger are unsupported, and Android cannot confirm recipient delivery."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.0",
+                "Smart Auto-Reply overview and context controls",
+                "The Auto-Reply screen now shows retained-message and recent-chat counts, submitted reply-action counts, current status, supported integrations, and recent activity. Clearing local conversation context also clears first-contact state; HOPE may introduce itself again after that explicit reset. Suggest-only replies are not sent automatically; a separate approve/send queue is not available."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.0",
+                "Clearer login and signup",
+                "Authentication fields now have clearer text, labels, and light/dark theme styling. Passwords can be shown or hidden; signup includes full name, password confirmation, strength guidance, and clearer validation. Existing Firebase email/password, Google sign-in, and password-reset flows are preserved, and the signup name is saved to the Firebase profile."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.0",
+                "More reliable conversation context on Android 8+",
+                "Notification conversation messages are now extracted with AndroidX compatibility APIs, avoiding Android 11-only message parsing on devices supported from Android 8."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.0",
+                "Voice response fallback and session protection",
+                "If Gemini Live provides a text response without generated audio, HOPE can speak that response with Android TextToSpeech. Microphone, playback, and Gemini WebSocket callbacks from an ended conversation are ignored. New installs use Gemini 3.8 Live by default; the legacy Gemini 3.1 Live preview remains available as a fallback."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.0",
+                "More careful voice tone adaptation",
+                "Voice conversation guidance now treats emotional cues as uncertain and encourages calm, supportive phrasing without claiming to know exactly how the user feels."
+            ),
+            FeatureNotice(
+                "HOPE 2.0.1",
+                "Contact-specific Smart Auto-Reply",
+                "Choose per-conversation behavior: Disabled, Suggest only, or Limited auto-reply after explicit confirmation. A saved contact profile overrides the existing global Smart Auto-Reply fallback. Profiles and discovered identity labels stay in a separate local database; message text is not copied into profile records. HOPE uses a hashed conversation/phone identity when Android provides one, otherwise a notification-instance identity, and never merges people by display name alone. Replies still use the original notification action and keep the existing sensitive-content, group-chat, quiet-hour, duplicate, permission, and app controls. Third-party notification action support varies by app and device."
+            ),
+            FeatureNotice(
+                "HOPE 2.0.1",
+                "Safer Cloud Agent device tools",
+                "Cloud Agent requests now carry task, session, and tool-call identity, expiry, an exact authorized parameter set, permission scope, and risk category. HOPE validates the supported tool schema locally, asks for confirmation where needed, applies timeouts and permissions, and checks outcomes before reporting success. The device tool allowlist remains intentionally narrow; arbitrary shell commands, unrestricted code, message sending, and unsupported calendar/accessibility actions are not exposed. The Android app, gateway, and worker changes are source updates; the gateway and Cloud Run worker still need deployment and authenticated end-to-end testing before Cloud Agent works as a production cloud service."
+            ),
+            FeatureNotice(
+                "HOPE 2.0.1",
+                "Cloud Agent task controls",
+                "Submit an opt-in task, review its status and event history, and pause, resume, or cancel it from the Cloud Agent screen. Cloud Agent consent is separate from Cloud Memory consent. Device context is disclosed only after approval of the specific request, and the planner cannot directly execute device actions."
+            ),
+            FeatureNotice(
+                "HOPE 2.0.1",
+                "More reliable Mem0 memory extraction",
+                "The memory backend now has a per-user extraction-job queue with bounded attempts, expiring processing leases, and safe concurrent claiming. If a worker stops mid-job, an expired lease lets a later worker retry it. Per-user diagnostics track retrieval counts and deletion status without exposing transcript contents. This is a backend migration and requires the migration and worker to be deployed before these reliability improvements are active."
+            ),
+            FeatureNotice(
                 "HOPE 2.0",
                 "Smart Clipboard Intelligence",
                 "Smart Clipboard now reads nothing until you explicitly ask HOPE what you copied or tap Check Clipboard. Voice requests can explain text, suggest replies, translate content, explain copied code, or analyze an image; text and image analysis have separate settings, and suggested messages are never sent. Its controls are under Settings → AI Features & Cloud Identity, not on Home. Sensitive-looking text is blocked locally, with best-effort detection. HOPE reuses its existing ORB and shared speech engine. Android 10+ may block clipboard access in the background; HOPE then explains the restriction and offers a notification to open the visible clipboard screen rather than bypassing OS rules. Optional clipboard history is off by default and uses encrypted storage when enabled."

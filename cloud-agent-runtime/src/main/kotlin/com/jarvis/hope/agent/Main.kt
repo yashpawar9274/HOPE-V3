@@ -9,7 +9,13 @@ fun main() {
     val config = RuntimeConfig.fromEnvironment()
     val store = SupabaseAgentStore(config.supabaseUrl, config.serviceRoleKey)
     val planner = AgentPlanner(config.geminiApiKey, config.geminiModel)
-    val worker = AgentWorker(store, planner, config.claimBatchSize)
+    val codingProvider = GeminiCodingProvider(
+        apiKey = config.geminiApiKey,
+        primaryModel = config.codingModel,
+        fallbackModel = config.codingFallbackModel,
+        timeoutSeconds = config.codingTimeoutSeconds,
+    )
+    val worker = AgentWorker(store, planner, codingProvider, config.claimBatchSize)
     val server = HttpServer.create(InetSocketAddress("0.0.0.0", config.port), 0)
     val serverExecutor = Executors.newFixedThreadPool(2)
     server.executor = serverExecutor

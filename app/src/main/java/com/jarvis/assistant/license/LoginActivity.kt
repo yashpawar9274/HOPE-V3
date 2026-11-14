@@ -6,6 +6,7 @@ import android.util.Patterns
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -26,6 +27,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.UserProfileChangeRequest
 import com.jarvis.assistant.R
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -42,12 +44,15 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var title: TextView
     private lateinit var subtitle: TextView
     private lateinit var banner: TextView
+    private lateinit var nameLayout: TextInputLayout
+    private lateinit var nameInput: TextInputEditText
     private lateinit var emailLayout: TextInputLayout
     private lateinit var emailInput: TextInputEditText
     private lateinit var passwordLayout: TextInputLayout
     private lateinit var passwordInput: TextInputEditText
     private lateinit var confirmLayout: TextInputLayout
     private lateinit var confirmInput: TextInputEditText
+    private lateinit var passwordStrength: TextView
     private lateinit var forgot: TextView
     private lateinit var primary: MaterialButton
     private lateinit var google: MaterialButton
@@ -61,12 +66,15 @@ class LoginActivity : AppCompatActivity() {
         title = findViewById(R.id.titleText)
         subtitle = findViewById(R.id.subtitleText)
         banner = findViewById(R.id.bannerText)
+        nameLayout = findViewById(R.id.nameLayout)
+        nameInput = findViewById(R.id.nameInput)
         emailLayout = findViewById(R.id.emailLayout)
         emailInput = findViewById(R.id.emailInput)
         passwordLayout = findViewById(R.id.passwordLayout)
         passwordInput = findViewById(R.id.passwordInput)
         confirmLayout = findViewById(R.id.confirmLayout)
         confirmInput = findViewById(R.id.confirmInput)
+        passwordStrength = findViewById(R.id.passwordStrengthText)
         forgot = findViewById(R.id.forgotText)
         primary = findViewById(R.id.primaryButton)
         google = findViewById(R.id.googleButton)
@@ -93,6 +101,13 @@ class LoginActivity : AppCompatActivity() {
                 true
             } else false
         }
+        passwordInput.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                updatePasswordStrength(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
         applyMode()
         if (!LicenseManager.isFirebaseConfigured(this)) {
             showBanner(
@@ -127,13 +142,18 @@ class LoginActivity : AppCompatActivity() {
         }
         primary.text = if (createMode) "Create account" else "Sign in"
         toggle.text = if (createMode) "Already have an account? Sign in" else "New to HOPE? Create account"
+        nameLayout.visibility = if (createMode) View.VISIBLE else View.GONE
         confirmLayout.visibility = if (createMode) View.VISIBLE else View.GONE
+        passwordStrength.visibility = if (createMode) View.VISIBLE else View.GONE
         forgot.visibility = if (createMode) View.GONE else View.VISIBLE
+        nameInput.imeOptions = EditorInfo.IME_ACTION_NEXT
         passwordInput.imeOptions = if (createMode) EditorInfo.IME_ACTION_NEXT else EditorInfo.IME_ACTION_DONE
+        updatePasswordStrength(passwordInput.text?.toString().orEmpty())
         clearErrors()
     }
 
     private fun clearErrors() {
+        nameLayout.error = null
         emailLayout.error = null
         passwordLayout.error = null
         confirmLayout.error = null
@@ -153,6 +173,10 @@ class LoginActivity : AppCompatActivity() {
         google.isEnabled = !loading
         toggle.isEnabled = !loading
         forgot.isEnabled = !loading
+        nameInput.isEnabled = !loading
+        emailInput.isEnabled = !loading
+        passwordInput.isEnabled = !loading
+        confirmInput.isEnabled = !loading
     }
 
     private fun firebaseReady(): Boolean {
@@ -171,11 +195,31 @@ class LoginActivity : AppCompatActivity() {
         return email
     }
 
+    private fun updatePasswordStrength(password: String) {
+        if (!createMode) return
+        passwordStrength.text = when {
+            password.isEmpty() -> "Use at least 6 characters. A longer mix of letters, numbers, and symbols is stronger."
+            password.length < 6 -> "Too short - use at least 6 characters."
+            password.length < 8 -> "Good start - a longer password is safer."
+            password.any(Char::isDigit) && password.any { !it.isLetterOrDigit() } ->
+                "Strong password."
+            else -> "Add a number or symbol to make this password stronger."
+        }
+        passwordStrength.setTextColor(
+            getColor(if (password.length >= 8) R.color.hope_auth_cyan else R.color.hope_auth_text_muted)
+        )
+    }
+
     // ---- email / password -------------------------------------------------------------
 
     private fun submit() {
         clearErrors()
         if (!firebaseReady()) return
+        val fullName = if (createMode) nameInput.text?.toString()?.trim().orEmpty() else ""
+        if (createMode && fullName.isEmpty()) {
+            nameLayout.error = "Enter your full name"
+            return
+        }
         val email = readEmail() ?: return
         val password = passwordInput.text?.toString().orEmpty()
         if (password.length < 6) {
@@ -190,8 +234,26 @@ class LoginActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val auth = FirebaseAuth.getInstance()
-                if (createMode) auth.createUserWithEmailAndPassword(email, password).await()
-                else auth.signInWithEmailAndPassword(email, password).await()
+                if (createMode) {
+                    val user = auth.createUserWithEmailAndPassword(email, password).await().user
+                    if (user != null) {
+                        try {
+                            user.updateProfile(
+                                UserProfileChangeRequest.Builder().setDisplayName(fullName).build()
+                            ).await()
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            Toast.makeText(
+                                this@LoginActivity,
+                                "Account created, but your name could not be saved.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                } else {
+                    auth.signInWithEmailAndPassword(email, password).await()
+                }
                 onSignedIn()
             } catch (error: CancellationException) {
                 throw error

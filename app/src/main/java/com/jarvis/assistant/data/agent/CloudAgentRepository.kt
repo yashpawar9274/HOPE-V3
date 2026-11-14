@@ -83,10 +83,11 @@ class CloudAgentRepository(
         )
         val task = response.optJSONObject("task")
             ?: throw CloudAgentException("Cloud task response did not contain a task.")
+        val parsedTask = parseTask(task)
         val events = response.optJSONArray("events") ?: JSONArray()
         val requests = response.optJSONArray("toolRequests") ?: JSONArray()
         return CloudAgentTaskUpdate(
-            task = parseTask(task),
+            task = parsedTask,
             events = buildList {
                 for (index in 0 until events.length()) {
                     events.optJSONObject(index)?.let { event ->
@@ -103,18 +104,28 @@ class CloudAgentRepository(
             },
             toolRequests = buildList {
                 for (index in 0 until requests.length()) {
-                    requests.optJSONObject(index)?.let { tool ->
-                        add(
-                            CloudAgentToolRequest(
-                                toolCallId = tool.optString("tool_call_id"),
-                                toolName = tool.optString("tool_name"),
-                                parameters = tool.optJSONObject("parameters") ?: JSONObject(),
-                                permissionScope = tool.optString("permission_scope"),
-                                riskCategory = tool.optString("risk_category"),
-                                expiresAt = tool.optString("expires_at"),
-                            )
-                        )
+                    val tool = requests.optJSONObject(index)
+                        ?: throw CloudAgentException("Cloud Agent returned an invalid device request.")
+                    val taskId = tool.optString("task_id")
+                    val sessionId = tool.optString("session_id")
+                    val parameters = tool.optJSONObject("parameters")
+                    if (taskId != parsedTask.taskId || sessionId != parsedTask.sessionId ||
+                        parameters == null
+                    ) {
+                        throw CloudAgentException("Cloud Agent returned a device request with an invalid task envelope.")
                     }
+                    add(
+                        CloudAgentToolRequest(
+                            taskId = taskId,
+                            sessionId = sessionId,
+                            toolCallId = tool.optString("tool_call_id"),
+                            toolName = tool.optString("tool_name"),
+                            parameters = parameters,
+                            permissionScope = tool.optString("permission_scope"),
+                            riskCategory = tool.optString("risk_category"),
+                            expiresAt = tool.optString("expires_at"),
+                        )
+                    )
                 }
             },
         )
@@ -129,24 +140,31 @@ class CloudAgentRepository(
     suspend fun finishTask(taskId: String): JSONObject = updateTask(taskId, "finish_task")
 
     suspend fun submitToolResult(
-        taskId: String,
-        toolCallId: String,
+        tool: CloudAgentToolRequest,
         status: ToolResultStatus,
         result: JSONObject,
-        idempotencyKey: String = UUID.randomUUID().toString(),
     ): JSONObject {
-        require(isUuid(taskId) && isUuid(toolCallId) && isUuid(idempotencyKey)) {
+        require(
+            isUuid(tool.taskId) && isUuid(tool.sessionId) && isUuid(tool.toolCallId) &&
+                runCatching { java.time.Instant.parse(tool.expiresAt) }.isSuccess,
+        ) {
             "Task, tool-call, or idempotency ID is invalid."
         }
         require(result.toString().length <= MAX_RESULT_LENGTH) { "Tool result is too large." }
         return invoke(
             JSONObject()
                 .put("operation", "submit_tool_result")
-                .put("taskId", taskId)
-                .put("toolCallId", toolCallId)
+                .put("taskId", tool.taskId)
+                .put("sessionId", tool.sessionId)
+                .put("toolCallId", tool.toolCallId)
+                .put("toolName", tool.toolName)
+                .put("expiresAt", tool.expiresAt)
+                .put("authorizedParameters", tool.parameters)
+                .put("permissionScope", tool.permissionScope)
+                .put("riskCategory", tool.riskCategory)
                 .put("resultStatus", status.name)
                 .put("result", result)
-                .put("idempotencyKey", idempotencyKey)
+                .put("idempotencyKey", tool.toolCallId)
         )
     }
 
@@ -213,6 +231,7 @@ class CloudAgentRepository(
             lastEventSequence = value.optLong("last_event_sequence"),
             createdAt = value.optString("created_at"),
             replayed = value.optBoolean("replayed"),
+            failureCode = value.optString("failure_code"),
         )
     }
 
@@ -236,6 +255,7 @@ data class CloudAgentTask(
     val lastEventSequence: Long = 0,
     val createdAt: String = "",
     val replayed: Boolean = false,
+    val failureCode: String = "",
 )
 
 data class CloudAgentEvent(
@@ -246,6 +266,8 @@ data class CloudAgentEvent(
 )
 
 data class CloudAgentToolRequest(
+    val taskId: String,
+    val sessionId: String,
     val toolCallId: String,
     val toolName: String,
     val parameters: JSONObject,

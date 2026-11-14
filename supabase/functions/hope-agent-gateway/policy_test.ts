@@ -1,5 +1,6 @@
 import {
   isAgentUuid,
+  isStructuredToolResult,
   isToolResultStatus,
   parseEventPage,
   stableJson,
@@ -33,6 +34,36 @@ Deno.test("tool results accept only the defined execution outcomes", () => {
   }
   if (isToolResultStatus("COMPLETED")) {
     throw new Error("Task completion must not be accepted as a tool result.");
+  }
+});
+
+Deno.test("tool success requires a matching verified device result", () => {
+  const request = {
+    taskId: "123e4567-e89b-42d3-a456-426614174000",
+    sessionId: "123e4567-e89b-42d3-a456-426614174001",
+    toolCallId: "123e4567-e89b-42d3-a456-426614174002",
+    toolName: "get_device_context",
+    parameters: {},
+    resultStatus: "SUCCESS",
+  };
+  const valid = {
+    schemaVersion: 1,
+    ...request,
+    batteryPercent: 42,
+    isCharging: false,
+    batterySaverEnabled: true,
+    brightnessPercent: 35,
+    networkValidated: true,
+    networkTransport: "wifi",
+    verified: true,
+  };
+  if (!isStructuredToolResult(valid, request)) {
+    throw new Error("Expected a complete verified device result to pass.");
+  }
+  if (isStructuredToolResult({ ...valid, verified: false }, request) ||
+    isStructuredToolResult({ ...valid, batteryPercent: 101 }, request) ||
+    isStructuredToolResult({ ...valid, taskId: "forged" }, request)) {
+    throw new Error("Unverified or malformed device results must be rejected.");
   }
 });
 

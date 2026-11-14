@@ -76,6 +76,41 @@ class SupabaseAgentStore(
                 },
             )
         }
+        return publishPlanData(task, planJson, proposals)
+    }
+
+    fun publishCodingPlan(task: ClaimedTask, plan: CodingPlan): String {
+        val planJson = mapper.createArrayNode()
+        val response = mapper.createObjectNode()
+            .put("type", "response")
+            .put("text", plan.summary)
+            .put("model", plan.modelUsed)
+            .put("usedFallback", plan.usedFallback)
+            .put("needsClarification", plan.needsClarification)
+        response.set<ArrayNode>(
+            "questions",
+            mapper.createArrayNode().also { questions ->
+                plan.questions.forEach(questions::add)
+            },
+        )
+        planJson.add(response)
+        plan.files.forEach { file ->
+            planJson.add(
+                mapper.createObjectNode()
+                    .put("type", "file_proposal")
+                    .put("path", file.path)
+                    .put("purpose", file.purpose)
+                    .put("content", file.content),
+            )
+        }
+        return publishPlanData(task, planJson, mapper.createArrayNode())
+    }
+
+    private fun publishPlanData(
+        task: ClaimedTask,
+        planJson: ArrayNode,
+        proposals: ArrayNode,
+    ): String {
         val body = mapper.createObjectNode().apply {
             put("owner_user_id", task.userId)
             put("target_task_id", task.taskId)

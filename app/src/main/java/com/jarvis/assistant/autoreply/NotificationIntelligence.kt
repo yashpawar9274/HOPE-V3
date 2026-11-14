@@ -124,6 +124,7 @@ object NotificationInboxPolicy {
 object NotificationIntelligenceStore {
     private const val PREFS = "hope_notification_intelligence"
     private const val KEY_MASTER = "master_enabled"
+    private const val KEY_CONTACT_REPLY_PROFILES = "contact_reply_profiles_enabled"
     private const val KEY_READING = "reading_enabled"
     private const val KEY_ANNOUNCEMENTS = "announcements_enabled"
     private const val KEY_SENSITIVE_ANNOUNCEMENTS = "sensitive_announcements"
@@ -162,6 +163,15 @@ object NotificationIntelligenceStore {
     fun isMasterEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_MASTER, false)
     fun setMasterEnabled(context: Context, value: Boolean) {
         check(prefs(context).edit().putBoolean(KEY_MASTER, value).commit()) { "Could not save the master switch." }
+    }
+
+    fun areContactReplyProfilesEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_CONTACT_REPLY_PROFILES, false)
+
+    fun setContactReplyProfilesEnabled(context: Context, value: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_CONTACT_REPLY_PROFILES, value).commit()) {
+            "Could not save contact reply profile settings."
+        }
     }
 
     fun isReadingEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_READING, false)
@@ -329,8 +339,8 @@ object NotificationIntelligenceStore {
     }
 
     fun lastAutoReplyStatus(context: Context): String =
-        prefs(context).getString(KEY_LAST_AUTO_REPLY_STATUS, "No WhatsApp auto-reply has been processed yet.")
-            ?: "No WhatsApp auto-reply has been processed yet."
+        prefs(context).getString(KEY_LAST_AUTO_REPLY_STATUS, "No Smart Auto-Reply activity yet.")
+            ?: "No Smart Auto-Reply activity yet."
 
     fun excludedContacts(context: Context): Set<String> =
         prefs(context).getStringSet(KEY_EXCLUDED_CONTACTS, emptySet()).orEmpty().toSet()

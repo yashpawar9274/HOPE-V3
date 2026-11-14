@@ -41,6 +41,18 @@ class VoiceConversationCoordinatorTest {
     }
 
     @Test
+    fun staleActivationCannotChangeTheNewSessionState() {
+        val coordinator = VoiceConversationCoordinator()
+        val first = coordinator.onWakeWordDetected()!!
+        coordinator.resetForStandby()
+        val second = coordinator.onWakeWordDetected()!!
+
+        assertFalse(coordinator.transitionTo(first, VoiceConversationPhase.THINKING))
+        assertTrue(coordinator.transitionTo(second, VoiceConversationPhase.LISTENING))
+        assertEquals(VoiceConversationPhase.LISTENING, coordinator.phase)
+    }
+
+    @Test
     fun greetingIsClaimedOnlyForActivationNotForLaterTurnsOrReconnects() {
         val coordinator = VoiceConversationCoordinator()
         val activation = coordinator.onWakeWordDetected()!!
@@ -92,7 +104,7 @@ class VoiceConversationCoordinatorTest {
             VoiceConversationPolicy.outputPath(isLiveSession = true, hasGeminiAudio = true)
         )
         assertEquals(
-            VoiceResponsePath.NONE,
+            VoiceResponsePath.LOCAL_TTS,
             VoiceConversationPolicy.outputPath(isLiveSession = true, hasGeminiAudio = false)
         )
         assertEquals(
@@ -113,5 +125,23 @@ class VoiceConversationCoordinatorTest {
         assertTrue(hinglish.contains("natural conversational Hinglish"))
         assertTrue(automatic.contains("match the language and script"))
         assertTrue(automatic.lowercase().contains("never append a generic greeting"))
+        assertTrue(automatic.contains("probabilistically"))
+        assertTrue(automatic.contains("never claim certainty"))
+    }
+
+    @Test
+    fun transcriptAccumulatorMergesHindiAndHinglishRevisionsWithoutDuplicates() {
+        assertEquals(
+            "कल सुबह मिलते हैं।",
+            VoiceTranscriptAccumulator.merge("कल सुबह", "सुबह मिलते हैं।")
+        )
+        assertEquals(
+            "Kal subah milte hain",
+            VoiceTranscriptAccumulator.merge("Kal subah", "subah milte hain")
+        )
+        assertEquals(
+            "Kal subah milte hain",
+            VoiceTranscriptAccumulator.merge("Kal subah milte hain", "Kal subah milte hain")
+        )
     }
 }

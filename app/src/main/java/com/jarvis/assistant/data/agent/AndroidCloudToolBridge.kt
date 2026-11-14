@@ -13,58 +13,207 @@ import android.provider.Settings
 import com.jarvis.assistant.util.SystemSettingsLogic
 import org.json.JSONObject
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 data class CloudToolExecution(
     val status: ToolResultStatus,
     val result: JSONObject,
 )
 
+data class CloudAgentToolContract(
+    val name: String,
+    val permissionScope: String,
+    val riskCategory: String,
+    val timeoutMillis: Long,
+    val confirmationRequired: Boolean,
+    val parameterSchema: String,
+    val resultSchema: String,
+)
+
 object CloudAgentToolPolicy {
+    val contracts = listOf(
+        CloudAgentToolContract(
+            name = "get_device_context",
+            permissionScope = "device.context.read",
+            riskCategory = "low",
+            timeoutMillis = 5_000,
+            confirmationRequired = true,
+            parameterSchema = "{}",
+            resultSchema = "batteryPercent,isCharging,batterySaverEnabled,brightnessPercent,networkValidated,networkTransport,verified",
+        ),
+        CloudAgentToolContract(
+            name = "set_screen_brightness",
+            permissionScope = "system_settings.write",
+            riskCategory = "moderate",
+            timeoutMillis = 5_000,
+            confirmationRequired = true,
+            parameterSchema = """{"percent":"integer 5..100"}""",
+            resultSchema = "requestedPercent,actualPercent,verified,message",
+        ),
+    )
+
     fun validate(tool: CloudAgentToolRequest): String? {
-        if (runCatching { Instant.parse(tool.expiresAt).isAfter(Instant.now()) }.getOrDefault(false).not()) {
+        return validate(
+            tool = tool,
+            expectedTaskId = tool.taskId,
+            expectedSessionId = tool.sessionId,
+        )
+    }
+
+    fun validate(
+        tool: CloudAgentToolRequest,
+        expectedTaskId: String,
+        expectedSessionId: String,
+    ): String? = validateEnvelope(
+        taskId = tool.taskId,
+        sessionId = tool.sessionId,
+        toolCallId = tool.toolCallId,
+        toolName = tool.toolName,
+        parameters = tool.parameters.keys().asSequence().associateWith { key -> tool.parameters.opt(key) },
+        permissionScope = tool.permissionScope,
+        riskCategory = tool.riskCategory,
+        expiresAt = tool.expiresAt,
+        expectedTaskId = expectedTaskId,
+        expectedSessionId = expectedSessionId,
+    )
+
+    fun validateEnvelope(
+        taskId: String,
+        sessionId: String,
+        toolCallId: String,
+        toolName: String,
+        parameters: Map<String, Any?>,
+        permissionScope: String,
+        riskCategory: String,
+        expiresAt: String,
+        expectedTaskId: String,
+        expectedSessionId: String,
+    ): String? {
+        if (!isUuid(taskId) || !isUuid(sessionId) || !isUuid(toolCallId) ||
+            taskId != expectedTaskId || sessionId != expectedSessionId
+        ) {
+            return "The device request is not bound to this task and session."
+        }
+        val expiry = runCatching { Instant.parse(expiresAt) }.getOrNull()
+        val now = Instant.now()
+        if (expiry == null || !expiry.isAfter(now) ||
+            expiry.isAfter(now.plus(MAX_REQUEST_LIFETIME_MINUTES, ChronoUnit.MINUTES))
+        ) {
             return "This device request has expired."
         }
         return validateAction(
-            tool.toolName,
-            tool.parameters.keys().asSequence().associateWith { key -> tool.parameters.opt(key) },
-            tool.permissionScope,
-            tool.riskCategory,
+            toolName,
+            parameters,
+            permissionScope,
+            riskCategory,
         )
     }
+
+    fun matchesAuthorizedRequest(expected: CloudAgentToolRequest, current: CloudAgentToolRequest): Boolean =
+        matchesAuthorizedEnvelope(
+            expected.taskId,
+            expected.sessionId,
+            expected.toolCallId,
+            expected.toolName,
+            expected.parameters.keys().asSequence().associateWith { expected.parameters.opt(it) },
+            expected.permissionScope,
+            expected.riskCategory,
+            expected.expiresAt,
+            current.taskId,
+            current.sessionId,
+            current.toolCallId,
+            current.toolName,
+            current.parameters.keys().asSequence().associateWith { current.parameters.opt(it) },
+            current.permissionScope,
+            current.riskCategory,
+            current.expiresAt,
+        )
+
+    fun matchesAuthorizedEnvelope(
+        expectedTaskId: String,
+        expectedSessionId: String,
+        expectedCallId: String,
+        expectedToolName: String,
+        expectedParameters: Map<String, Any?>,
+        expectedPermissionScope: String,
+        expectedRiskCategory: String,
+        expectedExpiry: String,
+        currentTaskId: String,
+        currentSessionId: String,
+        currentCallId: String,
+        currentToolName: String,
+        currentParameters: Map<String, Any?>,
+        currentPermissionScope: String,
+        currentRiskCategory: String,
+        currentExpiry: String,
+    ): Boolean =
+        expectedTaskId == currentTaskId &&
+            expectedSessionId == currentSessionId &&
+            expectedCallId == currentCallId &&
+            expectedToolName == currentToolName &&
+            expectedParameters == currentParameters &&
+            expectedPermissionScope == currentPermissionScope &&
+            expectedRiskCategory == currentRiskCategory &&
+            expectedExpiry == currentExpiry
 
     fun validateAction(
         toolName: String,
         parameters: Map<String, Any?>,
         permissionScope: String,
         riskCategory: String,
-    ): String? = when (toolName) {
+    ): String? {
+        val contract = contracts.firstOrNull { it.name == toolName }
+            ?: return "HOPE does not support this device action."
+        if (contract.permissionScope != permissionScope || contract.riskCategory != riskCategory) {
+            return "The device request has an invalid permission scope or risk category."
+        }
+        return when (toolName) {
             "get_device_context" -> {
-                if (parameters.isNotEmpty() || permissionScope != "device.context.read" ||
-                    riskCategory != "low"
-                ) "The device-context request is invalid." else null
+                if (parameters.isNotEmpty()) "The device-context request is invalid." else null
             }
             "set_screen_brightness" -> {
-                val percent = parameters["percent"] as? Number
-                if (parameters.size != 1 || percent == null ||
-                    percent.toDouble() != percent.toInt().toDouble() || percent.toInt() !in 5..100 ||
-                    permissionScope != "system_settings.write" || riskCategory != "moderate"
-                ) "The brightness request is invalid." else null
+                val percent = parameters["percent"]
+                val isInteger = percent is Int || percent is Long || percent is Short || percent is Byte
+                val value = (percent as? Number)?.toLong()
+                if (parameters.size != 1 || !isInteger || value == null || value !in 5L..100L) {
+                    "The brightness request is invalid."
+                } else {
+                    null
+                }
             }
             else -> "HOPE does not support this device action."
         }
+    }
+
+    fun isUuid(value: String): Boolean = UUID_PATTERN.matches(value)
 
     fun confirmationText(tool: CloudAgentToolRequest): String = when (tool.toolName) {
         "get_device_context" -> "Allow HOPE to read battery, charging, battery-saver, brightness, and network status and share those readings with the cloud task?"
         "set_screen_brightness" -> "Set screen brightness to ${tool.parameters.optInt("percent")}%? HOPE will verify the setting afterward."
         else -> "This device action is not supported."
     }
+
+    private const val MAX_REQUEST_LIFETIME_MINUTES = 10L
+    private val UUID_PATTERN =
+        Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}")
 }
 
 class AndroidCloudToolBridge(private val activity: Activity) {
-    fun execute(tool: CloudAgentToolRequest): CloudToolExecution {
-        val invalidReason = CloudAgentToolPolicy.validate(tool)
+    fun execute(
+        tool: CloudAgentToolRequest,
+        expectedTaskId: String,
+        expectedSessionId: String,
+        userApproved: Boolean,
+    ): CloudToolExecution {
+        val invalidReason = CloudAgentToolPolicy.validate(tool, expectedTaskId, expectedSessionId)
         if (invalidReason != null) {
             return failure(ToolResultStatus.UNSUPPORTED, invalidReason)
+        }
+        if (!userApproved) {
+            return failure(
+                ToolResultStatus.USER_CONFIRMATION_REQUIRED,
+                "The user must approve this device action before execution.",
+            )
         }
         return when (tool.toolName) {
             "get_device_context" -> readDeviceContext()

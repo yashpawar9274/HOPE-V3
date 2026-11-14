@@ -217,6 +217,10 @@ class SettingsFragment : Fragment() {
             startActivity(Intent(requireContext(), MemoryActivity::class.java))
         }
 
+        binding.rowWordSearch.setOnClickListener {
+            startActivity(Intent(requireContext(), com.jarvis.assistant.ui.wordsearch.WordSearchActivity::class.java))
+        }
+
         binding.rowPermissions.setOnClickListener {
             startActivity(Intent(requireContext(), PermissionActivity::class.java))
         }

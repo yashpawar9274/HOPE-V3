@@ -94,6 +94,8 @@ class AutoReplyPolicyTest {
         assertTrue(AutoReplyPolicy.containsSensitiveContent("Security alert: new login detected"))
         assertTrue(AutoReplyPolicy.containsSensitiveContent("I need legal advice about this court case"))
         assertTrue(AutoReplyPolicy.containsSensitiveContent("Can you recommend a prescription medicine?"))
+        assertTrue(AutoReplyPolicy.containsSensitiveContent("Can you approve this contract?"))
+        assertTrue(AutoReplyPolicy.containsSensitiveContent("Please keep this confidential"))
         assertTrue(AutoReplyPolicy.containsSensitiveContent("आपके खाते में रुपये जमा हुए"))
         assertFalse(AutoReplyPolicy.containsSensitiveContent("Are we still meeting for lunch?"))
     }

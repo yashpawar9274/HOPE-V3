@@ -11,7 +11,7 @@ object GeminiConstants {
 
     const val RELEASE_API_KEY = ""
 
-    const val DEFAULT_MODEL = MODEL_3_1_FLASH
+    const val DEFAULT_MODEL = MODEL_3_8_LIVE
 
     val SUPPORTED_MODELS = listOf(
         MODEL_3_1_FLASH,
