@@ -35,6 +35,44 @@ class AutoReplyPolicyTest {
     }
 
     @Test
+    fun whatsappPersonaCommandsAreScopedAndChooseTheRequestedPersona() {
+        val instruction = WhatsAppAutoReplyCommandPolicy.detectInstruction(
+            "HOPE, WhatsApp par FRIDAY activate karo"
+        )
+
+        assertEquals(WhatsAppAutoReplyCommand.SELECT_PERSONA, instruction?.command)
+        assertEquals(com.jarvis.assistant.ai.PersonaEngine.FRIDAY, instruction?.personaId)
+        assertEquals(
+            WhatsAppAutoReplyCommand.SELECT_PERSONA,
+            WhatsAppAutoReplyCommandPolicy.detectInstruction(
+                "E.D.I.T.H. ko WhatsApp handle karne do"
+            )?.command
+        )
+        assertEquals(
+            null,
+            WhatsAppAutoReplyCommandPolicy.detectInstruction("FRIDAY, tell me about WhatsApp")
+        )
+    }
+
+    @Test
+    fun ultronDefenseCommandsAreExplicitAndIndependentOfGlobalPersona() {
+        assertEquals(
+            WhatsAppAutoReplyCommand.ENABLE_ULTRON_DEFENSE,
+            WhatsAppAutoReplyCommandPolicy.detect(
+                "ULTRON ko automatically activate karo jab koi gaali de"
+            )
+        )
+        assertEquals(
+            WhatsAppAutoReplyCommand.DISABLE_ULTRON_DEFENSE,
+            WhatsAppAutoReplyCommandPolicy.detect("ULTRON Auto-Defense temporarily disable karo")
+        )
+        assertEquals(
+            WhatsAppAutoReplyCommand.ULTRON_DEFENSE_STATUS,
+            WhatsAppAutoReplyCommandPolicy.detect("ULTRON Auto-Defense kitni baar activate hua?")
+        )
+    }
+
+    @Test
     fun onlySupportedMessagingPackagesAreAccepted() {
         assertTrue(AutoReplyPolicy.isSupportedPackage("com.whatsapp", null))
         assertTrue(AutoReplyPolicy.isSupportedPackage("com.whatsapp.w4b", null))
@@ -98,6 +136,25 @@ class AutoReplyPolicyTest {
         assertTrue(AutoReplyPolicy.containsSensitiveContent("Please keep this confidential"))
         assertTrue(AutoReplyPolicy.containsSensitiveContent("आपके खाते में रुपये जमा हुए"))
         assertFalse(AutoReplyPolicy.containsSensitiveContent("Are we still meeting for lunch?"))
+    }
+
+    @Test
+    fun sensitiveContentAcrossConversationHistoryIsFilteredBeforeAiUse() {
+        assertTrue(
+            AutoReplyPolicy.containsSensitiveContext(
+                listOf("Please enter your", "password to continue", "Thanks")
+            )
+        )
+        assertTrue(
+            AutoReplyPolicy.containsSensitiveContext(
+                listOf("Earlier message", "Your bank account was debited")
+            )
+        )
+        assertFalse(
+            AutoReplyPolicy.containsSensitiveContext(
+                listOf("Hi there", "Are we still meeting for lunch?")
+            )
+        )
     }
 
     @Test

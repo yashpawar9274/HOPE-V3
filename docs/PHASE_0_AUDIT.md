@@ -53,7 +53,6 @@ The app also starts through a licence gate before entering the main shell:
 - `VoiceEnrollmentActivity`
 - `SpeakerProfilesActivity`
 - `ApiConnectionActivity`
-- `GemmaModelActivity`
 - `PersonaActivity`
 - `PermissionActivity`
 - `OverlayAvatarActivity`
@@ -103,7 +102,7 @@ The app also starts through a licence gate before entering the main shell:
 | Smart Clipboard Screen | `SmartClipboardActivity` | Clipboard intelligence and analysis | Clipboard reading, actions, AI suggestions | `SmartClipboardViewModel`, clipboard detectors, storage | Clipboard access, notification where needed | Background restrictions may block clipboard access; not fully verified on all Android versions | Partial |
 | Smart Clipboard Settings | `SmartClipboardSettingsActivity` | Settings for AI clipboard analysis | toggles and details | Preferences | Clipboard permission / OS support | Must be validated with device support and OS restrictions | Partial |
 | API Connection | `ApiConnectionActivity` | API key configuration and connection status | Inputs, validation status | `AppPreferences`, Gemini/remote configs | Internet | Valid only if correct backend config is present | Partial |
-| Gemma Model | `GemmaModelActivity` | Local model management / routing | model status, downloads, backend selection | `GemmaModelManager`, local inference | None or storage | Depends on model availability; not fully tested in build | Partial |
+| Gemma Model | Removed in 3.1.5 | Gemma inference, model management, and offline routing removed; previously downloaded files remain unused | None | None | None | Old mode preferences are cleared on startup | Removed |
 | Persona & Voice | `PersonaActivity` | Persona & voice selection | dropdowns, language, profile selection | `VoicePersonaRegistry`, app preferences | None | Voice preview is not a true production voice preview flow | Partial |
 | Permission Center | `PermissionActivity` | Permission status and request flow | Cards, grant all, per-permission states | Android system permissions | Multiple OS permissions | Some permissions are dangerous and require user action; behavior is version-dependent | Partial |
 | Overlay Avatar | `OverlayAvatarActivity` | Task overlay avatar settings | UI for task overlay configuration | Preferences | Accessibility / overlay windows | Requires Android overlay permissions; no runtime verification in this audit | Partial |
@@ -140,7 +139,7 @@ The app's Settings landing page (`SettingsFragment`) is organized around the fol
 
 ### C. Intelligence & Decision Making
 - Critical thinking toggles (`isCriticalThinkingEnabled`)
-- AI model / routing / local-model settings (`GemmaModelActivity`, `ApiConnectionActivity`)
+- Gemini API settings (`ApiConnectionActivity`); Gemma/local AI routing was removed in 3.1.5
 - Local vs online routing in app preferences
 
 ### D. Automation & Device Control
@@ -215,7 +214,7 @@ The app's Settings landing page (`SettingsFragment`) is organized around the fol
 - Verification status: source-level only; no end-to-end confirmation in this repository audit
 
 ### Gemini / Live audio / local AI
-- Status: multiple integration points exist (`GeminiLiveWebSocket`, `GeminiTextGeneration`, local Gemma routing, `GeminiConstants`)
+- Status: online Gemini integration remains (`GeminiLiveWebSocket`, `GeminiTextGeneration`, `GeminiConstants`); local Gemma routing was removed in 3.1.5
 - Purpose: conversation generation, voice sessions, tool grounding, model routing
 - Risk: API key, network, permissions, and runtime model availability are required
 - Verification status: code-level integration exists; runtime validation not performed in this audit

@@ -69,4 +69,25 @@ class MeetingModeLogicTest {
         assertTrue(text.contains("HOPE") && text.contains("YASH") && text.contains("meeting"))
         assertTrue(text.length < MeetingModeLogic.MAX_SMS_CHARS)
     }
+
+    @Test
+    fun selectedPersonaIdentityIsUsedInCallScreenSms() {
+        val prompt = MeetingModeLogic.buildCallerSmsPrompt(
+            ownerName = "YASH",
+            situation = Situation.BUSY,
+            untilText = "",
+            customPrompt = "",
+            callerName = "Rahul",
+            language = "English",
+            allowRepeated = false,
+            assistantName = "FRIDAY",
+            personaInstructions = "You are FRIDAY, HOPE's friendly conversational AI persona."
+        )
+        val fallback = MeetingModeLogic.fallbackCallerSms("YASH", Situation.BUSY, "FRIDAY")
+
+        assertTrue(prompt.contains("You are FRIDAY, an AI persona of HOPE"))
+        assertTrue(prompt.contains("Say you are FRIDAY, HOPE's AI persona"))
+        assertTrue(fallback.contains("main FRIDAY hoon"))
+        assertFalse(fallback.contains("main HOPE hoon"))
+    }
 }

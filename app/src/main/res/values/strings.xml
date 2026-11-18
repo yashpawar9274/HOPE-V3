@@ -7,6 +7,7 @@
         <item>Bottom</item>
     </string-array>
     <string name="app_name">HOPE</string>
+    <string name="hope_call_launcher">HOPE Call</string>
     <string name="jarvis_title">HOPE</string>
 
     <string name="state_idle">IDLE</string>
@@ -55,4 +56,14 @@
     <string name="category_contacts">Contacts</string>
     <string name="category_routines">Routines</string>
     <string name="category_notes">Notes</string>
+
+    <string name="auto_reply_dashboard_stats">Message records retained: %1$d • Active chat labels (24h): %2$d • Reply actions submitted today: %3$d (delivery unconfirmed)</string>
+    <string name="auto_reply_recent_activity">Recent activity: %1$s</string>
+    <string name="auto_reply_dashboard_tone">Reply tone: adaptive to context and contact preferences; text cues do not represent human feelings.</string>
+    <string name="auto_reply_dashboard_review">Review: sensitive/high-impact messages are not auto-sent. Suggest-only replies are unsent; a separate approve/send queue is not currently available.</string>
+    <string name="auto_reply_dashboard_supported_apps">Notification quick reply: WhatsApp, Instagram Direct, and SMS where Android provides a reply action. Telegram and Facebook Messenger are unsupported.</string>
+    <string name="auto_reply_dashboard_unavailable">Local dashboard metrics are unavailable: %1$s</string>
+    <string name="auto_reply_storage_error">storage error</string>
+    <string name="auto_reply_dashboard_status_unavailable">No reply status can be confirmed until local notification storage is available.</string>
+    <string name="auto_reply_service_status">%1$s\nLast notification: %2$s\n%3$s</string>
 </resources>

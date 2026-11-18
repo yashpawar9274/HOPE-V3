@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Patterns
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.view.inputmethod.EditorInfo
 import android.widget.TextView
 import android.widget.Toast
@@ -40,6 +41,7 @@ import kotlinx.coroutines.tasks.await
  */
 class LoginActivity : AppCompatActivity() {
     private var createMode = false
+    private var isLoading = false
 
     private lateinit var title: TextView
     private lateinit var subtitle: TextView
@@ -166,9 +168,18 @@ class LoginActivity : AppCompatActivity() {
         banner.visibility = View.VISIBLE
     }
 
-    private fun setLoading(loading: Boolean) {
+    private fun setLoading(loading: Boolean, message: String? = null) {
+        isLoading = loading
+        if (loading) hideKeyboard()
         orb.setState(if (loading) "thinking" else "idle")
         progress.visibility = if (loading) View.VISIBLE else View.GONE
+        progress.contentDescription = if (loading) message ?: "Working" else null
+        primary.text = message ?: if (createMode) "Create account" else "Sign in"
+        google.text = if (loading && message == "Connecting to Google…") {
+            "Connecting…"
+        } else {
+            "Continue with Google"
+        }
         primary.isEnabled = !loading
         google.isEnabled = !loading
         toggle.isEnabled = !loading
@@ -177,6 +188,13 @@ class LoginActivity : AppCompatActivity() {
         emailInput.isEnabled = !loading
         passwordInput.isEnabled = !loading
         confirmInput.isEnabled = !loading
+    }
+
+    private fun hideKeyboard() {
+        val focusedView = currentFocus ?: return
+        getSystemService(InputMethodManager::class.java)
+            ?.hideSoftInputFromWindow(focusedView.windowToken, 0)
+        focusedView.clearFocus()
     }
 
     private fun firebaseReady(): Boolean {
@@ -213,6 +231,7 @@ class LoginActivity : AppCompatActivity() {
     // ---- email / password -------------------------------------------------------------
 
     private fun submit() {
+        if (isLoading) return
         clearErrors()
         if (!firebaseReady()) return
         val fullName = if (createMode) nameInput.text?.toString()?.trim().orEmpty() else ""
@@ -230,29 +249,29 @@ class LoginActivity : AppCompatActivity() {
             confirmLayout.error = "Passwords do not match"
             return
         }
-        setLoading(true)
+        setLoading(true, if (createMode) "Creating account…" else "Signing in…")
         lifecycleScope.launch {
             try {
                 val auth = FirebaseAuth.getInstance()
                 if (createMode) {
                     val user = auth.createUserWithEmailAndPassword(email, password).await().user
-                    if (user != null) {
-                        try {
-                            user.updateProfile(
-                                UserProfileChangeRequest.Builder().setDisplayName(fullName).build()
-                            ).await()
-                        } catch (error: CancellationException) {
-                            throw error
-                        } catch (error: Exception) {
-                            Toast.makeText(
-                                this@LoginActivity,
-                                "Account created, but your name could not be saved.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
+                        ?: error("Firebase did not return the newly created account.")
+                    try {
+                        user.updateProfile(
+                            UserProfileChangeRequest.Builder().setDisplayName(fullName).build()
+                        ).await()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        Toast.makeText(
+                            this@LoginActivity,
+                            "Account created, but your name could not be saved.",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 } else {
-                    auth.signInWithEmailAndPassword(email, password).await()
+                    auth.signInWithEmailAndPassword(email, password).await().user
+                        ?: error("Firebase did not return a signed-in account.")
                 }
                 onSignedIn()
             } catch (error: CancellationException) {
@@ -270,10 +289,11 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun sendPasswordReset() {
+        if (isLoading) return
         clearErrors()
         if (!firebaseReady()) return
         val email = readEmail() ?: return
-        setLoading(true)
+        setLoading(true, "Sending reset email…")
         lifecycleScope.launch {
             try {
                 FirebaseAuth.getInstance().sendPasswordResetEmail(email).await()
@@ -297,6 +317,7 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun signInWithGoogle() {
+        if (isLoading) return
         clearErrors()
         if (!firebaseReady()) return
         val serverClientId = webClientId()
@@ -308,7 +329,7 @@ class LoginActivity : AppCompatActivity() {
             )
             return
         }
-        setLoading(true)
+        setLoading(true, "Connecting to Google…")
         lifecycleScope.launch {
             try {
                 val option = GetGoogleIdOption.Builder()
@@ -324,7 +345,11 @@ class LoginActivity : AppCompatActivity() {
                 ) {
                     val googleToken = GoogleIdTokenCredential.createFrom(credential.data)
                     val firebaseCredential = GoogleAuthProvider.getCredential(googleToken.idToken, null)
-                    FirebaseAuth.getInstance().signInWithCredential(firebaseCredential).await()
+                    checkNotNull(
+                        FirebaseAuth.getInstance().signInWithCredential(firebaseCredential).await().user
+                    ) {
+                        "Firebase did not return a Google-signed-in account."
+                    }
                     onSignedIn()
                 } else {
                     showBanner("Google returned an unexpected sign-in type. Please try again.", error = true)

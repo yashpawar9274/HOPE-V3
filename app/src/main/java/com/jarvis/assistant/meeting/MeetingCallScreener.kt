@@ -11,6 +11,7 @@ import android.telecom.Call
 import android.telephony.SmsManager
 import android.util.Log
 import com.jarvis.assistant.JarvisApp
+import com.jarvis.assistant.ai.PersonaEngine
 import com.jarvis.assistant.autoreply.NotificationIntelligenceStore
 import com.jarvis.assistant.autoreply.SmartReplyLogic
 import kotlinx.coroutines.CoroutineScope
@@ -115,6 +116,7 @@ object MeetingCallScreener {
     private suspend fun composeSms(app: Context, contactName: String?): String {
         val jarvis = JarvisApp.instance
         val owner = jarvis.preferences.userName
+        val persona = PersonaEngine.profileFor(jarvis.preferences.personality)
         val situation = MeetingModePreferences.situation(app)
         val prompt = MeetingModeLogic.buildCallerSmsPrompt(
             ownerName = owner,
@@ -123,12 +125,13 @@ object MeetingCallScreener {
             customPrompt = MeetingModePreferences.customPrompt(app),
             callerName = contactName.orEmpty(),
             language = NotificationIntelligenceStore.replyLanguage(app),
-            allowRepeated = MeetingModePreferences.allowRepeated(app)
+            allowRepeated = MeetingModePreferences.allowRepeated(app),
+            assistantName = persona.identityName,
+            personaInstructions = PersonaEngine.promptFor(persona.id)
         )
         val generated = try {
             withTimeoutOrNull(15_000L) {
                 jarvis.aiRouter.generate(
-                    mode = jarvis.preferences.aiMode,
                     systemInstruction = prompt,
                     context = "",
                     prompt = "Write the SMS now."
@@ -138,9 +141,9 @@ object MeetingCallScreener {
             Log.w(TAG, "AI could not write the Meeting Mode SMS; using the built-in text.", error)
             null
         }
-        val clean = generated?.takeIf { it.isNotBlank() && it.contains(MeetingModeLogic.ASSISTANT_NAME, ignoreCase = true) }
+        val clean = generated?.takeIf { it.isNotBlank() && it.contains(persona.identityName, ignoreCase = true) }
         return SmartReplyLogic.shorten(
-            clean ?: MeetingModeLogic.fallbackCallerSms(owner, situation),
+            clean ?: MeetingModeLogic.fallbackCallerSms(owner, situation, persona.identityName),
             MeetingModeLogic.MAX_SMS_CHARS
         )
     }

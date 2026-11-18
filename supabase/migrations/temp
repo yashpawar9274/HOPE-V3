@@ -1,0 +1,553 @@
+# HOPE-V3 – COMPLETE LOCAL AI ENGINE MIGRATION
+## Replace Existing On-Device AI / Gemma Runtime with Ollama-Compatible Local Model Architecture
+
+### PROJECT OBJECTIVE
+
+Upgrade the existing HOPE-V3 Android application by replacing the current on-device AI and Gemma-specific inference implementation with a completely local AI architecture.
+
+The primary objective is to make HOPE's local intelligence work without internet connectivity.
+
+IMPORTANT ARCHITECTURE DECISION:
+
+Ollama is a model-serving and management runtime, not an AI model itself. The Android application must use an embedded llama.cpp runtime through Android NDK for direct on-device GGUF inference.
+
+Implement an Ollama-compatible provider interface so the same AI service architecture can also connect to a local Ollama server on a computer when available.
+
+Do not pretend that a remote computer's Ollama server is on-device inference.
+
+---
+
+# PHASE 1 – COMPLETE SOURCE CODE AUDIT
+
+Before making changes, inspect the existing HOPE-V3 architecture.
+
+Identify:
+
+- Existing Gemma integration.
+- Existing on-device AI implementation.
+- Local model loading and unloading.
+- Model storage.
+- AI inference services.
+- Gemini API integration.
+- Gemini Live integration.
+- System prompt management.
+- Persona engine.
+- Memory engine.
+- Voice recognition.
+- Text-to-speech.
+- AI agent orchestration.
+- Offline processing.
+- Background services.
+- Model download functionality.
+
+Search for all Gemma-specific classes, dependencies, configurations and references.
+
+Create a dependency map before removing or replacing anything.
+
+Do not remove existing functionality until its replacement has been implemented and tested.
+
+---
+
+# PHASE 2 – NEW LOCAL AI RUNTIME
+
+Remove the old Gemma-specific inference runtime and implement:
+
+Primary Android runtime:
+- llama.cpp
+- GGUF model support
+- Android NDK
+- Kotlin JNI integration
+- Native inference engine
+- Hardware-aware CPU acceleration
+- Optional supported GPU acceleration
+
+Implement a clean abstraction:
+
+LocalInferenceEngine
+
+Responsibilities:
+
+- initialize()
+- loadModel()
+- unloadModel()
+- generateResponse()
+- streamResponse()
+- cancelGeneration()
+- getModelInfo()
+- getRuntimeStatus()
+- getMemoryUsage()
+- releaseResources()
+
+All native calls must be thread-safe.
+
+Use Kotlin coroutines and Flow for streaming responses.
+
+Never perform model inference on the Android main thread.
+
+Ensure native memory is released correctly when the application is closed or the model is unloaded.
+
+---
+
+# PHASE 3 – OLLAMA COMPATIBILITY LAYER
+
+Create an independent provider architecture.
+
+Suggested interfaces:
+
+AIModelProvider
+- LocalAndroidProvider
+- OllamaServerProvider
+- GeminiCloudProvider
+
+LocalAndroidProvider:
+Runs GGUF models directly on the Android device using embedded llama.cpp.
+
+OllamaServerProvider:
+Connects to a locally hosted Ollama instance through its HTTP API.
+
+Implement support for compatible operations:
+- List available models.
+- Model information.
+- Chat generation.
+- Streaming responses.
+- Model selection.
+- Cancellation.
+- Health checks.
+
+Use the Ollama API only when a configured local Ollama server is available.
+
+Do not require a computer or local server for Android offline inference.
+
+Do not silently route local requests to Ollama Cloud or another cloud provider.
+
+---
+
+# PHASE 4 – MODEL MANAGER
+
+Create a complete Local Model Manager.
+
+Features:
+
+1. Available local models.
+2. Download model.
+3. Import GGUF model from device storage.
+4. Delete downloaded model.
+5. Select default model.
+6. Switch models.
+7. Model size information.
+8. Quantization information.
+9. Model compatibility.
+10. Download progress.
+11. Storage management.
+12. Model integrity verification.
+13. Model loading status.
+14. Memory requirements.
+15. Context window configuration.
+
+Support multiple GGUF models.
+
+Do not hardcode Gemma as the default model.
+
+Allow the user to select compatible open-weight models from supported model families.
+
+Use a configurable model registry with verified model metadata.
+
+Never download arbitrary executable files or automatically execute downloaded model content.
+
+The application must work with already downloaded models even when internet access is disabled.
+
+---
+
+# PHASE 5 – HARDWARE AND MEMORY OPTIMIZATION
+
+Before loading a model, inspect:
+
+- Available RAM.
+- Available internal storage.
+- CPU architecture.
+- Supported CPU instructions.
+- Device ABI.
+- Android version.
+- Thermal state where available.
+- Estimated model memory requirements.
+
+Implement model compatibility checks.
+
+Do not load a model if its estimated memory requirements are unsafe for the device.
+
+Support:
+- Model unloading.
+- Memory cleanup.
+- Context size adjustment.
+- Configurable generation limits.
+- Background inference cancellation.
+- Low-memory recovery.
+- Graceful handling of out-of-memory conditions.
+
+Never crash HOPE because a model is too large.
+
+Show a clear warning when a selected model is not suitable for the device.
+
+---
+
+# PHASE 6 – FULL OFFLINE INTELLIGENCE
+
+This is a critical requirement.
+
+When the user selects LOCAL OFFLINE MODE:
+
+- No Gemini API calls.
+- No cloud LLM calls.
+- No external inference requests.
+- No automatic fallback to cloud.
+- No remote AI dependency.
+- No hidden online model routing.
+
+All local AI inference must happen directly on the Android device.
+
+Implement offline functionality for:
+
+1. Text conversations.
+2. Persona personalities.
+3. Local memory retrieval.
+4. Conversation summaries.
+5. Context management.
+6. Local reasoning.
+7. Intent classification.
+8. Agent task routing.
+9. Text-based command understanding.
+10. Local knowledge retrieval.
+11. Voice transcription where an offline speech model is available.
+12. Offline text-to-speech where an offline voice is available.
+
+For model downloads, allow internet access only during an explicit download operation.
+
+Once a model is downloaded and verified, local inference must work without internet.
+
+---
+
+# PHASE 7 – PERSONA ENGINE INTEGRATION
+
+Connect the new local inference runtime to all existing personas:
+
+- HOPE
+- JARVIS
+- FRIDAY
+- E.D.I.T.H.
+- ULTRON
+
+Preserve their independent personality configurations.
+
+Every persona must have:
+
+- Independent system instructions.
+- Personality configuration.
+- Response style.
+- Context awareness.
+- Conversation history.
+- Memory access.
+- Local inference configuration.
+
+The selected persona must work using the local model.
+
+Do not hardcode persona responses.
+
+Do not make all personas sound identical.
+
+Ensure persona switching works without restarting the model unnecessarily.
+
+---
+
+# PHASE 8 – MEMORY ENGINE INTEGRATION
+
+Integrate existing HOPE memory with the local AI engine.
+
+Support:
+
+- Conversation memory.
+- Long-term memory.
+- Local memory search.
+- Semantic retrieval.
+- Conversation summaries.
+- Important information extraction.
+- Memory updates.
+- Context reconstruction.
+
+Use local database storage such as Room or the existing local storage architecture.
+
+When offline:
+
+- Save all local conversations locally.
+- Save memory updates locally.
+- Retrieve existing memories without network access.
+- Queue eligible synchronization operations.
+
+Do not make Supabase a mandatory dependency for local memory retrieval.
+
+When connectivity returns, synchronize according to existing authorization and conflict-resolution rules.
+
+---
+
+# PHASE 9 – OFFLINE VOICE SYSTEM
+
+Audit the existing voice architecture.
+
+Preserve and integrate existing Vosk or other offline speech recognition components where appropriate.
+
+Implement:
+
+- Offline speech-to-text.
+- Local inference.
+- Offline text-to-speech.
+- Voice persona selection.
+- Conversation interruption.
+- Speech streaming where supported.
+- Voice session management.
+
+Use an available offline TTS voice when the preferred voice requires a network connection.
+
+Clearly distinguish online and offline voice capabilities.
+
+Do not silently switch to cloud speech processing in Local Offline Mode.
+
+---
+
+# PHASE 10 – AGENT ORCHESTRATION
+
+Connect the local model with existing HOPE agents.
+
+Support:
+
+- Personal assistant agent.
+- Memory agent.
+- WhatsApp instruction agent.
+- Email analysis agent.
+- Planning agent.
+- Local knowledge agent.
+- Persona-specific communication.
+
+Local agents must be able to perform supported operations without external AI APIs.
+
+Use structured JSON outputs for agent routing and validate every action before execution.
+
+The local model must never directly execute arbitrary shell commands, unrestricted code or privileged device actions.
+
+All tool execution must go through authorized application services.
+
+---
+
+# PHASE 11 – OFFLINE / ONLINE MODE CONTROLLER
+
+Create a dedicated AI mode selector.
+
+Modes:
+
+1. LOCAL OFFLINE.
+2. LOCAL OLLAMA SERVER.
+3. CLOUD AI.
+4. HYBRID.
+
+LOCAL OFFLINE:
+- Android device runs the GGUF model.
+- No internet needed for inference.
+- Local memory and processing.
+
+LOCAL OLLAMA SERVER:
+- Connect to the user's own Ollama instance.
+- Show server connectivity.
+- Show available server models.
+- Never label remote server inference as on-device inference.
+
+CLOUD AI:
+- Use existing Gemini integration when explicitly enabled.
+
+HYBRID:
+- Prefer local inference.
+- Allow authorized cloud fallback only when explicitly configured.
+
+When LOCAL OFFLINE is selected, absolutely prohibit cloud fallback.
+
+Display the active provider on the conversation screen.
+
+---
+
+# PHASE 12 – NETWORK INDEPENDENCE
+
+Audit the entire application for online dependencies.
+
+Separate local AI functionality from cloud-dependent features.
+
+Local AI:
+- Must operate offline.
+
+Supabase:
+- Optional synchronization and remote storage.
+- Local memory must remain available without it.
+
+Firebase:
+- Optional cloud notifications and supported cloud services.
+- Local features must not crash if Firebase is unavailable.
+
+Gemini:
+- Optional online provider only.
+- Never required for local inference.
+
+WhatsApp:
+- Existing supported integration may require connectivity and Android permissions.
+- Do not claim that internet-dependent message delivery works offline.
+
+Gmail:
+- Email synchronization and sending require network connectivity.
+- Previously synchronized local email data may remain accessible offline.
+
+Do not confuse offline AI inference with offline external communication.
+
+---
+
+# PHASE 13 – SETTINGS AND USER INTERFACE
+
+Create:
+
+Settings → AI Engine → Local Intelligence
+
+Screens:
+
+1. AI Provider Selection.
+2. Local Model Manager.
+3. Downloaded Models.
+4. Model Performance.
+5. Device Compatibility.
+6. Storage Usage.
+7. Offline Mode.
+8. Ollama Server Connection.
+9. Cloud Provider Settings.
+10. AI Runtime Diagnostics.
+
+Show:
+
+- Current model.
+- Model size.
+- Runtime status.
+- Provider type.
+- Available memory.
+- Model loading progress.
+- Inference status.
+- Offline status.
+- Last error.
+
+Use the existing HOPE UI design system.
+
+Keep the interface mobile-first, clean and responsive.
+
+Do not add unnecessary buttons to the main home screen.
+
+---
+
+# PHASE 14 – ERROR HANDLING
+
+Handle:
+
+- Model not found.
+- Model corrupted.
+- Insufficient storage.
+- Insufficient memory.
+- Unsupported architecture.
+- Native library loading failure.
+- JNI exception.
+- Model initialization timeout.
+- Inference timeout.
+- Thermal throttling.
+- Application backgrounding.
+- Process termination.
+- Interrupted generation.
+
+Every error must have a useful diagnostic message.
+
+A failed model load must not crash the entire HOPE application.
+
+---
+
+# PHASE 15 – PERFORMANCE TESTING
+
+Test:
+
+1. Fresh model installation.
+2. First model loading.
+3. Subsequent model loading.
+4. Text generation.
+5. Streaming output.
+6. Long conversations.
+7. Memory retrieval.
+8. Persona switching.
+9. Offline operation with Wi-Fi disabled.
+10. Offline operation with mobile data disabled.
+11. App restart without internet.
+12. Model unloading.
+13. Low-memory handling.
+14. Background and foreground transitions.
+15. Device thermal behaviour.
+
+Measure:
+
+- Model loading time.
+- Time to first token.
+- Tokens per second.
+- Peak RAM usage.
+- Model storage size.
+- Crash rate.
+- Battery consumption during representative inference.
+
+Do not fabricate performance metrics.
+
+---
+
+# PHASE 16 – MIGRATION AND REGRESSION
+
+Preserve existing:
+
+- HOPE identity.
+- Persona engine.
+- Memory system.
+- Conversation history.
+- Settings.
+- Android permissions.
+- Existing Gemini integration.
+- Existing WhatsApp architecture.
+- Existing email architecture.
+- Voice functionality.
+- Notifications.
+
+Remove obsolete Gemma-specific runtime dependencies only after verifying that the new local runtime replaces all required functionality.
+
+Keep existing user data intact.
+
+Provide a migration path for existing model files and settings.
+
+Do not delete the old model files automatically without user approval.
+
+---
+
+# FINAL ACCEPTANCE CRITERIA
+
+The project is complete only when:
+
+1. Gemma-specific inference is replaced.
+2. llama.cpp runs directly on Android.
+3. GGUF models load successfully.
+4. HOPE can chat without internet.
+5. All personas work with local inference.
+6. Existing local memory works offline.
+7. Offline voice functionality works where supported.
+8. Local agent orchestration works.
+9. Cloud fallback is disabled in Local Offline Mode.
+10. The application restarts and works offline.
+11. Existing cloud functionality remains available as an optional provider.
+12. No existing application feature is silently removed.
+13. APK builds successfully.
+14. Actual offline tests pass on a physical Android device.
+
+Do not stop at architectural documentation or UI implementation.
+
+Audit the source code, implement the migration, build the APK, and report actual test results.
+
+If a feature cannot be implemented because of device hardware or platform restrictions, document the limitation instead of simulating success.

@@ -31,6 +31,13 @@ class MemoryAdapter(
             binding.tvMemoryFact.text = item.rawText
             binding.tvMemoryDate.text = item.formattedDate
             binding.tvMemoryCategory.text = item.category.uppercase()
+            binding.tvMemoryVerification.text = when (item.verificationStatus) {
+                MemoryEntity.STATUS_USER_CONFIRMED -> "USER CONFIRMED"
+                MemoryEntity.STATUS_NEEDS_CONFIRMATION -> "NEEDS CONFIRMATION"
+                MemoryEntity.STATUS_INFERRED -> "INFERRED"
+                MemoryEntity.STATUS_SUPERSEDED -> "SUPERSEDED"
+                else -> "LEGACY · UNVERIFIED"
+            }
 
             val context = binding.root.context
             val colorRes = when (item.category) {

@@ -1,0 +1,27 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M54,15a39,39 0,1 1,0 78a39,39 0,1 1,0 -78z"
+        android:strokeColor="#806B7CFF"
+        android:strokeWidth="1.5" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M54,21a33,33 0,1 1,0 66a33,33 0,1 1,0 -66z"
+        android:strokeColor="#608D70FF"
+        android:strokeWidth="1" />
+    <path
+        android:fillColor="#080D24"
+        android:pathData="M54,28a26,26 0,1 1,0 52a26,26 0,1 1,0 -52z"
+        android:strokeColor="#FF527EFF"
+        android:strokeWidth="1.5" />
+    <path
+        android:fillColor="#FF4FE3FF"
+        android:pathData="M54,31a1,1 0,1 1,0 2a1,1 0,1 1,0 -2zM42,34a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM64,34a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM49,37a1,1 0,1 1,0 2a1,1 0,1 1,0 -2zM59,39a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM37,42a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM54,44a1,1 0,1 1,0 2a1,1 0,1 1,0 -2zM68,46a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM44,49a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM61,52a1,1 0,1 1,0 2a1,1 0,1 1,0 -2zM34,54a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM51,57a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM71,58a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM41,62a1,1 0,1 1,0 2a1,1 0,1 1,0 -2zM57,65a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM66,68a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM48,71a1,1 0,1 1,0 2a1,1 0,1 1,0 -2zM37,67a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM54,75a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6z" />
+    <path
+        android:fillColor="#FF9B7BFF"
+        android:pathData="M46,41a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM64,43a1,1 0,1 1,0 2a1,1 0,1 1,0 -2zM39,48a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM55,49a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM69,52a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM46,56a1,1 0,1 1,0 2a1,1 0,1 1,0 -2zM63,60a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM35,60a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6zM52,68a0.8,0.8 0,1 1,0 1.6a0.8,0.8 0,1 1,0 -1.6z" />
+</vector>

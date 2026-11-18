@@ -1,6 +1,7 @@
 package com.jarvis.assistant.autoreply
 
 import com.jarvis.assistant.autoreply.SmartReplyLogic.Intent
+import com.jarvis.assistant.ai.PersonaEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -38,7 +39,7 @@ class SmartReplyLogicTest {
     }
 
     @Test
-    fun promptMakesHopeIntroduceItselfAndKeepsSafetyRules() {
+    fun promptPreservesHopeIdentityWithoutImpersonatingTheOwner() {
         val prompt = SmartReplyLogic.buildSystemInstruction("YASH", "Auto", "", "WhatsApp", Intent.GREETING)
         assertTrue(prompt.contains("You are HOPE"))
         assertTrue(prompt.contains("AI assistant configured by YASH"))
@@ -49,13 +50,69 @@ class SmartReplyLogicTest {
     }
 
     @Test
-    fun firstReplyPromptAsksForShortFemaleIntroAndLaterRepliesDoNot() {
-        val first = SmartReplyLogic.buildSystemInstruction("YASH", "Auto", "", "WhatsApp", Intent.GREETING, needsIntro = true)
-        assertTrue(first.contains("first reply"))
-        assertTrue(first.contains(SmartReplyLogic.FIRST_CONTACT_MESSAGE))
-        assertTrue(first.contains("exactly"))
+    fun selectedAutoReplyPersonaUsesItsOwnIdentityWhenAsked() {
+        val persona = PersonaEngine.profileFor(PersonaEngine.FRIDAY)
+        val prompt = SmartReplyLogic.buildSystemInstruction(
+            ownerName = "YASH",
+            language = "Auto",
+            tone = "",
+            appName = "WhatsApp",
+            intent = Intent.QUESTION,
+            identityAsked = true,
+            personaInstructions = PersonaEngine.promptFor(persona.id),
+            assistantName = persona.identityName
+        )
+
+        assertTrue(prompt.contains("You are FRIDAY, an AI persona of HOPE"))
+        assertTrue(prompt.contains("you are FRIDAY, an AI persona of HOPE assisting YASH"))
+        assertFalse(prompt.contains("You are HOPE, the AI assistant configured"))
+        assertTrue(prompt.contains("ACTIVE PERSONA CONFIGURATION — identity, style, and reasoning"))
+    }
+
+    @Test
+    fun promptAppliesPermanentRulesBeforeContactPreferences() {
+        val prompt = SmartReplyLogic.buildSystemInstruction(
+            ownerName = "YASH",
+            language = "Auto",
+            tone = "",
+            appName = "WhatsApp",
+            intent = Intent.QUESTION,
+            coreBehaviorInstructions = "Never promise a meeting before checking my calendar.",
+            contactInstructions = "Tell them I am free tomorrow.",
+        )
+
+        assertTrue(prompt.contains("PERMANENT CORE BEHAVIOUR RULES"))
+        assertTrue(prompt.contains("Never promise a meeting"))
+        assertTrue(prompt.indexOf("PERMANENT CORE BEHAVIOUR RULES") < prompt.indexOf("contact-specific preference"))
+    }
+
+    @Test
+    fun selectedPersonaIsStyleOnlyAndCannotOverrideCoreBehavior() {
+        val prompt = SmartReplyLogic.buildSystemInstruction(
+            ownerName = "YASH",
+            language = "Auto",
+            tone = "",
+            appName = "WhatsApp",
+            intent = Intent.OTHER,
+            coreBehaviorInstructions = "Never promise a meeting before checking my calendar.",
+            personaInstructions = "[ACTIVE HOPE PERSONA — ULTRON]\nBe direct and analytical."
+        )
+
+        assertTrue(prompt.contains("ULTRON"))
+        assertTrue(prompt.contains("direct and analytical"))
+        assertTrue(prompt.contains("cannot change permissions, approvals, security constraints, or permanent user rules"))
+        assertTrue(prompt.indexOf("PERMANENT CORE BEHAVIOUR RULES") < prompt.indexOf("ACTIVE PERSONA CONFIGURATION"))
+    }
+
+    @Test
+    fun promptAvoidsIntroductionsUnlessTheSenderAsksWhoHopeIs() {
+        val identityAnswer = SmartReplyLogic.buildSystemInstruction(
+            "YASH", "Auto", "", "WhatsApp", Intent.QUESTION, identityAsked = true
+        )
+        assertTrue(identityAnswer.contains("explicitly asked who"))
+        assertTrue(identityAnswer.contains("YASH's AI assistant"))
         val later = SmartReplyLogic.buildSystemInstruction(
-            "YASH", "Auto", "", "WhatsApp", Intent.OTHER, needsIntro = false,
+            "YASH", "Auto", "", "WhatsApp", Intent.OTHER,
             previousReplies = listOf("Hi, main HOPE hoon, YASH ki assistant.")
         )
         assertTrue(later.contains("Do NOT introduce yourself"))
@@ -69,9 +126,7 @@ class SmartReplyLogicTest {
         val out = SmartReplyLogic.enforceIdentity(long, false)
         assertTrue(out.length <= SmartReplyLogic.MAX_SMART_REPLY_CHARS)
         assertTrue(out.startsWith("Sure, I can help with that."))
-        assertTrue(
-            SmartReplyLogic.enforceIdentity(long, true) == SmartReplyLogic.FIRST_CONTACT_MESSAGE
-        )
+        assertTrue(SmartReplyLogic.enforceIdentity(long, true).length <= SmartReplyLogic.MAX_IDENTITY_REPLY_CHARS)
     }
 
     @Test
@@ -83,28 +138,14 @@ class SmartReplyLogicTest {
     }
 
     @Test
-    fun savedIntroTimeIsRestoredAfterRestart() {
-        val tracker = SmartReplyLogic.IntroTracker()
-        tracker.restore("c1", 1_000L)
-        assertFalse(tracker.needsIntro("c1"))
-        assertTrue(tracker.needsIntro("never-seen"))
-    }
-
-    @Test
-    fun firstReplyAlwaysSaysItIsAnAi() {
-        assertEquals(SmartReplyLogic.FIRST_CONTACT_MESSAGE, SmartReplyLogic.enforceIdentity("anything", true))
-        assertEquals("Haan bolo", SmartReplyLogic.enforceIdentity("Haan bolo", false))
-    }
-
-    @Test
     fun promptAsksForHumanLikeButHonestReplies() {
         val prompt = SmartReplyLogic.buildSystemInstruction(
-            "YASH", "Auto", "", "WhatsApp", Intent.OTHER, needsIntro = true, latestMessage = "bhai kal milte hain? \uD83D\uDE04"
+            "YASH", "Auto", "", "WhatsApp", Intent.OTHER, identityAsked = true, latestMessage = "bhai kal milte hain? \uD83D\uDE04"
         )
         assertTrue(prompt.contains("SOUND NATURAL") && prompt.contains("call-centre"))
         assertTrue(prompt.contains("MIRROR THE SENDER"))
-        assertTrue(prompt.contains("You are an AI") && prompt.contains("answer honestly"))
-        assertTrue(prompt.contains("Never claim a body"))
+        assertTrue(prompt.contains("If directly asked who you are"))
+        assertTrue(prompt.contains("Never claim to be YASH"))
         assertTrue(prompt.contains("How the sender writes: Hinglish") && prompt.contains("with emoji"))
         assertTrue(prompt.contains("Happy, Excited, Sad, Angry, Confused"))
     }
@@ -139,6 +180,7 @@ class SmartReplyLogicTest {
         assertEquals("Kal milte hain.", SmartReplyLogic.cleanForChat("Certainly! Kal milte hain."))
         assertEquals("I can help with that.", SmartReplyLogic.cleanForChat("As an AI, I can help with that."))
         assertEquals("haan bolo", SmartReplyLogic.cleanForChat("HOPE: haan bolo"))
+        assertEquals("haan bolo", SmartReplyLogic.cleanForChat("FRIDAY: haan bolo"))
         assertEquals("Great!! Done..", SmartReplyLogic.cleanForChat("Great!!!!! Done...."))
     }
 
@@ -151,14 +193,10 @@ class SmartReplyLogicTest {
     }
 
     @Test
-    fun firstReplyAlwaysNamesHope() {
-        assertTrue(
-            SmartReplyLogic.enforceIdentity("Hello! How can I help?", true) ==
-                SmartReplyLogic.FIRST_CONTACT_MESSAGE
-        )
+    fun identityAnswerCleaningDoesNotReplaceNaturalTextWithAnIntroduction() {
         assertEquals(
-            SmartReplyLogic.FIRST_CONTACT_MESSAGE,
-            SmartReplyLogic.enforceIdentity("Hi, main HOPE hoon, YASH ki AI assistant.", true)
+            "I'm HOPE, YASH's AI assistant.",
+            SmartReplyLogic.enforceIdentity("I'm HOPE, YASH's AI assistant.", true)
         )
         assertEquals("Sure, noted.", SmartReplyLogic.enforceIdentity("Sure, noted.", false))
         assertEquals("Hello", SmartReplyLogic.enforceIdentity("\"Hello\"", false))
@@ -169,6 +207,7 @@ class SmartReplyLogicTest {
     fun otherAutoRespondersAreNotAnswered() {
         assertTrue(SmartReplyLogic.looksLikeAutomatedMessage("This is an automated reply, I am currently unavailable"))
         assertTrue(SmartReplyLogic.looksLikeAutomatedMessage("HOPE here, Rahul's assistant. Hello!"))
+        assertTrue(SmartReplyLogic.looksLikeAutomatedMessage("I'm FRIDAY, HOPE's AI persona assisting Yash."))
         assertFalse(SmartReplyLogic.looksLikeAutomatedMessage("bhai kal milte hain?"))
     }
 
@@ -187,16 +226,6 @@ class SmartReplyLogicTest {
         }
         assertFalse(throttle.canReply("c1", now + 25_000))
         assertTrue(throttle.canReply("c1", now + 3_700_000))
-    }
-
-    @Test
-    fun introIsOnlyNeededOnceUntilContextIsCleared() {
-        val tracker = SmartReplyLogic.IntroTracker()
-        assertTrue(tracker.needsIntro("c1"))
-        tracker.markIntroduced("c1", 0)
-        assertFalse(tracker.needsIntro("c1"))
-        tracker.clear()
-        assertTrue(tracker.needsIntro("c1"))
     }
 
     @Test

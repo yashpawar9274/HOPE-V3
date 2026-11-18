@@ -1,8 +1,10 @@
 package com.jarvis.assistant.autoreply
 
 import android.content.Context
+import com.jarvis.assistant.ai.PersonaEngine
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.MessageDigest
 import java.util.Locale
 
 data class AutoReplyChat(
@@ -13,15 +15,36 @@ data class AutoReplyChat(
         get() = AutoReplyPolicy.chatKey(packageName, conversation)
 }
 
+data class StoredAssistantReply(
+    val text: String,
+    val sentAt: Long,
+    val personaId: String = PersonaEngine.HOPE
+)
+
 object AutoReplyPreferences {
     private const val FILE_NAME = "jarvis_auto_reply"
     private const val KEY_ENABLED_APPS = "enabled_apps"
     private const val KEY_BLOCKED_CHATS = "blocked_chats"
     private const val KEY_SUBMITTED_REPLIES = "submitted_reply_fingerprints"
     private const val KEY_SMART_MODE = "smart_mode_enabled"
-    private const val SMART_INTRO_PREFIX = "smart_intro_"
+    private const val KEY_REPLY_PERSONA = "reply_persona"
+    private const val KEY_SOCIAL_INTELLIGENCE = "social_intelligence_enabled"
+    private const val KEY_PROFESSIONAL_COMMUNICATION = "professional_communication_enabled"
+    private const val KEY_EMOTIONAL_CONTEXT = "emotional_context_enabled"
+    private const val KEY_CONVERSATION_ENDING = "conversation_ending_enabled"
+    private const val KEY_AUTO_ESCALATION = "auto_escalation_enabled"
+    private const val KEY_HUMAN_REVIEW = "human_review_required"
+    private const val KEY_BOUNDARY_PAUSED_CHATS = "boundary_paused_chats"
+    private const val KEY_ULTRON_AUTO_DEFENSE = "ultron_auto_defense_enabled"
+    private const val KEY_ULTRON_DEFENSE_TIMEOUT = "ultron_defense_timeout_minutes"
+    private const val KEY_ULTRON_DEFENSE_THRESHOLD = "ultron_defense_confidence_threshold"
+    private const val KEY_ULTRON_DEFENSE_SESSIONS = "ultron_defense_sessions"
+    private const val ASSISTANT_REPLY_HISTORY_PREFIX = "assistant_reply_history_"
     private const val SUBMITTED_REPLY_RETENTION_MILLIS = 24 * 60 * 60 * 1000L
     private const val MAX_SUBMITTED_REPLY_FINGERPRINTS = 500
+    private const val MAX_BOUNDARY_PAUSED_CHATS = 300
+    private const val MAX_ASSISTANT_REPLIES_PER_CHAT = 12
+    private const val ASSISTANT_REPLY_RETENTION_MILLIS = 30L * 24 * 60 * 60 * 1000
 
     private fun preferences(context: Context) =
         context.applicationContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
@@ -36,22 +59,348 @@ object AutoReplyPreferences {
         }
     }
 
-    /** When HOPE last introduced itself in a chat (survives app restarts, so it never re-introduces itself). */
-    fun introducedAt(context: Context, chatKey: String): Long =
-        preferences(context).getLong("$SMART_INTRO_PREFIX${chatKey.take(120)}", 0L)
-
-    fun setIntroducedAt(context: Context, chatKey: String, at: Long) {
-        check(preferences(context).edit()
-            .putLong("$SMART_INTRO_PREFIX${chatKey.take(120)}", at)
-            .commit()
-        ) { "Could not save the first-contact introduction state." }
+    fun selectedPersonaId(context: Context): String {
+        val savedId = preferences(context).getString(KEY_REPLY_PERSONA, PersonaEngine.HOPE)
+        return PersonaEngine.profiles.firstOrNull { it.id.equals(savedId, ignoreCase = true) }?.id
+            ?: PersonaEngine.HOPE
     }
 
-    fun clearIntroductions(context: Context) {
+    fun setSelectedPersona(context: Context, personaId: String) {
+        val selected = PersonaEngine.profiles.firstOrNull { it.id.equals(personaId.trim(), ignoreCase = true) }
+            ?: throw IllegalArgumentException("Select one of the available HOPE personas.")
+        val store = preferences(context)
+        check(store.edit().putString(KEY_REPLY_PERSONA, selected.id).commit()) {
+            "Could not save the WhatsApp reply persona."
+        }
+        check(selectedPersonaId(context) == selected.id) {
+            "The WhatsApp reply persona could not be verified after saving."
+        }
+        clearUltronDefenseSessions(context)
+    }
+
+    fun isUltronAutoDefenseEnabled(context: Context): Boolean =
+        preferences(context).getBoolean(KEY_ULTRON_AUTO_DEFENSE, false)
+
+    fun setUltronAutoDefenseEnabled(context: Context, enabled: Boolean) {
+        check(preferences(context).edit().putBoolean(KEY_ULTRON_AUTO_DEFENSE, enabled).commit()) {
+            "Could not save ULTRON Auto-Defense settings."
+        }
+        if (!enabled) clearUltronDefenseSessions(context)
+    }
+
+    fun ultronDefenseTimeoutMinutes(context: Context): Int =
+        preferences(context).getInt(KEY_ULTRON_DEFENSE_TIMEOUT, 15).coerceIn(1, 120)
+
+    fun setUltronDefenseTimeoutMinutes(context: Context, minutes: Int) {
+        require(minutes in 1..120) { "ULTRON defense timeout must be between 1 and 120 minutes." }
+        check(preferences(context).edit().putInt(KEY_ULTRON_DEFENSE_TIMEOUT, minutes).commit()) {
+            "Could not save the ULTRON defense timeout."
+        }
+        check(ultronDefenseTimeoutMinutes(context) == minutes) {
+            "The ULTRON defense timeout could not be verified after saving."
+        }
+    }
+
+    fun ultronDefenseConfidenceThreshold(context: Context): Double =
+        preferences(context).getFloat(KEY_ULTRON_DEFENSE_THRESHOLD, 0.9f)
+            .toDouble()
+            .coerceIn(0.85, 0.95)
+
+    fun setUltronDefenseConfidenceThreshold(context: Context, threshold: Double) {
+        require(threshold in setOf(0.85, 0.9, 0.95)) {
+            "Choose a supported Auto-Defense confidence threshold."
+        }
+        check(
+            preferences(context).edit()
+                .putFloat(KEY_ULTRON_DEFENSE_THRESHOLD, threshold.toFloat())
+                .commit()
+        ) { "Could not save ULTRON defense sensitivity." }
+    }
+
+    @Synchronized
+    fun ultronDefenseSession(
+        context: Context,
+        chatKey: String
+    ): UltronDefenseSession? {
+        val hash = conversationHash(chatKey)
+        return readUltronDefenseSessions(context).firstOrNull { it.conversationHash == hash }
+    }
+
+    fun ultronDefenseIdentifier(chatKey: String): String =
+        conversationHash(chatKey).take(12)
+
+    @Synchronized
+    fun beginUltronDefense(
+        context: Context,
+        chatKey: String,
+        originalPersonaId: String,
+        now: Long = System.currentTimeMillis()
+    ): UltronDefenseSession {
+        require(chatKey.isNotBlank()) { "A conversation key is required for ULTRON defense." }
+        val session = UltronDefenseSession(
+            conversationHash = conversationHash(chatKey),
+            originalPersonaId = PersonaEngine.profiles.firstOrNull {
+                it.id.equals(originalPersonaId, ignoreCase = true)
+            }?.id ?: PersonaEngine.HOPE,
+            startedAt = now,
+            expiresAt = now + ultronDefenseTimeoutMinutes(context) * 60_000L,
+            identityIntroduced = false
+        )
+        val sessions = readUltronDefenseSessions(context)
+            .filterNot { it.conversationHash == session.conversationHash }
+            .plus(session)
+            .takeLast(100)
+        saveUltronDefenseSessions(context, sessions)
+        return session
+    }
+
+    @Synchronized
+    fun markUltronIdentityIntroduced(context: Context, chatKey: String) {
+        val hash = conversationHash(chatKey)
+        val sessions = readUltronDefenseSessions(context)
+        val index = sessions.indexOfFirst { it.conversationHash == hash }
+        if (index < 0) return
+        saveUltronDefenseSessions(
+            context,
+            sessions.toMutableList().apply {
+                this[index] = this[index].copy(identityIntroduced = true)
+            }
+        )
+    }
+
+    @Synchronized
+    fun endUltronDefense(context: Context, chatKey: String): UltronDefenseSession? {
+        val hash = conversationHash(chatKey)
+        val sessions = readUltronDefenseSessions(context)
+        val active = sessions.firstOrNull { it.conversationHash == hash }
+        if (active != null) {
+            saveUltronDefenseSessions(context, sessions.filterNot { it.conversationHash == hash })
+        }
+        return active
+    }
+
+    @Synchronized
+    fun clearUltronDefenseSessions(context: Context) {
+        check(preferences(context).edit().remove(KEY_ULTRON_DEFENSE_SESSIONS).commit()) {
+            "Could not clear ULTRON defense sessions."
+        }
+    }
+
+    private fun readUltronDefenseSessions(context: Context): List<UltronDefenseSession> {
+        val raw = preferences(context).getString(KEY_ULTRON_DEFENSE_SESSIONS, "[]") ?: "[]"
+        return try {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val hash = item.optString("conversation_hash").trim()
+                    val personaId = item.optString("original_persona").trim()
+                    val startedAt = item.optLong("started_at", 0L)
+                    val expiresAt = item.optLong("expires_at", 0L)
+                    if (hash.isNotBlank() && startedAt > 0L && expiresAt > startedAt) {
+                        add(
+                            UltronDefenseSession(
+                                conversationHash = hash,
+                                originalPersonaId = PersonaEngine.profileFor(personaId).id,
+                                startedAt = startedAt,
+                                expiresAt = expiresAt,
+                                identityIntroduced = item.optBoolean("identity_introduced", false)
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (error: Exception) {
+            throw IllegalStateException("Could not read ULTRON defense session state.", error)
+        }
+    }
+
+    private fun saveUltronDefenseSessions(context: Context, sessions: List<UltronDefenseSession>) {
+        val value = JSONArray().apply {
+            sessions.takeLast(100).forEach { session ->
+                put(
+                    JSONObject()
+                        .put("conversation_hash", session.conversationHash)
+                        .put("original_persona", session.originalPersonaId)
+                        .put("started_at", session.startedAt)
+                        .put("expires_at", session.expiresAt)
+                        .put("identity_introduced", session.identityIntroduced)
+                )
+            }
+        }
+        check(preferences(context).edit().putString(KEY_ULTRON_DEFENSE_SESSIONS, value.toString()).commit()) {
+            "Could not save ULTRON defense sessions."
+        }
+    }
+
+    private fun conversationHash(chatKey: String): String {
+        require(chatKey.isNotBlank()) { "A conversation key is required for ULTRON defense." }
+        return MessageDigest.getInstance("SHA-256")
+            .digest(chatKey.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(Locale.ROOT, byte.toInt() and 0xff) }
+    }
+
+    fun socialIntelligenceEnabled(context: Context): Boolean =
+        getBooleanSetting(context, KEY_SOCIAL_INTELLIGENCE, defaultValue = true)
+
+    fun setSocialIntelligenceEnabled(context: Context, enabled: Boolean) =
+        setBooleanSetting(context, KEY_SOCIAL_INTELLIGENCE, enabled, "social intelligence")
+
+    fun professionalCommunicationEnabled(context: Context): Boolean =
+        getBooleanSetting(context, KEY_PROFESSIONAL_COMMUNICATION, defaultValue = true)
+
+    fun setProfessionalCommunicationEnabled(context: Context, enabled: Boolean) =
+        setBooleanSetting(context, KEY_PROFESSIONAL_COMMUNICATION, enabled, "professional communication")
+
+    fun emotionalContextEnabled(context: Context): Boolean =
+        getBooleanSetting(context, KEY_EMOTIONAL_CONTEXT, defaultValue = true)
+
+    fun setEmotionalContextEnabled(context: Context, enabled: Boolean) =
+        setBooleanSetting(context, KEY_EMOTIONAL_CONTEXT, enabled, "emotional context")
+
+    fun conversationEndingEnabled(context: Context): Boolean =
+        getBooleanSetting(context, KEY_CONVERSATION_ENDING, defaultValue = true)
+
+    fun setConversationEndingEnabled(context: Context, enabled: Boolean) =
+        setBooleanSetting(context, KEY_CONVERSATION_ENDING, enabled, "conversation-ending detection")
+
+    fun automaticEscalationEnabled(context: Context): Boolean =
+        getBooleanSetting(context, KEY_AUTO_ESCALATION, defaultValue = true)
+
+    fun setAutomaticEscalationEnabled(context: Context, enabled: Boolean) =
+        setBooleanSetting(context, KEY_AUTO_ESCALATION, enabled, "automatic owner escalation")
+
+    fun humanReviewRequired(context: Context): Boolean =
+        getBooleanSetting(context, KEY_HUMAN_REVIEW, defaultValue = true)
+
+    fun setHumanReviewRequired(context: Context, enabled: Boolean) =
+        setBooleanSetting(context, KEY_HUMAN_REVIEW, enabled, "human review")
+
+    fun isPausedAfterBoundary(context: Context, chatKey: String): Boolean =
+        preferences(context).getStringSet(KEY_BOUNDARY_PAUSED_CHATS, emptySet())
+            ?.contains(chatKey.take(180)) == true
+
+    @Synchronized
+    fun setPausedAfterBoundary(context: Context, chatKey: String, paused: Boolean) {
+        require(chatKey.isNotBlank()) { "A conversation key is required to save its reply boundary." }
+        val store = preferences(context)
+        val entries = store.getStringSet(KEY_BOUNDARY_PAUSED_CHATS, emptySet())
+            .orEmpty()
+            .toMutableSet()
+        val key = chatKey.take(180)
+        if (paused) {
+            entries.add(key)
+            while (entries.size > MAX_BOUNDARY_PAUSED_CHATS) entries.remove(entries.first())
+        } else {
+            entries.remove(key)
+        }
+        check(store.edit().putStringSet(KEY_BOUNDARY_PAUSED_CHATS, entries).commit()) {
+            "Could not save the conversation's reply boundary."
+        }
+        check(isPausedAfterBoundary(context, key) == paused) {
+            "The conversation's reply boundary could not be verified after saving."
+        }
+    }
+
+    @Synchronized
+    fun clearBoundaryPauses(context: Context) {
+        check(preferences(context).edit().remove(KEY_BOUNDARY_PAUSED_CHATS).commit()) {
+            "Could not clear saved conversation boundaries."
+        }
+    }
+
+    @Synchronized
+    fun assistantReplies(context: Context, chatKey: String, now: Long = System.currentTimeMillis()): List<StoredAssistantReply> {
+        val stored = readAssistantReplies(context, chatKey)
+        val entries = stored
+            .filter { now - it.sentAt in 0..ASSISTANT_REPLY_RETENTION_MILLIS }
+            .takeLast(MAX_ASSISTANT_REPLIES_PER_CHAT)
+        if (entries.size != stored.size) {
+            saveAssistantReplies(context, chatKey, entries)
+        }
+        return entries
+    }
+
+    @Synchronized
+    fun recordAssistantReply(
+        context: Context,
+        chatKey: String,
+        text: String,
+        sentAt: Long = System.currentTimeMillis(),
+        personaId: String = PersonaEngine.HOPE
+    ) {
+        require(chatKey.isNotBlank() && text.isNotBlank() && sentAt > 0L)
+        val savedPersonaId = PersonaEngine.profileFor(personaId).id
+        val entries = assistantReplies(context, chatKey)
+            .filterNot { it.text == text && it.sentAt == sentAt }
+            .plus(StoredAssistantReply(text.take(500), sentAt, savedPersonaId))
+            .takeLast(MAX_ASSISTANT_REPLIES_PER_CHAT)
+        saveAssistantReplies(context, chatKey, entries)
+        check(assistantReplies(context, chatKey).lastOrNull() == entries.last()) {
+            "The assistant's conversation reply could not be verified after saving."
+        }
+    }
+
+    @Synchronized
+    fun clearAssistantReplies(context: Context) {
         val store = preferences(context)
         val editor = store.edit()
-        store.all.keys.filter { it.startsWith(SMART_INTRO_PREFIX) }.forEach(editor::remove)
-        check(editor.commit()) { "Could not clear local conversation introduction state." }
+        store.all.keys.filter { it.startsWith(ASSISTANT_REPLY_HISTORY_PREFIX) }.forEach(editor::remove)
+        check(editor.commit()) { "Could not clear saved assistant conversation replies." }
+    }
+
+    private fun readAssistantReplies(context: Context, chatKey: String): List<StoredAssistantReply> {
+        val raw = preferences(context).getString(assistantReplyHistoryKey(chatKey), "[]") ?: "[]"
+        return try {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val entry = array.optJSONObject(index) ?: continue
+                    val text = entry.optString("text").trim()
+                    val sentAt = entry.optLong("sent_at", 0L)
+                    val personaId = PersonaEngine.profileFor(
+                        entry.optString("persona", PersonaEngine.HOPE)
+                    ).id
+                    if (text.isNotBlank() && sentAt > 0L) {
+                        add(StoredAssistantReply(text, sentAt, personaId))
+                    }
+                }
+            }
+        } catch (error: Exception) {
+            throw IllegalStateException("Could not read the saved assistant conversation context.", error)
+        }
+    }
+
+    private fun saveAssistantReplies(context: Context, chatKey: String, entries: List<StoredAssistantReply>) {
+        val value = JSONArray().apply {
+            entries.forEach { entry ->
+                put(
+                    JSONObject()
+                        .put("text", entry.text)
+                        .put("sent_at", entry.sentAt)
+                        .put("persona", entry.personaId)
+                )
+            }
+        }
+        check(preferences(context).edit().putString(assistantReplyHistoryKey(chatKey), value.toString()).commit()) {
+            "Could not save the assistant conversation context."
+        }
+    }
+
+    private fun assistantReplyHistoryKey(chatKey: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(chatKey.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(Locale.ROOT, byte.toInt() and 0xff) }
+        return "$ASSISTANT_REPLY_HISTORY_PREFIX$digest"
+    }
+
+    private fun getBooleanSetting(context: Context, key: String, defaultValue: Boolean): Boolean =
+        preferences(context).getBoolean(key, defaultValue)
+
+    private fun setBooleanSetting(context: Context, key: String, enabled: Boolean, label: String) {
+        val store = preferences(context)
+        check(store.edit().putBoolean(key, enabled).commit()) { "Could not save $label settings." }
+        check(store.getBoolean(key, !enabled) == enabled) { "Could not verify saved $label settings." }
     }
 
     fun isAppEnabled(context: Context, packageName: String): Boolean =
@@ -211,4 +560,10 @@ object AutoReplyPolicy {
 
     fun containsSensitiveContent(text: String): Boolean =
         sensitiveContentPattern.containsMatchIn(text)
+
+    fun containsSensitiveContext(messages: Iterable<String>): Boolean {
+        val texts = messages.toList()
+        return texts.any(::containsSensitiveContent) ||
+            containsSensitiveContent(texts.joinToString("\n"))
+    }
 }

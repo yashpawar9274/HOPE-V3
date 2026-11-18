@@ -9,8 +9,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.jarvis.assistant.data.model.ChatTurn
 import com.jarvis.assistant.data.model.GeminiConstants
-import com.jarvis.assistant.ai.AiMode
-import com.jarvis.assistant.ai.GemmaBackend
+import com.jarvis.assistant.ai.PersonaEngine
 import org.json.JSONArray
 
 data class SmartClipboardHistoryItem(
@@ -41,6 +40,7 @@ class AppPreferences(context: Context) {
 
     init {
         migrateApiKeyToEncryptedStorage()
+        migrateRemovedLocalAiSettings()
         clearLegacySupabaseAuthTokens()
         val current = prefs.getString(KEY_MODEL, null)
         if (current == null || current !in GeminiConstants.SUPPORTED_MODELS) {
@@ -53,6 +53,8 @@ class AppPreferences(context: Context) {
         private const val ENCRYPTED_API_PREF_NAME = "jarvis_secure_api_prefs"
         private const val TAG = "AppPreferences"
         private const val DEFAULT_AI_SYSTEM_INSTRUCTION =
+            "Follow the active HOPE persona selected in Settings. Reply clearly and naturally. Support Hindi and English."
+        private const val LEGACY_DEFAULT_AI_SYSTEM_INSTRUCTION =
             "You are HOPE, a helpful assistant. Reply clearly and naturally. Support Hindi and English."
         private const val KEY_API_KEY = "key_api_key"
         private const val KEY_HUGGING_FACE_TOKEN = "key_hugging_face_token"
@@ -63,6 +65,7 @@ class AppPreferences(context: Context) {
         private const val KEY_GEMMA_BACKEND = "key_gemma_backend"
         private const val KEY_MODEL = "key_model"
         private const val KEY_VOICE = "key_voice"
+        private const val KEY_PERSONA_VOICE_PREFIX = "key_persona_voice_"
         private const val KEY_PERSONALITY = "key_personality"
         private const val KEY_AUTOMATIC_PERSONA_SWITCHING = "key_automatic_persona_switching"
         private const val KEY_CONFIRM_VOICE_SWITCH = "key_confirm_voice_switch"
@@ -89,6 +92,8 @@ class AppPreferences(context: Context) {
         private const val KEY_CHAT_HISTORY = "key_chat_history"
         private const val KEY_FAVORITE_SONG = "key_favorite_song"
         private const val KEY_FAVORITE_APP = "key_favorite_app"
+        private const val KEY_FAVORITE_SONG_CONFIRMED = "key_favorite_song_confirmed"
+        private const val KEY_FAVORITE_APP_CONFIRMED = "key_favorite_app_confirmed"
         private const val KEY_SONG_COUNTS = "key_song_counts"
         private const val KEY_USER_BIRTHDAY = "key_user_birthday"
         private const val KEY_USER_LOCATION = "key_user_location"
@@ -237,34 +242,15 @@ class AppPreferences(context: Context) {
 
     val canStoreApiKeySecurely: Boolean get() = secureApiPrefs != null
 
-    var huggingFaceToken: String
-        get() = secureApiPrefs?.getString(KEY_HUGGING_FACE_TOKEN, "")?.trim() ?: ""
-        set(value) {
-            val secure = checkNotNull(secureApiPrefs) { "Secure token storage is unavailable on this device." }
-            val clean = value.trim()
-            val saved = if (clean.isEmpty()) {
-                secure.edit().remove(KEY_HUGGING_FACE_TOKEN).commit()
-            } else {
-                secure.edit().putString(KEY_HUGGING_FACE_TOKEN, clean).commit()
-            }
-            check(saved) { "Could not save Hugging Face token to encrypted storage." }
-        }
-
-    var aiMode: AiMode
-        get() = AiMode.fromPreference(prefs.getString(KEY_AI_MODE, AiMode.AUTOMATIC.name).orEmpty())
-        set(value) = prefs.edit().putString(KEY_AI_MODE, value.name).apply()
-
-    var cloudAllowedInAutomatic: Boolean
-        get() = prefs.getBoolean(KEY_CLOUD_IN_AUTOMATIC, true)
-        set(value) = prefs.edit().putBoolean(KEY_CLOUD_IN_AUTOMATIC, value).apply()
-
-    var gemmaBackend: GemmaBackend
-        get() = GemmaBackend.fromPreference(prefs.getString(KEY_GEMMA_BACKEND, GemmaBackend.CPU.name).orEmpty())
-        set(value) = prefs.edit().putString(KEY_GEMMA_BACKEND, value.name).apply()
-
     var aiSystemInstruction: String
-        get() = prefs.getString(KEY_AI_SYSTEM_INSTRUCTION, DEFAULT_AI_SYSTEM_INSTRUCTION)
-            ?: DEFAULT_AI_SYSTEM_INSTRUCTION
+        get() {
+            val saved = prefs.getString(KEY_AI_SYSTEM_INSTRUCTION, null) ?: return DEFAULT_AI_SYSTEM_INSTRUCTION
+            if (saved == LEGACY_DEFAULT_AI_SYSTEM_INSTRUCTION) {
+                prefs.edit().putString(KEY_AI_SYSTEM_INSTRUCTION, DEFAULT_AI_SYSTEM_INSTRUCTION).apply()
+                return DEFAULT_AI_SYSTEM_INSTRUCTION
+            }
+            return saved
+        }
         set(value) {
             val clean = value.trim()
             require(clean.isNotBlank()) { "System instruction must not be blank." }
@@ -293,6 +279,17 @@ class AppPreferences(context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Legacy API-key migration to encrypted storage failed", e)
         }
+    }
+
+    private fun migrateRemovedLocalAiSettings() {
+        prefs.edit()
+            .remove(KEY_AI_MODE)
+            .remove(KEY_CLOUD_IN_AUTOMATIC)
+            .remove(KEY_GEMMA_BACKEND)
+            .apply()
+        secureApiPrefs?.edit()
+            ?.remove(KEY_HUGGING_FACE_TOKEN)
+            ?.apply()
     }
 
     private fun clearLegacySupabaseAuthTokens() {
@@ -334,6 +331,42 @@ class AppPreferences(context: Context) {
     var voice: String
         get() = prefs.getString(KEY_VOICE, GeminiConstants.DEFAULT_VOICE) ?: GeminiConstants.DEFAULT_VOICE
         set(value) = prefs.edit().putString(KEY_VOICE, value).apply()
+
+    fun personaVoice(personaId: String): String {
+        val persona = PersonaEngine.profiles.firstOrNull {
+            it.id.equals(personaId.trim(), ignoreCase = true)
+        } ?: PersonaEngine.defaultProfile
+        val stored = prefs.getString(personaVoiceKey(persona.id), null)
+        return stored?.takeIf { it in GeminiConstants.SUPPORTED_VOICES } ?: persona.defaultVoiceName
+    }
+
+    fun setPersonaVoice(personaId: String, voiceName: String) {
+        val persona = PersonaEngine.profiles.firstOrNull {
+            it.id.equals(personaId.trim(), ignoreCase = true)
+        } ?: throw IllegalArgumentException("Select one of the available HOPE personas.")
+        require(voiceName in GeminiConstants.SUPPORTED_VOICES) { "Select a supported Gemini voice." }
+        check(prefs.edit().putString(personaVoiceKey(persona.id), voiceName).commit()) {
+            "Could not save the selected voice for ${persona.displayName}."
+        }
+        check(personaVoice(persona.id) == voiceName) {
+            "The selected voice for ${persona.displayName} could not be verified after saving."
+        }
+    }
+
+    fun rememberPersonaVoiceIfUnset(personaId: String, voiceName: String) {
+        val persona = PersonaEngine.profiles.firstOrNull {
+            it.id.equals(personaId.trim(), ignoreCase = true)
+        } ?: throw IllegalArgumentException("Select one of the available HOPE personas.")
+        require(voiceName in GeminiConstants.SUPPORTED_VOICES) { "Select a supported Gemini voice." }
+        val key = personaVoiceKey(persona.id)
+        if (prefs.contains(key)) return
+        check(prefs.edit().putString(key, voiceName).commit()) {
+            "Could not preserve the current voice for ${persona.displayName}."
+        }
+    }
+
+    private fun personaVoiceKey(personaId: String): String =
+        "$KEY_PERSONA_VOICE_PREFIX${personaId.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')}"
 
     var personality: String
         get() {
@@ -487,14 +520,28 @@ class AppPreferences(context: Context) {
     var favoriteSong: String
         get() = prefs.getString(KEY_FAVORITE_SONG, "") ?: ""
         set(value) {
-            prefs.edit().putString(KEY_FAVORITE_SONG, value.trim()).commit()
+            val clean = value.trim()
+            prefs.edit()
+                .putString(KEY_FAVORITE_SONG, clean)
+                .putBoolean(KEY_FAVORITE_SONG_CONFIRMED, clean.isNotEmpty())
+                .commit()
         }
 
     var favoriteApp: String
         get() = prefs.getString(KEY_FAVORITE_APP, "") ?: ""
         set(value) {
-            prefs.edit().putString(KEY_FAVORITE_APP, value.trim()).commit()
+            val clean = value.trim()
+            prefs.edit()
+                .putString(KEY_FAVORITE_APP, clean)
+                .putBoolean(KEY_FAVORITE_APP_CONFIRMED, clean.isNotEmpty())
+                .commit()
         }
+
+    val isFavoriteSongConfirmed: Boolean
+        get() = prefs.getBoolean(KEY_FAVORITE_SONG_CONFIRMED, false)
+
+    val isFavoriteAppConfirmed: Boolean
+        get() = prefs.getBoolean(KEY_FAVORITE_APP_CONFIRMED, false)
 
     var isMicMuted: Boolean
         get() = prefs.getBoolean(KEY_MIC_MUTED, false)
@@ -685,15 +732,6 @@ class AppPreferences(context: Context) {
         // Update stored JSON
         prefs.edit().putString(KEY_SONG_COUNTS, gson.toJson(counts)).apply()
 
-        // Auto-promote to favorite song if played at least 2 times, or if favoriteSong is empty
-        val currentFav = favoriteSong
-        if (currentFav.isBlank() || currentCount >= 2) {
-            // Find most played song
-            val topSong = counts.maxByOrNull { it.value }?.key
-            if (!topSong.isNullOrBlank()) {
-                favoriteSong = cleanSong
-            }
-        }
         return favoriteSong
     }
 

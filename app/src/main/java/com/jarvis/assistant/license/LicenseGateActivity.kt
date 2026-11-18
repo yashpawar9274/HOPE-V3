@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Launcher screen. HOPE's own screens open only after this gate:
- *   not signed in -> Login, signed in -> verify(), licensed -> MainActivity,
+ *   not signed in -> Login, signed in -> cached licence check / verify(), licensed -> MainActivity,
  *   NO_LICENSE / DEVICE_NOT_ACTIVATED / REVOKED / EXPIRED -> Key screen.
  */
 class LicenseGateActivity : AppCompatActivity() {
@@ -24,6 +24,8 @@ class LicenseGateActivity : AppCompatActivity() {
     private lateinit var progress: View
     private lateinit var retry: MaterialButton
     private lateinit var signOut: MaterialButton
+    private var gateCheckRunning = false
+    private var navigationStarted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,42 +61,64 @@ class LicenseGateActivity : AppCompatActivity() {
     private fun startVoiceSession(): Boolean = intent?.getBooleanExtra(EXTRA_START_VOICE_SESSION, false) == true
 
     private fun runGate() {
+        if (gateCheckRunning || navigationStarted) return
+        gateCheckRunning = true
         showLoading()
         lifecycleScope.launch {
-            if (!LicenseManager.isFirebaseConfigured(this@LicenseGateActivity)) {
-                showProblem(
-                    "Firebase is not set up in this build. Add google-services.json to the app module " +
-                        "and rebuild (see LICENSE_GATE_SETUP.md).",
-                    canRetry = false
-                )
-                return@launch
-            }
-            val outcome = try {
-                LicenseManager.verify(this@LicenseGateActivity)
-            } catch (error: kotlinx.coroutines.CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                VerifyOutcome.Failure("Could not check your licence: ${error.message ?: "unexpected error"}")
-            }
-            when (outcome) {
-                is VerifyOutcome.Licensed -> openMain(this@LicenseGateActivity, startVoiceSession())
-                is VerifyOutcome.NotLicensed -> {
-                    startActivity(LicenseKeyActivity.intent(this@LicenseGateActivity, outcome.reason, startVoiceSession()))
-                    finish()
+            try {
+                if (!LicenseManager.isFirebaseConfigured(this@LicenseGateActivity)) {
+                    showProblem(
+                        "Firebase is not set up in this build. Add google-services.json to the app module " +
+                            "and rebuild (see LICENSE_GATE_SETUP.md).",
+                        canRetry = false
+                    )
+                    return@launch
                 }
-                VerifyOutcome.SignInRequired -> goToLogin()
-                VerifyOutcome.NeedsInternet ->
-                    showProblem("Connect to the internet to verify your licence.", canRetry = true)
-                is VerifyOutcome.Failure -> showProblem(outcome.message, canRetry = true)
+                if (LicenseManager.guardAllows(this@LicenseGateActivity)) {
+                    openMainOnce()
+                    return@launch
+                }
+                val outcome = try {
+                    LicenseManager.verify(this@LicenseGateActivity)
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    VerifyOutcome.Failure("Could not check your licence: ${error.message ?: "unexpected error"}")
+                }
+                when (outcome) {
+                    is VerifyOutcome.Licensed -> openMainOnce()
+                    is VerifyOutcome.NotLicensed -> openLicenseKey(outcome.reason)
+                    VerifyOutcome.SignInRequired -> goToLogin()
+                    VerifyOutcome.NeedsInternet ->
+                        showProblem("Connect to the internet to verify your licence.", canRetry = true)
+                    is VerifyOutcome.Failure -> showProblem(outcome.message, canRetry = true)
+                }
+            } finally {
+                gateCheckRunning = false
             }
         }
     }
 
     private fun goToLogin() {
+        if (navigationStarted) return
+        navigationStarted = true
         startActivity(
             Intent(this, LoginActivity::class.java).putExtra(EXTRA_START_VOICE_SESSION, startVoiceSession())
         )
         finish()
+    }
+
+    private fun openLicenseKey(reason: String) {
+        if (navigationStarted) return
+        navigationStarted = true
+        startActivity(LicenseKeyActivity.intent(this, reason, startVoiceSession()))
+        finish()
+    }
+
+    private fun openMainOnce() {
+        if (navigationStarted) return
+        navigationStarted = true
+        openMain(this, startVoiceSession())
     }
 
     private fun showLoading() {

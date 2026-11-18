@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HOPE Settings Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080d1b;
+      --panel: rgba(18, 27, 49, .88);
+      --panel-strong: rgba(24, 35, 62, .96);
+      --line: rgba(150, 178, 232, .12);
+      --text: #f2f5ff;
+      --muted: #91a0bf;
+      --accent: #85b7ff;
+      --accent-soft: rgba(101, 156, 255, .16);
+      --green: #41d7a0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(ellipse at 92% 3%, rgba(80, 107, 221, .23), transparent 34%),
+        radial-gradient(ellipse at -12% 45%, rgba(95, 57, 178, .18), transparent 32%),
+        var(--bg);
+      color: var(--text);
+      font: 14px/1.35 Inter, "Segoe UI", sans-serif;
+    }
+    .device {
+      width: min(100%, 430px);
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 26px 20px 34px;
+      overflow: hidden;
+    }
+    .topline { display: flex; align-items: center; justify-content: space-between; }
+    h1 { margin: 0; font-size: 25px; letter-spacing: -.5px; }
+    .subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .spark { color: var(--accent); font-size: 25px; }
+    .search {
+      display: flex; align-items: center; gap: 11px;
+      height: 50px; margin-top: 17px; padding: 0 14px;
+      border: 1px solid var(--line); border-radius: 15px;
+      background: var(--panel); color: var(--accent);
+    }
+    .search input {
+      width: 100%; border: 0; outline: 0; background: transparent;
+      color: var(--text); font: inherit; font-size: 14px;
+    }
+    .search input::placeholder { color: var(--muted); }
+    .filters {
+      display: flex; gap: 8px; overflow-x: auto; margin: 10px -2px 13px;
+      padding: 1px 2px 5px; scrollbar-width: none;
+    }
+    .filters::-webkit-scrollbar { display: none; }
+    .filter {
+      flex: 0 0 auto; border: 1px solid var(--line); border-radius: 22px;
+      padding: 9px 13px; background: var(--panel); color: #dce5fa;
+      font-size: 12px; cursor: pointer;
+    }
+    .filter.active { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
+    .profile {
+      padding: 17px; margin-bottom: 20px; border: 1px solid rgba(126, 166, 255, .22);
+      border-radius: 20px; background: linear-gradient(130deg, rgba(28, 48, 84, .96), rgba(19, 28, 51, .94));
+      box-shadow: 0 12px 30px rgba(0,0,0,.2);
+    }
+    .profile-main { display: flex; align-items: center; gap: 13px; }
+    .avatar {
+      position: relative; display: grid; place-items: center; width: 54px; height: 54px;
+      border-radius: 16px; background: rgba(119, 164, 255, .15); color: var(--accent); font-size: 25px;
+    }
+    .avatar:after { content: ""; position: absolute; width: 10px; height: 10px; right: 2px; bottom: 1px; border: 2px solid #1b2b4d; border-radius: 50%; background: var(--green); }
+    .name { font-weight: 700; font-size: 17px; letter-spacing: .3px; }
+    .role { margin-top: 3px; color: var(--muted); font-size: 10px; letter-spacing: .7px; }
+    .edit { margin-left: auto; color: var(--muted); font-size: 18px; }
+    .badges { display: flex; gap: 8px; margin-top: 14px; }
+    .badge { padding: 5px 9px; border-radius: 9px; background: rgba(52, 211, 153, .11); color: var(--green); font-size: 10px; font-weight: 700; letter-spacing: .35px; }
+    .badge.persona { background: var(--accent-soft); color: var(--accent); }
+    .section { margin: 0 0 17px; }
+    .section-title { margin: 0 0 9px 2px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 1.15px; }
+    .rows { overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+    .row {
+      display: flex; align-items: center; gap: 12px; min-height: 66px; padding: 10px 13px;
+      border-bottom: 1px solid var(--line);
+    }
+    .row:last-child { border-bottom: 0; }
+    .icon {
+      display: grid; place-items: center; width: 38px; height: 38px; flex: 0 0 38px;
+      border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-size: 17px;
+    }
+    .copy { min-width: 0; flex: 1; }
+    .label { font-weight: 600; font-size: 13px; }
+    .detail { margin-top: 3px; color: var(--muted); font-size: 11px; }
+    .value { color: var(--accent); font-size: 11px; text-align: right; }
+    .chevron { margin-left: 4px; color: #7585a5; font-size: 18px; }
+    .switch { width: 34px; height: 20px; border-radius: 12px; background: #35598b; position: relative; }
+    .switch:after { content: ""; position: absolute; top: 3px; right: 3px; width: 14px; height: 14px; border-radius: 50%; background: #dceaff; }
+    .empty { display: none; padding: 28px 12px; color: var(--muted); text-align: center; }
+    .foot { color: #71809e; font-size: 10px; text-align: center; margin: 23px 0 0; letter-spacing: .6px; }
+    .preview-label {
+      position: fixed; right: 12px; bottom: 12px; padding: 7px 10px; border: 1px solid var(--line);
+      border-radius: 12px; background: #111a2e; color: #c5d3f0; font-size: 10px;
+    }
+    @media (max-width: 360px) {
+      .device { padding-right: 15px; padding-left: 15px; }
+      .row { gap: 9px; padding-right: 10px; padding-left: 10px; }
+      .detail { font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="device">
+    <header class="topline">
+      <div><h1>Settings</h1><p class="subtitle">Personalize HOPE, AI, and device controls</p></div>
+      <div class="spark" aria-label="AI">✦</div>
+    </header>
+    <label class="search"><span>⌕</span><input id="query" type="search" placeholder="Search settings" aria-label="Search settings"></label>
+    <nav class="filters" aria-label="Settings categories">
+      <button class="filter active" data-filter="all">All&nbsp; 24</button>
+      <button class="filter" data-filter="ai">AI &amp; Voice&nbsp; 9</button>
+      <button class="filter" data-filter="device">Device&nbsp; 5</button>
+      <button class="filter" data-filter="automation">Automation&nbsp; 7</button>
+      <button class="filter" data-filter="security">Security&nbsp; 5</button>
+    </nav>
+    <section class="profile searchable" data-category="profile" data-search="yash profile operator user voice enrolled hope pro">
+      <div class="profile-main">
+        <div class="avatar">♙</div>
+        <div><div class="name">YASH</div><div class="role">HOPE OPERATOR • PRIMARY USER</div></div>
+        <div class="edit">✎</div>
+      </div>
+      <div class="badges"><span class="badge">✓ VOICE ENROLLED</span><span class="badge persona">HOPE PRO</span></div>
+    </section>
+    <div id="sections">
+      <section class="section" data-section="ai">
+        <h2 class="section-title">VOICE &amp; NEURAL INTELLIGENCE</h2>
+        <div class="rows">
+          <article class="row searchable" data-category="ai" data-search="owner voice biometrics voice profile active"><span class="icon">◉</span><div class="copy"><div class="label">Owner Voice Biometrics</div><div class="detail">Voice Profile Active • Only you can speak</div></div><span class="value">ACTIVE</span><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="ai" data-search="speaker profiles local voice matching personal forms address"><span class="icon">♫</span><div class="copy"><div class="label">Speaker Profiles</div><div class="detail">Local voice matching and personal forms of address</div></div><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="ai" data-search="conversation language hindi english"><span class="icon">文</span><div class="copy"><div class="label">Conversation Language</div><div class="detail">Auto (All Indian Languages)</div></div><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="ai" data-search="persona hope friday edith ultron voice"><span class="icon">✦</span><div class="copy"><div class="label">AI Persona &amp; Voice</div><div class="detail">HOPE Pro • Voice: Puck</div></div><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="ai" data-search="silent execution commands vocal reply"><span class="icon">◌</span><div class="copy"><div class="label">Silent Execution Mode</div><div class="detail">Execute device commands without vocal reply</div></div><span class="switch"></span></article>
+          <article class="row searchable" data-category="ai" data-search="critical thinking honesty independent evidence replies"><span class="icon">◎</span><div class="copy"><div class="label">Critical Thinking &amp; Honesty</div><div class="detail">Independent, evidence-aware replies in voice and chat</div></div><span class="switch"></span></article>
+        </div>
+      </section>
+      <section class="section" data-section="ai">
+        <h2 class="section-title">AI FEATURES &amp; CLOUD IDENTITY</h2>
+        <div class="rows">
+          <article class="row searchable" data-category="ai" data-search="smart clipboard intelligence analysis voice privacy history controls"><span class="icon">▣</span><div class="copy"><div class="label">Smart Clipboard Intelligence</div><div class="detail">Analysis, voice, privacy, and history controls</div></div><span class="chevron">›</span></article>
+        </div>
+      </section>
+      <section class="section" data-section="system">
+        <h2 class="section-title">SYSTEM &amp; DATA ENGINE</h2>
+        <div class="rows">
+          <article class="row searchable" data-category="ai" data-search="gemini api model key connection"><span class="icon">⌘</span><div class="copy"><div class="label">Gemini Live API &amp; Model</div><div class="detail">Gemini Live • WebSocket Engine</div></div><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="ai" data-search="neural memory bank device memories cloud recall"><span class="icon">◌</span><div class="copy"><div class="label">Neural Memory Bank</div><div class="detail">Manage device memories and cloud recall controls</div></div><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="device security" data-search="system permissions microphone accessibility notifications android"><span class="icon">⌑</span><div class="copy"><div class="label">System Permissions</div><div class="detail">Microphone, Accessibility, Notifications &amp; System</div></div><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="automation" data-search="time manager calendar alarm timer reminders"><span class="icon">◷</span><div class="copy"><div class="label">Time Manager</div><div class="detail">Calendar, alarms, timers &amp; reminders</div></div><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="automation" data-search="smart auto reply notifications whatsapp"><span class="icon">↗</span><div class="copy"><div class="label">AI Chat Auto-Reply</div><div class="detail">Notification monitoring enabled</div></div><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="automation" data-search="default assistant android"><span class="icon">◉</span><div class="copy"><div class="label">Default Assistant</div><div class="detail">Configure HOPE as your Android assistant</div></div><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="device" data-search="location awareness privacy one-shot"><span class="icon">⌖</span><div class="copy"><div class="label">Location Awareness &amp; Privacy</div><div class="detail">One-shot location access and Gemini sharing controls</div></div><span class="chevron">›</span></article>
+        </div>
+      </section>
+      <section class="section" data-section="security">
+        <h2 class="section-title">APPEARANCE &amp; SECURITY</h2>
+        <div class="rows">
+          <article class="row searchable" data-category="security" data-search="theme colors orb appearance"><span class="icon">◐</span><div class="copy"><div class="label">Theme &amp; 3D Orb Colors</div><div class="detail">Light Theme</div></div><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="security" data-search="hope app lock pin password biometrics"><span class="icon">▣</span><div class="copy"><div class="label">HOPE App Lock</div><div class="detail">PIN, pattern, password &amp; biometrics</div></div><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="security" data-search="privacy data shield on-device biometric tls"><span class="icon">⬡</span><div class="copy"><div class="label">Privacy &amp; Data Shield</div><div class="detail">On-device biometric processing &amp; TLS encryption</div></div><span class="chevron">›</span></article>
+          <article class="row searchable" data-category="security" data-search="app identity integrity publisher signing certificate"><span class="icon">✓</span><div class="copy"><div class="label">App Identity &amp; Integrity</div><div class="detail">Publisher, app ID and signing certificate status</div></div><span class="chevron">›</span></article>
+        </div>
+      </section>
+    </div>
+    <div id="empty" class="empty">No settings match your search.</div>
+    <p class="foot">HOPE INTELLIGENCE OS • v3.1 PRO<br>Original source code by Yash Pawar</p>
+  </main>
+  <div class="preview-label">Browser mock preview · not a device capture</div>
+  <script>
+    const buttons = [...document.querySelectorAll(".filter")];
+    const cards = [...document.querySelectorAll(".row.searchable")];
+    const sections = [...document.querySelectorAll(".section")];
+    const query = document.querySelector("#query");
+    const empty = document.querySelector("#empty");
+    let active = "all";
+    function update() {
+      const value = query.value.trim().toLowerCase();
+      let shown = 0;
+      cards.forEach(card => {
+        const categoryOk = active === "all" || card.dataset.category.split(" ").includes(active);
+        const searchOk = !value || card.dataset.search.includes(value);
+        const visible = categoryOk && searchOk;
+        card.style.display = visible ? "" : "none";
+        if (visible) shown++;
+      });
+      sections.forEach(section => {
+        section.style.display = [...section.querySelectorAll(".row")].some(row => row.style.display !== "none") ? "" : "none";
+      });
+      empty.style.display = shown ? "none" : "block";
+    }
+    buttons.forEach(button => button.addEventListener("click", () => {
+      buttons.forEach(item => item.classList.toggle("active", item === button));
+      active = button.dataset.filter;
+      update();
+    }));
+    query.addEventListener("input", update);
+  </script>
+</body>
+</html>

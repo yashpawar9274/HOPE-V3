@@ -3,14 +3,22 @@ package com.jarvis.assistant.autoreply
 import android.content.Context
 import android.content.pm.PackageManager
 import com.jarvis.assistant.JarvisApp
-import com.jarvis.assistant.ai.AiMode
 import com.jarvis.assistant.util.PermissionHelper
 
 enum class WhatsAppAutoReplyCommand {
     START,
     STOP,
-    STATUS
+    STATUS,
+    SELECT_PERSONA,
+    ENABLE_ULTRON_DEFENSE,
+    DISABLE_ULTRON_DEFENSE,
+    ULTRON_DEFENSE_STATUS
 }
+
+data class WhatsAppAutoReplyInstruction(
+    val command: WhatsAppAutoReplyCommand,
+    val personaId: String? = null
+)
 
 data class WhatsAppAutoReplyCommandResult(
     val success: Boolean,
@@ -34,15 +42,63 @@ object WhatsAppAutoReplyCommandPolicy {
         """\b(start|enable|turn on|switch on|khud se|automatically|automatic|shuru karo|chalu karo|on karo)\b""",
         RegexOption.IGNORE_CASE
     )
+    private val ultronDefenseTarget = Regex(
+        """\bultron\b.*\b(?:auto[- ]?defen[cs]e|defen[cs]e|abusive|abuse|harass|gaali)\b|\b(?:auto[- ]?defen[cs]e|defen[cs]e)\b.*\bultron\b""",
+        RegexOption.IGNORE_CASE
+    )
+    private val personaPattern = Regex(
+        """\b(hope|friday|e\.?\s*d\.?\s*i\.?\s*t\.?\s*h\.?|ultron)\b""",
+        RegexOption.IGNORE_CASE
+    )
+    private val personaActionPattern = Regex(
+        """\b(?:activate|select|set|switch|change|handle|active|wapas|waapas|use|karne\s+ke\s+liye|bana\s+do|kar\s+do)\b""",
+        RegexOption.IGNORE_CASE
+    )
+    private val countStatusPattern = Regex(
+        """\b(?:kitni\s+baar|how many times|count|history)\b""",
+        RegexOption.IGNORE_CASE
+    )
 
-    fun detect(text: String): WhatsAppAutoReplyCommand? {
+    fun detect(text: String): WhatsAppAutoReplyCommand? =
+        detectInstruction(text)?.command
+
+    fun detectInstruction(text: String): WhatsAppAutoReplyInstruction? {
+        if (ultronDefenseTarget.containsMatchIn(text)) {
+            val command = when {
+                statusPattern.containsMatchIn(text) || countStatusPattern.containsMatchIn(text) ->
+                    WhatsAppAutoReplyCommand.ULTRON_DEFENSE_STATUS
+                stopPattern.containsMatchIn(text) ->
+                    WhatsAppAutoReplyCommand.DISABLE_ULTRON_DEFENSE
+                startPattern.containsMatchIn(text) ||
+                    Regex("""\b(?:abusive|abuse|harass|gaali)\b""", RegexOption.IGNORE_CASE).containsMatchIn(text) ->
+                    WhatsAppAutoReplyCommand.ENABLE_ULTRON_DEFENSE
+                else -> return null
+            }
+            return WhatsAppAutoReplyInstruction(command)
+        }
+
         if (!targetPattern.containsMatchIn(text)) return null
-        return when {
+        val persona = personaPattern.findAll(text).lastOrNull()
+        if (persona != null && personaActionPattern.containsMatchIn(text)) {
+            val personaId = when (persona.value.replace(Regex("""[.\s]"""), "").lowercase()) {
+                "hope" -> com.jarvis.assistant.ai.PersonaEngine.HOPE
+                "friday" -> com.jarvis.assistant.ai.PersonaEngine.FRIDAY
+                "edith" -> com.jarvis.assistant.ai.PersonaEngine.EDITH
+                "ultron" -> com.jarvis.assistant.ai.PersonaEngine.ULTRON
+                else -> return null
+            }
+            return WhatsAppAutoReplyInstruction(
+                WhatsAppAutoReplyCommand.SELECT_PERSONA,
+                personaId
+            )
+        }
+        val command = when {
             statusPattern.containsMatchIn(text) -> WhatsAppAutoReplyCommand.STATUS
             stopPattern.containsMatchIn(text) -> WhatsAppAutoReplyCommand.STOP
             startPattern.containsMatchIn(text) -> WhatsAppAutoReplyCommand.START
-            else -> null
+            else -> return null
         }
+        return WhatsAppAutoReplyInstruction(command)
     }
 }
 
@@ -51,8 +107,15 @@ object WhatsAppAutoReplyControl {
     private const val WHATSAPP_BUSINESS = "com.whatsapp.w4b"
 
     fun execute(context: Context, command: WhatsAppAutoReplyCommand): WhatsAppAutoReplyCommandResult {
+        return execute(context, WhatsAppAutoReplyInstruction(command))
+    }
+
+    fun execute(
+        context: Context,
+        instruction: WhatsAppAutoReplyInstruction
+    ): WhatsAppAutoReplyCommandResult {
         val appContext = context.applicationContext
-        return when (command) {
+        return when (instruction.command) {
             WhatsAppAutoReplyCommand.STOP -> {
                 AutoReplyPreferences.setAppEnabled(
                     appContext,
@@ -60,6 +123,7 @@ object WhatsAppAutoReplyControl {
                     false
                 )
                 AutoReplyCoordinator.cancelPendingWhatsAppReplies()
+                AutoReplyPreferences.clearUltronDefenseSessions(appContext)
                 log(appContext, "WhatsApp auto-reply disabled by user command.")
                 WhatsAppAutoReplyCommandResult(
                     true,
@@ -68,6 +132,10 @@ object WhatsAppAutoReplyControl {
             }
             WhatsAppAutoReplyCommand.STATUS -> status(appContext)
             WhatsAppAutoReplyCommand.START -> start(appContext)
+            WhatsAppAutoReplyCommand.SELECT_PERSONA -> selectPersona(appContext, instruction.personaId)
+            WhatsAppAutoReplyCommand.ENABLE_ULTRON_DEFENSE -> setUltronDefense(appContext, enabled = true)
+            WhatsAppAutoReplyCommand.DISABLE_ULTRON_DEFENSE -> setUltronDefense(appContext, enabled = false)
+            WhatsAppAutoReplyCommand.ULTRON_DEFENSE_STATUS -> ultronDefenseStatus(appContext)
         }
     }
 
@@ -117,11 +185,10 @@ object WhatsAppAutoReplyControl {
                 it.action == NotificationRuleAction.AUTHORIZED_AUTO_REPLY &&
                 (it.packageName == "*" || it.packageName.equals(configuredPackage, ignoreCase = true))
         }
-        if (NotificationIntelligenceStore.aiRepliesEnabled(context) &&
-            preferences.aiMode == AiMode.ONLINE &&
-            preferences.apiKey.isBlank() &&
-            (useSmartMode || authorizedRules.any { it.template.isBlank() })
-        ) {
+        val requiresAiGeneration = useSmartMode ||
+            (NotificationIntelligenceStore.aiRepliesEnabled(context) &&
+                authorizedRules.any { it.template.isBlank() })
+        if (requiresAiGeneration && preferences.apiKey.isBlank()) {
             return blocked("AI replies are enabled but no Gemini API key is configured. Add the key in AI settings or use a saved reply template.")
         }
 
@@ -143,7 +210,14 @@ object WhatsAppAutoReplyControl {
             }
             AutoReplyPreferences.setAppEnabled(context, AutoReplyCoordinator.WHATSAPP_SETTING_KEY, true)
             NotificationIntelligenceStore.setMasterEnabled(context, true)
-            if (useSmartMode) SmartAutoReply.enable(context)
+            if (useSmartMode) {
+                NotificationIntelligenceStore.setAiRepliesEnabled(context, true)
+                NotificationIntelligenceStore.setPaused(context, false)
+                packages.forEach {
+                    NotificationIntelligenceStore.setAppReadingEnabled(context, it, true)
+                }
+                AutoReplyPreferences.setSmartModeEnabled(context, true)
+            }
         } catch (error: Exception) {
             return blocked("HOPE could not save the WhatsApp auto-reply settings: ${error.message ?: "storage error"}.")
         }
@@ -153,6 +227,63 @@ object WhatsAppAutoReplyControl {
             "WhatsApp auto-reply is on for ${AutoReplyCoordinator.appName(configuredPackage)}. It will reply only when an incoming notification contains a supported inline reply action and all safety rules allow it. Delivery cannot be confirmed by HOPE."
         )
     }
+
+    private fun selectPersona(context: Context, personaId: String?): WhatsAppAutoReplyCommandResult {
+        val requested = personaId?.let { requestedId ->
+            com.jarvis.assistant.ai.PersonaEngine.profiles.firstOrNull {
+                it.id.equals(requestedId.trim(), ignoreCase = true)
+            }
+        }
+            ?: return blocked("Choose HOPE, FRIDAY, E.D.I.T.H., or ULTRON for the WhatsApp agent.")
+        return try {
+            AutoReplyPreferences.setSelectedPersona(context, requested.id)
+            log(context, "WhatsApp reply persona changed to ${requested.identityName}.")
+            WhatsAppAutoReplyCommandResult(
+                true,
+                "${requested.identityName} is now the selected WhatsApp reply persona. Other app personas are unchanged."
+            )
+        } catch (error: Exception) {
+            blocked("Could not save the WhatsApp persona: ${error.message ?: "settings unavailable"}.")
+        }
+    }
+
+    private fun setUltronDefense(context: Context, enabled: Boolean): WhatsAppAutoReplyCommandResult {
+        if (enabled && (
+                !AutoReplyPreferences.isSmartModeEnabled(context) ||
+                    !NotificationIntelligenceStore.isMasterEnabled(context) ||
+                    !PermissionHelper.isNotificationListenerEnabled(context) ||
+                    !NotificationIntelligenceStore.isListenerConnected(context) ||
+                    !AutoReplyPreferences.isAppEnabled(context, AutoReplyCoordinator.WHATSAPP_SETTING_KEY)
+                )
+        ) {
+            return blocked(
+                "Enable WhatsApp Smart Auto-Reply and connect HOPE Notification Access before enabling ULTRON Auto-Defense."
+            )
+        }
+        return try {
+            AutoReplyPreferences.setUltronAutoDefenseEnabled(context, enabled)
+            log(
+                context,
+                if (enabled) "ULTRON Auto-Defense enabled for WhatsApp." else "ULTRON Auto-Defense disabled by user."
+            )
+            WhatsAppAutoReplyCommandResult(
+                true,
+                if (enabled) {
+                    "ULTRON Auto-Defense is on for WhatsApp only. It activates only after high-confidence contextual abuse detection, and the original persona remains selected globally."
+                } else {
+                    "ULTRON Auto-Defense is off. Active defense sessions were cleared."
+                }
+            )
+        } catch (error: Exception) {
+            blocked("Could not update ULTRON Auto-Defense: ${error.message ?: "settings unavailable"}.")
+        }
+    }
+
+    private fun ultronDefenseStatus(context: Context): WhatsAppAutoReplyCommandResult =
+        WhatsAppAutoReplyCommandResult(
+            true,
+            "ULTRON Auto-Defense is ${if (AutoReplyPreferences.isUltronAutoDefenseEnabled(context)) "on" else "off"} for WhatsApp. Timeout: ${AutoReplyPreferences.ultronDefenseTimeoutMinutes(context)} minutes. It never changes the globally selected persona."
+        )
 
     private fun status(context: Context): WhatsAppAutoReplyCommandResult {
         val installedPackages = installedWhatsAppPackages(context)

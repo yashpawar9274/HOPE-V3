@@ -88,9 +88,22 @@ object MeetingModeLogic {
         customPrompt: String,
         callerName: String,
         language: String,
-        allowRepeated: Boolean
+        allowRepeated: Boolean,
+        assistantName: String = ASSISTANT_NAME,
+        personaInstructions: String = ""
     ): String {
         val owner = ownerLabel(ownerName)
+        val activeName = assistantName.trim().takeIf { it.isNotBlank() && it.length <= 40 } ?: ASSISTANT_NAME
+        val identityDescription = if (activeName.equals(ASSISTANT_NAME, ignoreCase = true)) {
+            "$activeName, the personal AI assistant of $owner"
+        } else {
+            "$activeName, an AI persona of HOPE assisting $owner"
+        }
+        val identityAnswer = if (activeName.equals(ASSISTANT_NAME, ignoreCase = true)) {
+            "$activeName, $owner's AI assistant"
+        } else {
+            "$activeName, HOPE's AI persona"
+        }
         val languageRule = when (language) {
             "English" -> "Write in English."
             "Hindi" -> "Write in Hindi (Devanagari script)."
@@ -98,11 +111,16 @@ object MeetingModeLogic {
             else -> "Write in Hinglish (Hindi in Roman letters) unless the owner's instructions say otherwise."
         }
         return buildString {
-            append("You are HOPE, a woman and the personal AI assistant of $owner. ")
+            append("You are $identityDescription. ")
+            if (personaInstructions.isNotBlank()) {
+                append("Follow this active persona profile for identity and behavior:\n")
+                append(personaInstructions.take(2_000))
+                append('\n')
+            }
             append("${situationContext(ownerName, situation, untilText, false)} ")
             append("$owner could not take a call from ${callerName.ifBlank { "this number" }}, so you are sending them ONE short SMS from $owner's phone.\n")
             append("Rules:\n")
-            append("1. Say you are $ASSISTANT_NAME, $owner's assistant, and that $owner is ${situation.phrase} so could not pick up.\n")
+            append("1. Say you are $identityAnswer, and that $owner is ${situation.phrase} so could not pick up.\n")
             append("2. Ask who is calling and what it is about, and tell them they can reply here and you will pass the message on.\n")
             if (allowRepeated) append("3. If it is urgent they can call again within 5 minutes and it will ring.\n")
             append("4. You are female: use feminine forms about yourself in Hindi/Hinglish (\"kar rahi hoon\", \"bata dungi\").\n")
@@ -115,9 +133,19 @@ object MeetingModeLogic {
     }
 
     /** Used only if the AI service is not reachable at the moment the call is declined. */
-    fun fallbackCallerSms(ownerName: String, situation: Situation): String {
+    fun fallbackCallerSms(
+        ownerName: String,
+        situation: Situation,
+        assistantName: String = ASSISTANT_NAME
+    ): String {
         val owner = ownerLabel(ownerName)
-        return "Namaste, main $ASSISTANT_NAME hoon, $owner ki AI assistant. $owner abhi ${situation.hinglish}, isliye aapka call nahi utha paye. " +
+        val identity = assistantName.trim().takeIf { it.isNotBlank() && it.length <= 40 } ?: ASSISTANT_NAME
+        val introduction = if (identity.equals(ASSISTANT_NAME, ignoreCase = true)) {
+            "Namaste, main $identity hoon, $owner ki AI assistant."
+        } else {
+            "Namaste, main $identity hoon, HOPE ki AI persona."
+        }
+        return "$introduction $owner abhi ${situation.hinglish}, isliye aapka call nahi utha paye. " +
             "Aap yahin message karke bata dijiye kya kaam hai, main unhe bata dungi."
     }
 

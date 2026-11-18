@@ -22,6 +22,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import com.jarvis.assistant.R
+import com.jarvis.assistant.ai.PersonaEngine
 import com.jarvis.assistant.autoreply.AutoReplyCoordinator
 import com.jarvis.assistant.autoreply.AutoReplyPreferences
 import com.jarvis.assistant.autoreply.AutoReplyPolicy
@@ -43,6 +44,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
     private lateinit var serviceStatus: TextView
     private lateinit var notificationStatus: TextView
     private lateinit var replyStatus: TextView
+    private lateinit var lastReplyStatus: TextView
     private lateinit var dashboardSummary: TextView
     private lateinit var dashboardStats: TextView
     private lateinit var dashboardActivity: TextView
@@ -116,8 +118,113 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             }
         }
         replyStatus = addText("", 13f, bold = true)
+        addText("LAST AUTO-REPLY RESULT", 12f, bold = true)
+        lastReplyStatus = addText("", 13f)
 
         addText("SMART REPLY OPTIONS", 12f, bold = true)
+        addButton(
+            "Reply persona: ${PersonaEngine.profileFor(AutoReplyPreferences.selectedPersonaId(this)).displayName}"
+        ) { chooseReplyPersona() }
+        addText(
+            "Persona changes reply style only. Core Behaviour rules, safety checks, approvals, and Android permissions still apply.",
+            12f
+        )
+        addSettingSwitch(
+            "ULTRON Auto-Defense",
+            "Off by default. When enabled, contextual AI classification can temporarily use ULTRON in WhatsApp only. Replies challenge hostile conduct without personal attacks, threats, or slurs; the global persona is never changed.",
+            AutoReplyPreferences.isUltronAutoDefenseEnabled(this)
+        ) { enabled ->
+            if (enabled) {
+                check(SmartAutoReply.isEnabled(this)) {
+                    "Turn on WhatsApp Smart Auto-Reply before enabling ULTRON Auto-Defense."
+                }
+                check(
+                    NotificationIntelligenceStore.isMasterEnabled(this) &&
+                        PermissionHelper.isNotificationListenerEnabled(this) &&
+                        NotificationIntelligenceStore.isListenerConnected(this) &&
+                        AutoReplyPreferences.isAppEnabled(
+                            this,
+                            AutoReplyCoordinator.WHATSAPP_SETTING_KEY
+                        ) &&
+                        NotificationIntelligenceStore.isReadingEnabled(this) &&
+                        (
+                            NotificationIntelligenceStore.isAppReadingEnabled(this, "com.whatsapp") ||
+                                NotificationIntelligenceStore.isAppReadingEnabled(this, "com.whatsapp.w4b")
+                            )
+                ) {
+                    "Enable WhatsApp notification reading and connect Notification Access first."
+                }
+            }
+            AutoReplyPreferences.setUltronAutoDefenseEnabled(this, enabled)
+            NotificationIntelligenceStore.addExecutionLog(
+                this,
+                if (enabled) "ULTRON Auto-Defense enabled for WhatsApp." else "ULTRON Auto-Defense disabled by user."
+            )
+        }
+        addButton(
+            "Defense session timeout: ${AutoReplyPreferences.ultronDefenseTimeoutMinutes(this)} minutes"
+        ) { chooseUltronDefenseTimeout() }
+        addButton(
+            "Abuse detection sensitivity: ${ultronDefenseSensitivityLabel()}"
+        ) { chooseUltronDefenseSensitivity() }
+        addText(
+            "Auto-Defense fails closed if classification is unclear. It sends recent message context to your configured AI service for classification. Only a hashed conversation key, persona, and timestamps are stored for defense sessions; each takeover expires automatically.",
+            12f
+        )
+        addText("SOCIAL INTELLIGENCE", 12f, bold = true)
+        addSettingSwitch(
+            "Social intelligence",
+            "Classify intent, detect owner-review needs, and avoid unnecessary replies. Safety and privacy checks remain active when this is off.",
+            AutoReplyPreferences.socialIntelligenceEnabled(this)
+        ) { enabled -> AutoReplyPreferences.setSocialIntelligenceEnabled(this, enabled) }
+        addSettingSwitch(
+            "Professional communication",
+            "Keep replies concise, respectful, transparent, and appropriate to the conversation.",
+            AutoReplyPreferences.professionalCommunicationEnabled(this)
+        ) { enabled -> AutoReplyPreferences.setProfessionalCommunicationEnabled(this, enabled) }
+        addSettingSwitch(
+            "Emotional context detection",
+            "Adapt briefly to frustration, impatience, or disinterest without arguing or sending follow-ups.",
+            AutoReplyPreferences.emotionalContextEnabled(this)
+        ) { enabled -> AutoReplyPreferences.setEmotionalContextEnabled(this, enabled) }
+        addSettingSwitch(
+            "Conversation ending detection",
+            "Stop replying to thanks, goodbyes, answered questions, and contacts who asked not to receive unnecessary messages.",
+            AutoReplyPreferences.conversationEndingEnabled(this)
+        ) { enabled -> AutoReplyPreferences.setConversationEndingEnabled(this, enabled) }
+        addSettingSwitch(
+            "Automatic escalation to Yash",
+            "Privately notify Yash about career, meeting, sensitive, or owner-decision requests before any holding reply.",
+            AutoReplyPreferences.automaticEscalationEnabled(this)
+        ) { enabled -> AutoReplyPreferences.setAutomaticEscalationEnabled(this, enabled) }
+        addSettingSwitch(
+            "Human review required",
+            "When on, keep review-required requests unanswered; when off, only send a safe holding reply after private escalation succeeds.",
+            AutoReplyPreferences.humanReviewRequired(this)
+        ) { enabled -> AutoReplyPreferences.setHumanReviewRequired(this, enabled) }
+        addText(
+            "Sensitive-content detection is always enforced. Per-contact approval is configured in Contact-Specific Profiles below; contact-priority ranking is not available yet.",
+            12f
+        )
+        addButton("Reset stopped conversations") {
+            AlertDialog.Builder(this)
+                .setTitle("Resume stopped conversations?")
+                .setMessage("HOPE will clear saved stop-contact boundaries. This does not change exclusions or auto-reply permissions.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Reset") { _, _ ->
+                    try {
+                        AutoReplyPreferences.clearBoundaryPauses(this)
+                        Toast.makeText(this, "Saved conversation boundaries cleared.", Toast.LENGTH_SHORT).show()
+                    } catch (error: Exception) {
+                        Toast.makeText(
+                            this,
+                            error.message ?: "Could not reset conversation boundaries.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+                .show()
+        }
         addButton("Reply language: ${NotificationIntelligenceStore.replyLanguage(this)}") { chooseReplyLanguage() }
         addButton("Reply delay: ${NotificationIntelligenceStore.replyDelaySeconds(this)} seconds") { editReplyDelay() }
         addButton("Daily reply limit: ${NotificationIntelligenceStore.dailyReplyLimit(this)}") { editDailyLimit() }
@@ -134,7 +241,10 @@ class AutoReplySettingsActivity : AppCompatActivity() {
             "AI Auto Reply master switch",
             "Emergency OFF for every automatic send. Smart Auto-Reply turns this on for you.",
             NotificationIntelligenceStore.isMasterEnabled(this)
-        ) { enabled -> NotificationIntelligenceStore.setMasterEnabled(this, enabled) }
+        ) { enabled ->
+            NotificationIntelligenceStore.setMasterEnabled(this, enabled)
+            if (!enabled) AutoReplyPreferences.clearUltronDefenseSessions(this)
+        }
         addSettingSwitch(
             "Read Notifications",
             "Notification monitoring, globally. Individual apps are in Per-app notification controls.",
@@ -302,7 +412,7 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         head.addView(toggle)
         card.addView(head, matchWidth())
         card.addView(TextView(this).apply {
-            text = "When someone messages you — \u201cHi\u201d, \u201cHello\u201d, \u201cKya karu\u201d or anything else — HOPE reads it, understands what they want and replies by itself, introducing itself as HOPE, your assistant. Works with the screen off while the internet is on."
+            text = "HOPE reads supported message notifications and replies only when useful. It does not introduce itself unless asked, holds personal, career, meeting, and sensitive requests, and privately notifies Yash when escalation is enabled. Works only with Android's granted notification access and supported quick-reply actions."
             textSize = 13f
             setTextColor(themeColor(R.attr.themeTextSecondary))
             setPadding(0, dp(12), 0, 0)
@@ -345,6 +455,97 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         refreshDashboard()
     }
 
+    private fun chooseReplyPersona() {
+        val personas = PersonaEngine.profiles
+        val selectedId = AutoReplyPreferences.selectedPersonaId(this)
+        var selectedIndex = personas.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("WhatsApp reply persona")
+            .setSingleChoiceItems(personas.map { it.displayName }.toTypedArray(), selectedIndex) { _, which ->
+                selectedIndex = which
+            }
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                try {
+                    AutoReplyPreferences.setSelectedPersona(this, personas[selectedIndex].id)
+                    recreate()
+                } catch (error: Exception) {
+                    Toast.makeText(
+                        this,
+                        error.message ?: "Could not save the WhatsApp persona.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .show()
+    }
+
+    private fun chooseUltronDefenseTimeout() {
+        val options = listOf(5, 15, 30, 60)
+        var selected = options.indexOf(AutoReplyPreferences.ultronDefenseTimeoutMinutes(this))
+            .coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("ULTRON defense timeout")
+            .setSingleChoiceItems(options.map { "$it minutes" }.toTypedArray(), selected) { _, which ->
+                selected = which
+            }
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                try {
+                    AutoReplyPreferences.setUltronDefenseTimeoutMinutes(this, options[selected])
+                    recreate()
+                } catch (error: Exception) {
+                    Toast.makeText(
+                        this,
+                        error.message ?: "Could not save the defense timeout.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .show()
+    }
+
+    private fun chooseUltronDefenseSensitivity() {
+        val options = listOf(
+            0.85 to "High (more sensitive)",
+            0.9 to "Balanced",
+            0.95 to "Conservative (fewer takeovers)"
+        )
+        val current = AutoReplyPreferences.ultronDefenseConfidenceThreshold(this)
+        var selected = options.indices.minBy { kotlin.math.abs(options[it].first - current) }
+        AlertDialog.Builder(this)
+            .setTitle("Abuse detection sensitivity")
+            .setSingleChoiceItems(options.map { it.second }.toTypedArray(), selected) { _, which ->
+                selected = which
+            }
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                try {
+                    AutoReplyPreferences.setUltronDefenseConfidenceThreshold(
+                        this,
+                        options[selected].first
+                    )
+                    recreate()
+                } catch (error: Exception) {
+                    Toast.makeText(
+                        this,
+                        error.message ?: "Could not save detection sensitivity.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .show()
+    }
+
+    private fun ultronDefenseSensitivityLabel(): String {
+        val threshold = AutoReplyPreferences.ultronDefenseConfidenceThreshold(this)
+        return when {
+            threshold < 0.875 -> "High"
+            threshold < 0.925 -> "Balanced"
+            else -> "Conservative"
+        }
+    }
+
     private fun refreshDashboard() {
         if (!::dashboardSummary.isInitialized) return
         val masterEnabled = NotificationIntelligenceStore.isMasterEnabled(this)
@@ -380,20 +581,28 @@ class AutoReplySettingsActivity : AppCompatActivity() {
                 this,
                 SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(Date())
             )
-            dashboardStats.text =
-                "Message records retained: ${supportedRecords.size} • Active chat labels (24h): $activeChats • " +
-                    "Reply actions submitted today: $submittedToday (delivery unconfirmed)"
-            dashboardActivity.text =
-                "Recent activity: ${NotificationIntelligenceStore.lastAutoReplyStatus(this)}\n" +
-                    "Reply tone: adaptive to context and contact preferences; text cues do not represent human feelings.\n" +
-                    "Review: sensitive/high-impact messages are not auto-sent. Suggest-only replies are unsent; " +
-                    "a separate approve/send queue is not currently available.\n" +
-                    "Notification quick reply: WhatsApp, Instagram Direct, and SMS where Android provides a reply action. " +
-                    "Telegram and Facebook Messenger are unsupported."
+            dashboardStats.text = getString(
+                R.string.auto_reply_dashboard_stats,
+                supportedRecords.size,
+                activeChats,
+                submittedToday
+            )
+            dashboardActivity.text = listOf(
+                getString(
+                    R.string.auto_reply_recent_activity,
+                    NotificationIntelligenceStore.lastAutoReplyStatus(this)
+                ),
+                getString(R.string.auto_reply_dashboard_tone),
+                getString(R.string.auto_reply_dashboard_review),
+                getString(R.string.auto_reply_dashboard_supported_apps)
+            ).joinToString("\n")
         } catch (error: Exception) {
             android.util.Log.e(TAG, "Could not refresh the auto-reply dashboard.", error)
-            dashboardStats.text = "Local dashboard metrics are unavailable: ${error.message ?: "storage error"}"
-            dashboardActivity.text = "No reply status can be confirmed until local notification storage is available."
+            dashboardStats.text = getString(
+                R.string.auto_reply_dashboard_unavailable,
+                error.message ?: getString(R.string.auto_reply_storage_error)
+            )
+            dashboardActivity.text = getString(R.string.auto_reply_dashboard_status_unavailable)
         }
     }
 
@@ -852,7 +1061,12 @@ class AutoReplySettingsActivity : AppCompatActivity() {
         val lastReceived = if (lastNotificationAt > 0L) {
             android.text.format.DateFormat.format("MMM d, HH:mm", lastNotificationAt)
         } else "none received"
-        serviceStatus.text = "${serviceStatus.text}\nLast notification: $lastReceived\n${HopeSpeech.status(this)}"
+        serviceStatus.text = getString(
+            R.string.auto_reply_service_status,
+            serviceStatus.text,
+            lastReceived,
+            HopeSpeech.status(this)
+        )
         val smart = AutoReplyPreferences.isSmartModeEnabled(this)
         val ready = enabled && masterEnabled && monitoringEnabled && monitoredAppCount > 0 && enabledApps > 0 && !paused
         replyStatus.text = when {
@@ -866,7 +1080,8 @@ class AutoReplySettingsActivity : AppCompatActivity() {
                 "Replies are paused: enable global monitoring and monitor the selected app in Per-app notification controls."
             paused -> "Replies are paused. Resume notification intelligence to continue."
             else -> "Rule-based auto-reply is ready for $enabledApps selected app(s). It still needs an enabled AUTHORIZED_AUTO_REPLY rule."
-        } + "\nLast auto-reply result: ${NotificationIntelligenceStore.lastAutoReplyStatus(this)}"
+        }
+        lastReplyStatus.text = NotificationIntelligenceStore.lastAutoReplyStatus(this)
         replyStatus.setTextColor(
             themeColor(if (ready || (smart && enabled)) R.attr.themeAccent else R.attr.themeTextMuted)
         )

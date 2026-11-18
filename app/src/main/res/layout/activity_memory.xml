@@ -170,6 +170,15 @@
                 android:textColor="?attr/themeAccent" />
         </LinearLayout>
 
+        <Button
+            android:id="@+id/btnCoreBehavior"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="CORE BEHAVIOUR INSTRUCTIONS"
+            android:textColor="?attr/themeAccent" />
+
         <!-- Search Input -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/tilSearch"

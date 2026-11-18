@@ -24,8 +24,12 @@ class CommandExecutor(
             // YouTube
             is JarvisCommand.PlayYouTube -> {
                 val resolvedSong = memoryManager.resolveSongQuery(command.query)
-                memoryManager.trackSongPlay(resolvedSong)
-                youtubeManager.playVideo(resolvedSong)
+                if (resolvedSong.isBlank()) {
+                    "I don't know your favorite song yet. What would you like to hear?"
+                } else {
+                    memoryManager.trackSongPlay(resolvedSong)
+                    youtubeManager.playVideo(resolvedSong)
+                }
             }
             is JarvisCommand.SearchYouTube -> youtubeManager.searchYouTube(command.query)
             is JarvisCommand.PauseMedia -> youtubeManager.pausePlayback()
@@ -77,6 +81,7 @@ class CommandExecutor(
             is JarvisCommand.RecallFavoriteSong -> memoryManager.getFavoriteSongResponse()
             is JarvisCommand.RecallRoutine -> memoryManager.getRoutineResponse()
             is JarvisCommand.StartWordSearch -> "Word Search is ready."
+            is JarvisCommand.DownloadSharedMedia -> "Opening the shared media download controls."
             is JarvisCommand.GoToBackground -> "Going to background."
         }
     }

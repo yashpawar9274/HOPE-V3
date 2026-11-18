@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/themeBg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <ImageButton
+            android:id="@+id/backButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_jarvis_icon_square"
+            android:contentDescription="Back"
+            android:rotation="180"
+            android:src="@drawable/ic_arrow_right"
+            app:tint="?attr/themeAccent" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Media download"
+            android:textColor="?attr/themeTextPrimary"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Share a direct HTTPS audio or video file link here. Streaming-platform pages and DRM-protected media are not downloaded."
+            android:textColor="?attr/themeTextMuted"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/linkInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:autofillHints=""
+            android:background="@drawable/bg_jarvis_card"
+            android:hint="Paste or share a direct media link"
+            android:inputType="textUri"
+            android:maxLength="4096"
+            android:maxLines="3"
+            android:minHeight="56dp"
+            android:padding="14dp"
+            android:textColor="?attr/themeTextPrimary"
+            android:textColorHint="?attr/themeTextMuted" />
+
+        <CheckBox
+            android:id="@+id/rightsConfirmation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:buttonTint="?attr/themeAccent"
+            android:text="I own this media or have permission to download/extract it."
+            android:textColor="?attr/themeTextPrimary"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/downloadVideoButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Download video" />
+
+        <Button
+            android:id="@+id/downloadAudioButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Get audio / song" />
+
+        <ProgressBar
+            android:id="@+id/downloadProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:layout_marginTop="16dp"
+            android:indeterminate="false"
+            android:max="100"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:accessibilityLiveRegion="polite"
+            android:text="Ready"
+            android:textColor="?attr/themeTextPrimary"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/shareMediaButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Share saved media"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/openSourceButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Open source link"
+            android:visibility="gone" />
+    </LinearLayout>
+</ScrollView>

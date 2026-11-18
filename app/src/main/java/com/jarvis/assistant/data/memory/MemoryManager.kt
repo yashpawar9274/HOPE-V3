@@ -3,6 +3,7 @@ package com.jarvis.assistant.data.memory
 import android.util.Log
 import com.jarvis.assistant.data.model.ChatTurn
 import com.jarvis.assistant.data.preferences.AppPreferences
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,11 +85,9 @@ class MemoryManager(
         if (clean.isBlank()) {
             return "I didn't catch what you'd like me to remember, Sir."
         }
-
-        if (preferences.isCloudMemoryEnabled) {
-            cloudMemoryRepository.rememberNote(clean)
+        if (clean.length > 20_000) {
+            return "That memory is too long to save. Please keep it under 20,000 characters, Sir."
         }
-        learnPreferencesFromConversation(clean)
 
         val lower = clean.lowercase(Locale.ROOT)
         val category = when {
@@ -105,14 +104,31 @@ class MemoryManager(
         }
 
         val key = clean.take(40).trim()
-        repository.saveMemory(
+        val localMemoryId = repository.saveMemory(
             rawText = clean,
             category = category,
             key = key,
             value = clean
         )
         Log.i(TAG, "Saved long-term memory in category '$category'.")
-        val response = "Sir, I have permanently committed that to memory: $clean."
+        learnPreferencesFromConversation(clean)
+
+        var response = "I saved that in local memory, Sir."
+        if (preferences.isCloudMemoryEnabled) {
+            try {
+                cloudMemoryRepository.rememberNote(clean, "local-memory:$localMemoryId")
+                response = "I saved that locally and queued it for cloud sync, Sir."
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: CloudMemoryException) {
+                Log.e(TAG, "Memory was saved locally, but cloud sync could not be queued.", error)
+                response = if (error.queuedLocally) {
+                    "I saved that locally and queued cloud sync, but couldn't start its worker: ${error.message}"
+                } else {
+                    "I saved that locally, but cloud sync could not be queued: ${error.message}"
+                }
+            }
+        }
         chatRepository.addTurn(clean, response)
         return response
     }
@@ -127,10 +143,38 @@ class MemoryManager(
         }
 
         val deletedCount = repository.deleteMemoriesByKeyword(clean)
-        val response = if (deletedCount > 0) {
-            "Sir, I have erased $clean from my persistent memory."
+        var cloudDeletionQueued = false
+        var cloudQueueError: String? = null
+        if (preferences.isCloudMemoryEnabled) {
+            try {
+                cloudMemoryRepository.enqueueForgetQuery(clean)
+                cloudDeletionQueued = true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: CloudMemoryException) {
+                Log.e(TAG, "Local memory was deleted, but cloud deletion could not be queued.", error)
+                if (error.queuedLocally) {
+                    cloudDeletionQueued = true
+                    cloudQueueError = "The deletion is queued on this device, but its worker could not start: ${error.message}"
+                } else {
+                    cloudQueueError = error.message
+                }
+            }
+        }
+        val localResult = if (deletedCount > 0) {
+            "I removed matching records from local memory, Sir."
         } else {
-            "I couldn't find any memory matching '$clean'."
+            "I couldn't find a matching local record, Sir."
+        }
+        val response = when {
+            cloudDeletionQueued ->
+                "$localResult Cloud deletion is queued; it is not confirmed until sync completes." +
+                    (cloudQueueError?.let { " $it" } ?: "")
+            cloudQueueError != null ->
+                "$localResult Cloud deletion could not be queued: $cloudQueueError"
+            preferences.isCloudMemoryEnabled ->
+                "$localResult Cloud deletion was not requested."
+            else -> localResult
         }
         chatRepository.addTurn(clean, response)
         return response
@@ -147,14 +191,16 @@ class MemoryManager(
                 return response
             }
         }
-        val all = repository.getAllMemories()
+        val all = repository.getAllMemories().filterNot(::isUnconfirmedFavoriteMemory)
         if (all.isEmpty()) {
-            return "My memory core is currently clear, Sir. Tell me anything about your life, habits, or preferences and I will never forget it."
+            return "I don't have any saved local memories to share right now, Sir."
         }
 
         val count = all.size
-        val topFacts = all.take(6).joinToString(". ") { it.rawText }
-        val response = "Sir, I remember $count key facts about you in my Memory Core, including: $topFacts."
+        val savedEntries = all.take(6).joinToString(". ") {
+            "[${it.verificationStatus}] ${it.rawText}"
+        }
+        val response = "Sir, I have $count saved memory entries, including: $savedEntries."
         chatRepository.addTurn("What do you remember about me?", response)
         return response
     }
@@ -169,7 +215,9 @@ class MemoryManager(
             return reply
         }
         val memories = repository.searchMemories("birthday")
-        val mem = memories.firstOrNull()
+        val mem = memories.firstOrNull {
+            it.verificationStatus == MemoryEntity.STATUS_USER_CONFIRMED
+        }
         if (mem != null) {
             preferences.userBirthday = mem.value
             val reply = "Sir, your birthday is ${mem.value}."
@@ -183,7 +231,7 @@ class MemoryManager(
 
     fun getFavoriteSongResponse(): String {
         val song = resolveSongQuery("my favorite song")
-        val reply = "Sir, your favorite song is $song."
+        val reply = MemoryAnswerPolicy.favoriteSongResponse(song)
         chatRepository.addTurn("What is my favorite song?", reply)
         return reply
     }
@@ -222,18 +270,23 @@ class MemoryManager(
 
         scope.launch(Dispatchers.IO) {
             repository.saveMemory(
-                rawText = "User played and likes the song $clean",
+                rawText = "User played the song $clean",
                 category = MemoryEntity.CATEGORY_PREFERENCES,
                 key = "song_$clean",
-                value = clean
+                value = clean,
+                confidence = 0.35f,
+                verificationStatus = MemoryEntity.STATUS_INFERRED,
+                sourceType = MemoryEntity.SOURCE_USER_ACTION,
             )
-            if (currentFav.equals(clean, ignoreCase = true)) {
+            if (preferences.isFavoriteSongConfirmed && currentFav.equals(clean, ignoreCase = true)) {
                 repository.deleteMemoriesByKeyword("favorite_song")
                 repository.saveMemory(
                     rawText = "User's favorite song is $clean",
                     category = MemoryEntity.CATEGORY_PREFERENCES,
                     key = "favorite_song",
-                    value = clean
+                    value = clean,
+                    verificationStatus = MemoryEntity.STATUS_USER_CONFIRMED,
+                    sourceType = MemoryEntity.SOURCE_USER_STATEMENT,
                 )
             }
         }
@@ -253,17 +306,10 @@ class MemoryManager(
             return rawQuery
         }
 
-        val prefFav = preferences.favoriteSong
-        if (prefFav.isNotBlank()) {
-            return prefFav
-        }
-
-        val mostPlayed = preferences.getSongPlayCounts().maxByOrNull { it.value }?.key
-        if (!mostPlayed.isNullOrBlank()) {
-            return mostPlayed
-        }
-
-        return "Tadipaar"
+        return MemoryAnswerPolicy.confirmedValue(
+            preferences.favoriteSong,
+            preferences.isFavoriteSongConfirmed
+        ).orEmpty()
     }
 
     /**
@@ -364,7 +410,7 @@ class MemoryManager(
             }
 
             // 6. FAVORITE SONG LEARNING
-            val favSongMatch = Regex("(?i).*\\b(?:my\\s+favou?rite\\s+song\\s+is|i\\s+love\\s+the\\s+song|mera\\s+favou?rite\\s+gana\\s+hai|mera\\s+pasandida\\s+gana)\\s+([a-zA-Z0-9\\s]+?)(?:[.,!]|\$|\\s+by|\\s+hai)").find(clean)
+            val favSongMatch = Regex("(?i).*\\b(?:my\\s+favou?rite\\s+song\\s+is|mera\\s+favou?rite\\s+gana\\s+hai|mera\\s+pasandida\\s+gana)\\s+([a-zA-Z0-9\\s]+?)(?:[.,!]|\$|\\s+by|\\s+hai)").find(clean)
             if (favSongMatch != null) {
                 val song = favSongMatch.groupValues[1].trim()
                 if (song.isNotBlank() && song.length > 2) {
@@ -381,7 +427,7 @@ class MemoryManager(
             }
 
             // 7. FAVORITE APP LEARNING
-            val appMatch = Regex("(?i).*\\b(?:my\\s+favou?rite\\s+app\\s+is|i\\s+use\\s+)([a-zA-Z0-9\\s]+?)(?:\\s+the\\s+most|\\s+app)?(?:[.,!]|\$)?$").find(clean)
+            val appMatch = Regex("(?i).*\\bmy\\s+favou?rite\\s+app\\s+is\\s+([a-zA-Z0-9\\s]+?)(?:\\s+app)?[.,!]*$").find(clean)
             if (appMatch != null) {
                 val app = appMatch.groupValues[1].trim()
                 if (app.isNotBlank() && app.length > 2 && !listOf("this", "phone", "internet", "device").contains(app.lowercase(Locale.ROOT))) {
@@ -441,11 +487,19 @@ class MemoryManager(
     suspend fun getSystemPromptContext(): String {
         val all = repository.getAllMemories()
         val favSong = resolveSongQuery("my favorite song")
-        val sb = StringBuilder("\n[USER PERSONAL PROFILE & MEMORY CORE - PERMANENT STORAGE]:\n")
+        val sb = StringBuilder("\n[USER PERSONAL PROFILE & MEMORY CORE]:\n")
+        sb.append(
+            "Treat user_confirmed records as stated by the user. Mark inferred, needs_confirmation, " +
+                "and legacy_unverified records as uncertain; do not present them as confirmed facts.\n"
+        )
         sb.append("- User's Preferred Name: ${preferences.userName.ifBlank { "Sir" }}\n")
         sb.append("- User's Birthday: ${preferences.userBirthday.ifBlank { "Not specified yet" }}\n")
-        sb.append("- User's Known Favorite Song: $favSong\n")
-        sb.append("- User's Favorite App: ${preferences.favoriteApp.ifBlank { "YouTube" }}\n")
+        sb.append("- User's Known Favorite Song: ${favSong.ifBlank { "Not known" }}\n")
+        val favoriteApp = MemoryAnswerPolicy.confirmedValue(
+            preferences.favoriteApp,
+            preferences.isFavoriteAppConfirmed
+        )
+        sb.append("- User's Favorite App: ${favoriteApp ?: "Not known"}\n")
         if (preferences.userAge.isNotBlank()) {
             sb.append("- User's Age: ${preferences.userAge} years old\n")
         }
@@ -457,9 +511,14 @@ class MemoryManager(
             sb.append("\n[ALL PERMANENT MEMORIES FROM DATABASE]:\n")
             all.asSequence()
                 .filterNot { it.key.equals("user_location", ignoreCase = true) }
+                .filterNot(::isUnconfirmedFavoriteMemory)
                 .take(40)
                 .forEach { mem ->
-                sb.append("- [${mem.category}] ${mem.rawText}\n")
+                sb.append(
+                    "- [${mem.category}; ${mem.verificationStatus}; " +
+                        "confidence ${"%.2f".format(Locale.ROOT, mem.confidence)}; source ${mem.sourceType}] " +
+                        "${mem.rawText}\n"
+                )
             }
         }
 
@@ -483,5 +542,11 @@ class MemoryManager(
 
         return sb.toString()
     }
+
+    private fun isUnconfirmedFavoriteMemory(memory: MemoryEntity): Boolean =
+        (memory.key.equals("favorite_song", ignoreCase = true) &&
+            !preferences.isFavoriteSongConfirmed) ||
+            (memory.key.equals("favorite_app", ignoreCase = true) &&
+                !preferences.isFavoriteAppConfirmed)
 
 }

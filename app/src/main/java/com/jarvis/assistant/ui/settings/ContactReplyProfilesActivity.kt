@@ -260,15 +260,22 @@ class ContactReplyProfilesActivity : AppCompatActivity() {
         val dialog = builder.create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val app = application as JarvisApp
+                val persona = com.jarvis.assistant.ai.PersonaEngine.profileFor(
+                    com.jarvis.assistant.autoreply.AutoReplyPreferences.selectedPersonaId(app)
+                )
                 val preview = SmartReplyLogic.buildSystemInstruction(
-                    ownerName = (application as JarvisApp).preferences.userName,
+                    ownerName = app.preferences.userName,
                     language = language.selectedItem.toString(),
                     tone = tone.text.toString().trim(),
                     appName = com.jarvis.assistant.autoreply.AutoReplyCoordinator.appName(
                         contact.platformPackage
                     ),
                     intent = SmartReplyLogic.Intent.OTHER,
-                    contactInstructions = instructions.text.toString().trim()
+                    contactInstructions = instructions.text.toString().trim(),
+                    personality = persona.responseStyle,
+                    personaInstructions = com.jarvis.assistant.ai.PersonaEngine.promptFor(persona.id),
+                    assistantName = persona.identityName
                 )
                 AlertDialog.Builder(this)
                     .setTitle("Prompt preview")

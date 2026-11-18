@@ -49,7 +49,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Choose your companion personality"
+                android:text="Choose HOPE's response persona and voice"
                 android:textColor="?attr/themeTextMuted"
                 android:textSize="12sp"
                 android:fontFamily="sans-serif" />
@@ -103,7 +103,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="7dp"
-                        android:text="HOPE Pro · Charon"
+                        android:text="HOPE — JARVIS Inspired"
                         android:textColor="?attr/themeTextPrimary"
                         android:textSize="16sp"
                         android:textStyle="bold" />
@@ -119,7 +119,7 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 1. Jarvis Pro (Default) -->
+            <!-- HOPE is the default identity and response persona. -->
             <LinearLayout
                 android:id="@+id/cardPersonaJarvis"
                 android:layout_width="match_parent"
@@ -161,7 +161,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="HOPE Pro"
+                            android:text="HOPE — JARVIS Inspired"
                             android:textColor="?attr/themeTextPrimary"
                             android:textSize="16sp"
                             android:fontFamily="sans-serif-medium"
@@ -188,7 +188,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Intelligent, witty &amp; strategic AI assistant"
+                        android:text="Composed, professional, proactive, and dryly witty"
                         android:textColor="?attr/themeTextMuted"
                         android:textSize="12sp"
                         android:fontFamily="sans-serif"
@@ -203,7 +203,7 @@
                     android:focusable="false" />
             </LinearLayout>
 
-            <!-- 2. Girlfriend Mode (Pari) -->
+            <!-- FRIDAY -->
             <LinearLayout
                 android:id="@+id/cardPersonaGirlfriend"
                 android:layout_width="match_parent"
@@ -226,7 +226,7 @@
                         android:src="@drawable/ic_nav_chat"
                         app:tint="#EC4899"
                         android:padding="12dp"
-                        android:contentDescription="Girlfriend" />
+                        android:contentDescription="FRIDAY" />
                 </FrameLayout>
 
                 <LinearLayout
@@ -245,7 +245,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Girlfriend Mode (Pari)"
+                            android:text="FRIDAY"
                             android:textColor="?attr/themeTextPrimary"
                             android:textSize="16sp"
                             android:fontFamily="sans-serif-medium"
@@ -254,7 +254,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="SWEET"
+                            android:text="CONVERSATIONAL"
                             android:singleLine="true"
                             android:maxLines="1"
                             android:textColor="#EC4899"
@@ -272,7 +272,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Caring, warm, affectionate Hinglish companion"
+                        android:text="Confident, quick, friendly, and lightly playful"
                         android:textColor="?attr/themeTextMuted"
                         android:textSize="12sp"
                         android:fontFamily="sans-serif"
@@ -287,7 +287,7 @@
                     android:focusable="false" />
             </LinearLayout>
 
-            <!-- 3. Boyfriend Mode (Kabir) -->
+            <!-- E.D.I.T.H. -->
             <LinearLayout
                 android:id="@+id/cardPersonaBoyfriend"
                 android:layout_width="match_parent"
@@ -310,7 +310,7 @@
                         android:src="@drawable/ic_settings_shield"
                         app:tint="#3B82F6"
                         android:padding="12dp"
-                        android:contentDescription="Boyfriend" />
+                        android:contentDescription="E.D.I.T.H." />
                 </FrameLayout>
 
                 <LinearLayout
@@ -329,7 +329,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Boyfriend Mode (Kabir)"
+                            android:text="E.D.I.T.H."
                             android:textColor="?attr/themeTextPrimary"
                             android:textSize="16sp"
                             android:fontFamily="sans-serif-medium"
@@ -338,7 +338,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="CHARMING"
+                            android:text="STRATEGIC"
                             android:singleLine="true"
                             android:maxLines="1"
                             android:textColor="#3B82F6"
@@ -356,7 +356,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Charismatic, protective &amp; supportive partner"
+                        android:text="Precise situation analysis, tactical options, and risk assessment"
                         android:textColor="?attr/themeTextMuted"
                         android:textSize="12sp"
                         android:fontFamily="sans-serif"
@@ -371,7 +371,7 @@
                     android:focusable="false" />
             </LinearLayout>
 
-            <!-- 4. HOPE Neural Mode -->
+            <!-- ULTRON -->
             <LinearLayout
                 android:id="@+id/cardPersonaTechGpt"
                 android:layout_width="match_parent"
@@ -394,7 +394,7 @@
                         android:src="@drawable/ic_code_chip"
                         app:tint="#10B981"
                         android:padding="12dp"
-                        android:contentDescription="HOPE Neural Mode" />
+                        android:contentDescription="ULTRON" />
                 </FrameLayout>
 
                 <LinearLayout
@@ -413,7 +413,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="HOPE Neural Mode"
+                            android:text="ULTRON"
                             android:textColor="?attr/themeTextPrimary"
                             android:textSize="16sp"
                             android:fontFamily="sans-serif-medium"
@@ -422,7 +422,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="NEURAL CORE"
+                            android:text="ANALYTICAL"
                             android:singleLine="true"
                             android:maxLines="1"
                             android:textColor="#10B981"
@@ -440,7 +440,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Ultra-fast code architecture, research &amp; deep reasoning"
+                        android:text="Direct, dryly sarcastic, and logic-focused—not personally insulting"
                         android:textColor="?attr/themeTextMuted"
                         android:textSize="12sp"
                         android:fontFamily="sans-serif"
@@ -511,7 +511,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Voice Tone"
+                android:text="Persona-specific Gemini voice"
                 android:textColor="?attr/themeTextMuted"
                 android:textSize="13sp"
                 android:fontFamily="sans-serif-medium"
@@ -546,7 +546,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Expertise can adapt without changing your selected Gemini audio voice. Voice previews are not available in this app."
+                android:text="Each persona remembers its own selected Gemini voice. Voice previews and separate pitch/rate controls are not available in this app."
                 android:textColor="?attr/themeTextMuted"
                 android:textSize="12sp"
                 android:layout_marginBottom="24dp" />

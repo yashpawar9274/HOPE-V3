@@ -29,10 +29,15 @@ object NotificationIntelligenceProcessor {
         allowAutoReply: Boolean = true
     ) {
         val packageName = sbn.packageName
-        if (packageName == context.packageName ||
-            sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 ||
-            hasOutgoingLatestMessage(sbn.notification)
-        ) return
+        if (packageName == context.packageName) return
+        if (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) {
+            if (allowAutoReply) recordAutoReplySkip(context, packageName, "Skipped: grouped notification summary.")
+            return
+        }
+        if (hasOutgoingLatestMessage(sbn.notification)) {
+            if (allowAutoReply) recordAutoReplySkip(context, packageName, "Skipped: notification contains your outgoing message.")
+            return
+        }
 
         val (sender, message) = notificationContent(sbn.notification)
 
@@ -50,7 +55,12 @@ object NotificationIntelligenceProcessor {
             notificationKey = sbn.key
         )
 
-        if (NotificationIntelligenceStore.isPaused(context)) return
+        if (NotificationIntelligenceStore.isPaused(context)) {
+            if (allowAutoReply) {
+                recordAutoReplySkip(context, packageName, "Skipped: notification intelligence is paused.")
+            }
+            return
+        }
 
         val readingEnabled = NotificationIntelligenceStore.isReadingEnabled(context) &&
             NotificationIntelligenceStore.isAppReadingEnabled(context, packageName)
@@ -214,6 +224,20 @@ object NotificationIntelligenceProcessor {
         return if (NotificationIntelligenceStore.announcesMessageContent(context) && message.isNotBlank()) {
             "$greeting $message"
         } else greeting
+    }
+
+    private fun recordAutoReplySkip(context: Context, packageName: String, reason: String) {
+        if (!AutoReplyPreferences.isSmartModeEnabled(context) ||
+            !AutoReplyPolicy.isSupportedPackage(packageName, defaultSmsPackage(context))
+        ) return
+        try {
+            NotificationIntelligenceStore.setLastAutoReplyStatus(
+                context,
+                "${appName(context, packageName)} • $reason"
+            )
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not save an auto-reply skip reason.", error)
+        }
     }
 
     private fun queueAnnouncement(

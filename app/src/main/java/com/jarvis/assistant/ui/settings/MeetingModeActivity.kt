@@ -215,7 +215,7 @@ class MeetingModeActivity : AppCompatActivity() {
         root.addView(promptField, matchWidth())
         root.addView(
             label(
-                "Your instructions are added to HOPE's prompt for the SMS and for every reply while Meeting Mode is on. Max ${MeetingModeLogic.MAX_CUSTOM_PROMPT_CHARS} characters.",
+                "Your instructions are added to the selected persona's prompt for the SMS and for every reply while Meeting Mode is on. Max ${MeetingModeLogic.MAX_CUSTOM_PROMPT_CHARS} characters.",
                 12f,
                 muted = true
             ).apply { setPadding(dp(8), dp(6), dp(8), dp(6)) },

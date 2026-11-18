@@ -2,13 +2,18 @@ package com.jarvis.assistant.ui.settings
 
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,6 +25,7 @@ import com.jarvis.assistant.JarvisApp
 import com.jarvis.assistant.R
 import com.jarvis.assistant.data.model.GeminiConstants
 import com.jarvis.assistant.databinding.FragmentSettingsBinding
+import com.jarvis.assistant.media.MediaDownloadActivity
 import com.jarvis.assistant.ui.memory.MemoryActivity
 import com.jarvis.assistant.ui.permission.PermissionActivity
 import com.jarvis.assistant.ui.security.AppSecurityActivity
@@ -28,12 +34,35 @@ import com.jarvis.assistant.ui.voice.VoiceEnrollmentActivity
 import com.jarvis.assistant.util.AssistantRoleHelper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 class SettingsFragment : Fragment() {
 
     private var _binding: FragmentSettingsBinding? = null
     private val binding get() = _binding!!
     private val preferences by lazy { JarvisApp.instance.preferences }
+    private var selectedSettingsFilter = SettingsFilter.ALL
+    private var settingsSections: List<SettingsSection> = emptyList()
+
+    private enum class SettingsFilter(val label: String) {
+        ALL("All"),
+        AI_VOICE("AI & Voice"),
+        DEVICE("Device"),
+        AUTOMATION("Automation"),
+        SECURITY("Security")
+    }
+
+    private data class SettingEntry(
+        val view: View,
+        val categories: Set<SettingsFilter>,
+        val searchAliases: String = ""
+    )
+
+    private data class SettingsSection(
+        val heading: TextView,
+        val container: LinearLayout,
+        val entries: List<SettingEntry>
+    )
 
     private val assistantRoleRequest = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -62,6 +91,7 @@ class SettingsFragment : Fragment() {
 
         loadUserData()
         setupClickListeners()
+        setupSettingsBrowser()
     }
 
     override fun onResume() {
@@ -69,6 +99,8 @@ class SettingsFragment : Fragment() {
         if (_binding != null) {
             com.jarvis.assistant.util.ThemeManager.applyDynamicBackground(binding.root)
             loadUserData()
+            renderSettingsFilters()
+            applySettingsFilter()
         }
     }
 
@@ -78,6 +110,8 @@ class SettingsFragment : Fragment() {
             binding.root.visibility = View.VISIBLE
             com.jarvis.assistant.util.ThemeManager.applyDynamicBackground(binding.root)
             loadUserData()
+            renderSettingsFilters()
+            applySettingsFilter()
         } else if (hidden && _binding != null) {
             binding.root.visibility = View.GONE
         }
@@ -134,14 +168,7 @@ class SettingsFragment : Fragment() {
 
         // Model
         val modelDisplay = preferences.aiModel.removePrefix("models/")
-        binding.tvCurrentModel.text = "$modelDisplay • Live WebSocket"
-        val localModelStatus = if (JarvisApp.instance.gemmaModelManager.modelFile.isFile) {
-            "Gemma downloaded"
-        } else {
-            "Gemma not downloaded"
-        }
-        binding.tvAiRoutingSummary.text = "${preferences.aiMode.name.lowercase().replaceFirstChar { it.uppercase() }} • $localModelStatus"
-
+        binding.tvCurrentModel.text = "$modelDisplay • Online (internet required)"
         // Theme
         binding.tvCurrentTheme.text = when (preferences.appTheme) {
             "dark" -> "Dark Theme"
@@ -209,10 +236,6 @@ class SettingsFragment : Fragment() {
             startActivity(Intent(requireContext(), ApiConnectionActivity::class.java))
         }
 
-        binding.rowLocalAi.setOnClickListener {
-            startActivity(Intent(requireContext(), GemmaModelActivity::class.java))
-        }
-
         binding.rowMemory.setOnClickListener {
             startActivity(Intent(requireContext(), MemoryActivity::class.java))
         }
@@ -243,6 +266,10 @@ class SettingsFragment : Fragment() {
 
         binding.rowAutoReply.setOnClickListener {
             startActivity(Intent(requireContext(), AutoReplySettingsActivity::class.java))
+        }
+
+        binding.rowMediaDownload.setOnClickListener {
+            startActivity(Intent(requireContext(), MediaDownloadActivity::class.java))
         }
 
         binding.rowMeetingMode.setOnClickListener {
@@ -305,6 +332,184 @@ class SettingsFragment : Fragment() {
         binding.tvFooterCredit.setOnClickListener {
             openUrl("https://wa.me/+917385066631")
         }
+    }
+
+    private fun setupSettingsBrowser() {
+        val aiVoice = setOf(SettingsFilter.AI_VOICE)
+        val device = setOf(SettingsFilter.DEVICE)
+        val automation = setOf(SettingsFilter.AUTOMATION)
+        val security = setOf(SettingsFilter.SECURITY)
+        val deviceAndSecurity = setOf(SettingsFilter.DEVICE, SettingsFilter.SECURITY)
+        val deviceAndAutomation = setOf(SettingsFilter.DEVICE, SettingsFilter.AUTOMATION)
+
+        settingsSections = listOf(
+            SettingsSection(
+                binding.tvSectionVoice,
+                binding.containerVoiceSettings,
+                listOf(
+                    SettingEntry(binding.rowOwnerVoice, aiVoice, "owner voice biometrics enrollment"),
+                    SettingEntry(binding.rowSpeakerProfiles, aiVoice, "speaker recognition profiles"),
+                    SettingEntry(binding.rowLanguage, aiVoice, "conversation language hindi english"),
+                    SettingEntry(binding.rowPersonaVoice, aiVoice, "persona hope friday edith ultron voice"),
+                    SettingEntry(binding.rowSilentMode, aiVoice, "silent execution"),
+                    SettingEntry(binding.rowCriticalThinking, aiVoice, "critical thinking honesty")
+                )
+            ),
+            SettingsSection(
+                binding.tvSectionAiFeatures,
+                binding.containerAiFeatureSettings,
+                listOf(SettingEntry(binding.rowSmartClipboardSettings, aiVoice, "clipboard copy paste privacy"))
+            ),
+            SettingsSection(
+                binding.tvSectionSystem,
+                binding.containerSystemSettings,
+                listOf(
+                    SettingEntry(binding.rowApiConnection, aiVoice, "gemini api model key connection"),
+                    SettingEntry(binding.rowMemory, aiVoice, "neural memory cloud recall"),
+                    SettingEntry(binding.rowWordSearch, device, "word search puzzle game"),
+                    SettingEntry(binding.rowPermissions, deviceAndSecurity, "android permissions access authorization"),
+                    SettingEntry(binding.rowTimeManager, deviceAndAutomation, "calendar alarm timer reminders"),
+                    SettingEntry(binding.rowLocationAwareness, device, "location privacy"),
+                    SettingEntry(binding.rowOverlayAvatars, device, "floating avatar overlay"),
+                    SettingEntry(binding.rowApplications, automation, "app control hands free whatsapp youtube"),
+                    SettingEntry(binding.rowAutoReply, automation, "smart auto reply notification"),
+                    SettingEntry(binding.rowMediaDownload, automation, "authorized media downloader"),
+                    SettingEntry(binding.rowMeetingMode, automation, "decline calls meeting"),
+                    SettingEntry(binding.rowIncomingCall, automation, "incoming call announcement"),
+                    SettingEntry(binding.rowDefaultAssistant, automation, "android default assistant")
+                )
+            ),
+            SettingsSection(
+                binding.tvSectionSecurity,
+                binding.containerSecuritySettings,
+                listOf(
+                    SettingEntry(binding.rowAppTheme, security, "appearance colors orb theme"),
+                    SettingEntry(binding.rowAppLockSecurity, security, "app lock pin password biometrics"),
+                    SettingEntry(binding.rowPrivacyPolicy, security, "privacy data shield"),
+                    SettingEntry(binding.rowAppIdentity, security, "app identity integrity publisher certificate")
+                )
+            )
+        )
+
+        binding.etSettingsSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) {
+                applySettingsFilter()
+            }
+            override fun afterTextChanged(text: Editable?) = Unit
+        })
+        renderSettingsFilters()
+        applySettingsFilter()
+    }
+
+    private fun renderSettingsFilters() {
+        if (_binding == null || settingsSections.isEmpty()) return
+        val filters = binding.settingsFilters
+        filters.removeAllViews()
+        val entries = settingsSections.flatMap(SettingsSection::entries)
+        SettingsFilter.entries.forEach { filter ->
+            val count = if (filter == SettingsFilter.ALL) {
+                entries.size
+            } else {
+                entries.count { filter in it.categories }
+            }
+            val selected = selectedSettingsFilter == filter
+            filters.addView(TextView(requireContext()).apply {
+                text = "${filter.label}  $count"
+                textSize = 12f
+                minHeight = dp(42)
+                gravity = Gravity.CENTER
+                setPadding(dp(13), 0, dp(13), 0)
+                isClickable = true
+                isFocusable = true
+                contentDescription = "Show ${filter.label.lowercase()} settings, $count items"
+                background = if (selected) {
+                    GradientDrawable().apply {
+                        setColor(themeColor(R.attr.themeAccentLight))
+                        cornerRadius = dp(22).toFloat()
+                    }
+                } else {
+                    ContextCompat.getDrawable(requireContext(), R.drawable.bg_jarvis_card)
+                }
+                setTextColor(
+                    themeColor(
+                        if (selected) R.attr.themeAccent else R.attr.themeTextPrimary
+                    )
+                )
+                setOnClickListener {
+                    selectedSettingsFilter = filter
+                    renderSettingsFilters()
+                    applySettingsFilter()
+                }
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ).apply {
+                marginEnd = dp(8)
+            })
+        }
+    }
+
+    private fun applySettingsFilter() {
+        if (_binding == null || settingsSections.isEmpty()) return
+        val query = binding.etSettingsSearch.text.toString().trim().lowercase(Locale.ROOT)
+        var visibleCount = 0
+        settingsSections.forEach { section ->
+            section.entries.forEach { entry ->
+                val categoryMatches = selectedSettingsFilter == SettingsFilter.ALL ||
+                    selectedSettingsFilter in entry.categories
+                val searchableText = "${viewText(entry.view)} ${entry.searchAliases}"
+                    .lowercase(Locale.ROOT)
+                val queryMatches = query.isBlank() || searchableText.contains(query)
+                entry.view.visibility = if (categoryMatches && queryMatches) View.VISIBLE else View.GONE
+                if (entry.view.visibility == View.VISIBLE) visibleCount++
+            }
+            section.heading.visibility =
+                if (section.entries.any { it.view.visibility == View.VISIBLE }) View.VISIBLE else View.GONE
+            section.container.visibility =
+                if (section.heading.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+            updateSettingsDividers(section)
+        }
+        binding.tvSettingsEmpty.visibility = if (visibleCount == 0) View.VISIBLE else View.GONE
+        binding.tvSettingsEmpty.text = if (query.isBlank()) {
+            "No settings in this category."
+        } else {
+            "No settings match \"$query\"."
+        }
+    }
+
+    private fun updateSettingsDividers(section: SettingsSection) {
+        val rowViews = section.entries.map(SettingEntry::view)
+        for (index in 0 until section.container.childCount) {
+            val child = section.container.getChildAt(index)
+            if (child in rowViews) continue
+            val previousRow = (index - 1 downTo 0)
+                .map(section.container::getChildAt)
+                .firstOrNull { it in rowViews }
+            val nextRow = (index + 1 until section.container.childCount)
+                .map(section.container::getChildAt)
+                .firstOrNull { it in rowViews }
+            child.visibility = if (
+                previousRow?.visibility == View.VISIBLE &&
+                nextRow?.visibility == View.VISIBLE
+            ) View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun viewText(view: View): String = when (view) {
+        is TextView -> view.text.toString()
+        is ViewGroup -> buildString {
+            for (index in 0 until view.childCount) {
+                append(viewText(view.getChildAt(index))).append(' ')
+            }
+        }
+        else -> ""
+    }
+
+    private fun themeColor(attribute: Int): Int {
+        val value = android.util.TypedValue()
+        requireContext().theme.resolveAttribute(attribute, value, true)
+        return value.data
     }
 
     private fun dp(value: Int): Int =
@@ -420,6 +625,7 @@ class SettingsFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        settingsSections = emptyList()
         _binding = null
     }
 }
