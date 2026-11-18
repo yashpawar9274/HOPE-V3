@@ -24,6 +24,16 @@ interface MemoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMemory(memory: MemoryEntity): Long
 
+    @Query(
+        "SELECT id FROM memories WHERE category = :category " +
+            "AND rawText = :rawText COLLATE NOCASE ORDER BY timestamp DESC LIMIT 1"
+    )
+    suspend fun findDuplicateMemoryId(category: String, rawText: String): Long?
+
+    @Transaction
+    suspend fun insertMemoryIfAbsent(memory: MemoryEntity): Long =
+        findDuplicateMemoryId(memory.category, memory.rawText) ?: insertMemory(memory)
+
     @Update
     suspend fun updateMemory(memory: MemoryEntity)
 
@@ -33,7 +43,11 @@ interface MemoryDao {
     @Query("DELETE FROM memories WHERE id = :id")
     suspend fun deleteMemoryById(id: Long)
 
-    @Query("DELETE FROM memories WHERE rawText LIKE '%' || :keyword || '%' OR `key` LIKE '%' || :keyword || '%' OR `value` LIKE '%' || :keyword || '%'")
+    @Query(
+        "DELETE FROM memories WHERE rawText LIKE '%' || :keyword || '%' ESCAPE '\\' " +
+            "OR `key` LIKE '%' || :keyword || '%' ESCAPE '\\' " +
+            "OR `value` LIKE '%' || :keyword || '%' ESCAPE '\\'"
+    )
     suspend fun deleteMemoriesByKeyword(keyword: String): Int
 
     @Query("DELETE FROM memories")

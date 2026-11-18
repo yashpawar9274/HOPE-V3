@@ -13,7 +13,9 @@ import android.text.TextWatcher
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.setPadding
 import com.jarvis.assistant.JarvisApp
+import com.jarvis.assistant.ai.PersonaEngine
 import com.jarvis.assistant.ai.VoicePersonaRegistry
+import com.jarvis.assistant.background.JarvisConversationService
 import com.jarvis.assistant.data.model.GeminiConstants
 import com.jarvis.assistant.databinding.ActivityPersonaBinding
 import com.jarvis.assistant.util.ThemeManager
@@ -23,7 +25,8 @@ class PersonaActivity : AppCompatActivity() {
     private lateinit var binding: ActivityPersonaBinding
     private val preferences by lazy { JarvisApp.instance.preferences }
 
-    private var currentSelectedPersona = GeminiConstants.PERSONALITY_ASSISTANT
+    private var currentSelectedPersona = PersonaEngine.HOPE
+    private val voiceSelectionsByPersona = mutableMapOf<String, String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         ThemeManager.applyTheme(this)
@@ -44,19 +47,18 @@ class PersonaActivity : AppCompatActivity() {
     }
 
     private fun loadInitialState() {
-        val current = preferences.personality
-        val initialPersona = when (current) {
-            GeminiConstants.PERSONALITY_GIRLFRIEND -> GeminiConstants.PERSONALITY_GIRLFRIEND
-            GeminiConstants.PERSONALITY_BOYFRIEND -> GeminiConstants.PERSONALITY_BOYFRIEND
-            GeminiConstants.PERSONALITY_TECHGPT_X -> GeminiConstants.PERSONALITY_TECHGPT_X
-            else -> GeminiConstants.PERSONALITY_ASSISTANT
-        }
-        selectPersona(initialPersona, updateVoiceDefault = false)
+        val currentPersona = PersonaEngine.profileFor(preferences.personality)
+        val savedVoice = preferences.voice.takeIf { it in GeminiConstants.SUPPORTED_VOICES }
+            ?: currentPersona.defaultVoiceName
+        preferences.rememberPersonaVoiceIfUnset(currentPersona.id, savedVoice)
+        selectPersona(currentPersona.id, updateVoiceDefault = false)
 
         binding.etUserName.setText(preferences.userName.ifBlank { "YASH" })
 
         populateVoiceChoices()
-        selectVoice(preferences.voice)
+        val personaVoice = preferences.personaVoice(currentPersona.id)
+        voiceSelectionsByPersona[currentPersona.id] = personaVoice
+        selectVoice(personaVoice)
         binding.switchAutomaticPersona.isChecked = preferences.isAutomaticPersonaSwitchingEnabled
         updatePersonaPreview()
         binding.scrollPersona.post { binding.scrollPersona.scrollTo(0, 0) }
@@ -69,19 +71,19 @@ class PersonaActivity : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) = Unit
         })
         binding.cardPersonaJarvis.setOnClickListener {
-            selectPersona(GeminiConstants.PERSONALITY_ASSISTANT, updateVoiceDefault = true)
+            selectPersona(PersonaEngine.HOPE, updateVoiceDefault = true)
         }
 
         binding.cardPersonaGirlfriend.setOnClickListener {
-            selectPersona(GeminiConstants.PERSONALITY_GIRLFRIEND, updateVoiceDefault = true)
+            selectPersona(PersonaEngine.FRIDAY, updateVoiceDefault = true)
         }
 
         binding.cardPersonaBoyfriend.setOnClickListener {
-            selectPersona(GeminiConstants.PERSONALITY_BOYFRIEND, updateVoiceDefault = true)
+            selectPersona(PersonaEngine.EDITH, updateVoiceDefault = true)
         }
 
         binding.cardPersonaTechGpt.setOnClickListener {
-            selectPersona(GeminiConstants.PERSONALITY_TECHGPT_X, updateVoiceDefault = true)
+            selectPersona(PersonaEngine.ULTRON, updateVoiceDefault = true)
         }
 
         binding.btnCustomizePersona.setOnClickListener { showCustomizePersonaDialog() }
@@ -128,38 +130,33 @@ class PersonaActivity : AppCompatActivity() {
     }
 
     private fun selectPersona(personaKey: String, updateVoiceDefault: Boolean) {
+        if (updateVoiceDefault && currentSelectedPersona != personaKey &&
+            ::binding.isInitialized && binding.rgVoiceGroup.childCount > 0
+        ) {
+            voiceSelectionsByPersona[currentSelectedPersona] = getSelectedVoice()
+        }
         currentSelectedPersona = personaKey
 
-        binding.rbSelectJarvis.isChecked = (personaKey == GeminiConstants.PERSONALITY_ASSISTANT)
-        binding.rbSelectGirlfriend.isChecked = (personaKey == GeminiConstants.PERSONALITY_GIRLFRIEND)
-        binding.rbSelectBoyfriend.isChecked = (personaKey == GeminiConstants.PERSONALITY_BOYFRIEND)
-        binding.rbSelectTechGpt.isChecked = (personaKey == GeminiConstants.PERSONALITY_TECHGPT_X)
+        binding.rbSelectJarvis.isChecked = (personaKey == PersonaEngine.HOPE)
+        binding.rbSelectGirlfriend.isChecked = (personaKey == PersonaEngine.FRIDAY)
+        binding.rbSelectBoyfriend.isChecked = (personaKey == PersonaEngine.EDITH)
+        binding.rbSelectTechGpt.isChecked = (personaKey == PersonaEngine.ULTRON)
 
         if (updateVoiceDefault) {
-            when (personaKey) {
-                GeminiConstants.PERSONALITY_GIRLFRIEND -> selectVoice("Aoede")
-                GeminiConstants.PERSONALITY_BOYFRIEND -> selectVoice("Fenrir")
-                GeminiConstants.PERSONALITY_TECHGPT_X -> selectVoice("Puck")
-                else -> selectVoice("Charon")
-            }
+            val selectedVoice = voiceSelectionsByPersona[personaKey] ?: preferences.personaVoice(personaKey)
+            selectVoice(selectedVoice)
         }
         if (::binding.isInitialized) updatePersonaPreview()
     }
 
     private fun updatePersonaPreview() {
         if (!::binding.isInitialized) return
-        val persona = when (currentSelectedPersona) {
-            GeminiConstants.PERSONALITY_GIRLFRIEND -> "Pari"
-            GeminiConstants.PERSONALITY_BOYFRIEND -> "Kabir"
-            GeminiConstants.PERSONALITY_TECHGPT_X -> "HOPE"
-            else -> "HOPE Pro"
-        }
+        val persona = PersonaEngine.profileFor(currentSelectedPersona)
         val operator = binding.etUserName.text?.toString()?.trim().takeUnless { it.isNullOrBlank() } ?: "YASH"
         val profile = VoicePersonaRegistry.profileForVoice(getSelectedVoice())
-        val customName = preferences.getVoicePersonaCustomization(profile.voiceName, "name")
-        binding.tvPersonaPreview.text = "$persona · ${customName.ifBlank { profile.personaName }} (${profile.voiceName})"
+        binding.tvPersonaPreview.text = "${persona.displayName} · ${persona.identityName} · ${profile.voiceName} voice"
         binding.tvPersonaGreeting.text =
-            "${profile.primaryExpertise}. Ready to help, $operator."
+            "${persona.responseStyle}. Ready to help, $operator."
     }
 
     private fun showCustomizePersonaDialog() {
@@ -237,15 +234,19 @@ class PersonaActivity : AppCompatActivity() {
         }
 
         val voice = getSelectedVoice()
+        val personaOrVoiceChanged =
+            preferences.personality != currentSelectedPersona || preferences.voice != voice
+        voiceSelectionsByPersona[currentSelectedPersona] = voice
+        voiceSelectionsByPersona.forEach { (personaId, selectedVoice) ->
+            preferences.setPersonaVoice(personaId, selectedVoice)
+        }
         preferences.voice = voice
         preferences.personality = currentSelectedPersona
-
-        val personaDisplayName = when (currentSelectedPersona) {
-            GeminiConstants.PERSONALITY_GIRLFRIEND -> "Pari (Girlfriend Mode)"
-            GeminiConstants.PERSONALITY_BOYFRIEND -> "Kabir (Boyfriend Mode)"
-            GeminiConstants.PERSONALITY_TECHGPT_X -> "HOPE Neural Core"
-            else -> "HOPE Pro"
+        if (personaOrVoiceChanged && JarvisConversationService.isSessionOn.value) {
+            JarvisConversationService.restartSession()
         }
+
+        val personaDisplayName = PersonaEngine.profileFor(currentSelectedPersona).displayName
 
         Toast.makeText(
             this,

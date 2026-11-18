@@ -872,6 +872,17 @@ class JarvisConversationService : Service() {
                 }
             }
             val favSong = app.memoryManager.resolveSongQuery("my favorite song")
+            val coreBehaviorContext = try {
+                app.coreBehaviorEngine.activeInstructionsFor(
+                    "voice",
+                    additionalSurfaces = setOf("whatsapp"),
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _events.emit("Core behaviour rules could not be loaded: ${error.message ?: "storage unavailable"}")
+                "CORE BEHAVIOUR STORAGE IS UNAVAILABLE. Do not execute external, private-data, or autonomous actions. Tell the user the permanent instructions could not be loaded."
+            }
             val prompt = com.jarvis.assistant.util.PromptGenerator.generateSystemPrompt(
                 personality = preferences.personality,
                 userName = preferences.userName,
@@ -889,7 +900,9 @@ class JarvisConversationService : Service() {
                 customVoicePersonaExpertise = preferences.getVoicePersonaCustomization(preferences.voice, "expertise"),
                 customVoicePersonaTone = preferences.getVoicePersonaCustomization(preferences.voice, "tone")
             )
-            prompt + "\n\nSpeaker addressing policy: do not assume a speaker's identity or title. " +
+            prompt + "\n\n" + coreBehaviorContext +
+                "\n\nCore Behaviour capture: when the verified owner explicitly asks you to remember a permanent rule, call save_core_behavior_instruction with the owner's exact instruction. Do not claim it was saved until the tool returns success=true and persisted=true. If it reports a conflict or ambiguity, do not store or apply a guessed replacement; ask the owner to clarify." +
+                "\n\nSpeaker addressing policy: do not assume a speaker's identity or title. " +
                 "Only use a preferred form of address when explicit per-turn speaker-personalization context is supplied, " +
                 "use it naturally at most once, and treat voice matching as non-authentication that never authorizes actions." +
                 "\n\n" + VoiceConversationPolicy.systemInstruction(preferences.language)
@@ -2429,10 +2442,15 @@ class JarvisConversationService : Service() {
                             query
                         }
                         val resolvedSong = app.memoryManager.resolveSongQuery(effectiveQuery)
-                        app.memoryManager.trackSongPlay(resolvedSong)
-                        val playResult = com.jarvis.assistant.automation.youtube.YouTubeController.searchAndPlay(this@JarvisConversationService, resolvedSong, apiKey)
-                        result.put("success", playResult.success)
-                        result.put("message", playResult.message ?: if (playResult.success) "Playing $resolvedSong on YouTube." else "Could not play on YouTube.")
+                        if (resolvedSong.isBlank()) {
+                            result.put("success", false)
+                            result.put("message", "I don't know your favorite song yet. What would you like to hear?")
+                        } else {
+                            app.memoryManager.trackSongPlay(resolvedSong)
+                            val playResult = com.jarvis.assistant.automation.youtube.YouTubeController.searchAndPlay(this@JarvisConversationService, resolvedSong, apiKey)
+                            result.put("success", playResult.success)
+                            result.put("message", playResult.message ?: if (playResult.success) "Playing $resolvedSong on YouTube." else "Could not play on YouTube.")
+                        }
                     }
 
                     "search_youtube" -> {
@@ -2453,10 +2471,15 @@ class JarvisConversationService : Service() {
                                 query.replace(Regex("(?i)^play\\s+"), "")
                             }
                             val resolvedSong = app.memoryManager.resolveSongQuery(effectiveQuery)
-                            app.memoryManager.trackSongPlay(resolvedSong)
-                            val playResult = com.jarvis.assistant.automation.youtube.YouTubeController.searchAndPlay(this@JarvisConversationService, resolvedSong, apiKey)
-                            result.put("success", playResult.success)
-                            result.put("message", playResult.message ?: if (playResult.success) "Playing $resolvedSong on YouTube." else "Could not play on YouTube.")
+                            if (resolvedSong.isBlank()) {
+                                result.put("success", false)
+                                result.put("message", "I don't know your favorite song yet. What would you like to hear?")
+                            } else {
+                                app.memoryManager.trackSongPlay(resolvedSong)
+                                val playResult = com.jarvis.assistant.automation.youtube.YouTubeController.searchAndPlay(this@JarvisConversationService, resolvedSong, apiKey)
+                                result.put("success", playResult.success)
+                                result.put("message", playResult.message ?: if (playResult.success) "Playing $resolvedSong on YouTube." else "Could not play on YouTube.")
+                            }
                         } else {
                             val searchResult = com.jarvis.assistant.automation.youtube.YouTubeController.searchYouTube(this@JarvisConversationService, query)
                             result.put("success", searchResult.success)
@@ -3095,19 +3118,79 @@ class JarvisConversationService : Service() {
                         }
                     }
 
+                    "save_core_behavior_instruction" -> {
+                            val proposedText = args.optString("instructionText").trim()
+                            val originalCandidate = com.jarvis.assistant.data.memory.CoreBehaviorPolicy.extract(userTurnText)
+                            val proposedCandidate = com.jarvis.assistant.data.memory.CoreBehaviorPolicy.extract(proposedText)
+                            if (originalCandidate == null || proposedCandidate == null ||
+                                originalCandidate.normalizedRule != proposedCandidate.normalizedRule
+                            ) {
+                                result.put("success", false)
+                                result.put("persisted", false)
+                                result.put("message", "The requested permanent rule could not be verified against the owner's exact spoken instruction. Ask for clarification; do not claim it was saved.")
+                            } else {
+                                when (val capture = app.coreBehaviorEngine.captureUserInstruction(userTurnText)) {
+                                    null -> {
+                                        result.put("success", false)
+                                        result.put("persisted", false)
+                                        result.put("message", "The owner's instruction was not recognized as a permanent behavior rule.")
+                                    }
+                                    is com.jarvis.assistant.data.memory.CoreBehaviorEngine.CaptureResult.Saved -> {
+                                        result.put("success", true)
+                                        result.put("persisted", true)
+                                        result.put("instruction_id", capture.rule.instructionId)
+                                        result.put("scope", capture.rule.scope)
+                                        result.put("cloud_sync_queued", capture.syncQueued)
+                                        result.put("message", capture.syncError?.let {
+                                            "The rule is persisted locally, but cloud sync could not be queued: $it"
+                                        } ?: if (capture.syncQueued) {
+                                            "The permanent rule is persisted and cloud sync is queued."
+                                        } else {
+                                            "The permanent rule is persisted locally. Cloud memory is off."
+                                        })
+                                    }
+                                    is com.jarvis.assistant.data.memory.CoreBehaviorEngine.CaptureResult.AlreadyExists -> {
+                                        result.put("success", true)
+                                        result.put("persisted", true)
+                                        result.put("already_exists", true)
+                                        result.put("active", capture.rule.activeStatus)
+                                        result.put("message", "This permanent rule already exists; no existing rule was changed.")
+                                    }
+                                    is com.jarvis.assistant.data.memory.CoreBehaviorEngine.CaptureResult.Conflict -> {
+                                        result.put("success", false)
+                                        result.put("persisted", false)
+                                        result.put("conflict", capture.existing.instructionText)
+                                        result.put("message", "A permanent rule conflicts with the proposed instruction. Nothing was changed; ask the owner which behavior they intend.")
+                                    }
+                                    com.jarvis.assistant.data.memory.CoreBehaviorEngine.CaptureResult.NeedsClarification -> {
+                                        result.put("success", false)
+                                        result.put("persisted", false)
+                                        result.put("message", "The permanent rule is ambiguous. Ask the owner to state the specific behavior before saving.")
+                                    }
+                                }
+                            }
+                        }
+
                     "manage_whatsapp_auto_reply" -> {
                         val action = when (args.optString("action").lowercase(Locale.ROOT)) {
                             "start" -> com.jarvis.assistant.autoreply.WhatsAppAutoReplyCommand.START
                             "stop" -> com.jarvis.assistant.autoreply.WhatsAppAutoReplyCommand.STOP
                             "status" -> com.jarvis.assistant.autoreply.WhatsAppAutoReplyCommand.STATUS
+                            "select_persona" -> com.jarvis.assistant.autoreply.WhatsAppAutoReplyCommand.SELECT_PERSONA
+                            "enable_ultron_defense" -> com.jarvis.assistant.autoreply.WhatsAppAutoReplyCommand.ENABLE_ULTRON_DEFENSE
+                            "disable_ultron_defense" -> com.jarvis.assistant.autoreply.WhatsAppAutoReplyCommand.DISABLE_ULTRON_DEFENSE
+                            "ultron_defense_status" -> com.jarvis.assistant.autoreply.WhatsAppAutoReplyCommand.ULTRON_DEFENSE_STATUS
                             else -> null
                         }
                         if (action == null) {
                             result.put("success", false)
                             result.put("message", "Unsupported WhatsApp auto-reply action. Use start, stop, or status.")
                         } else {
-                            val commandResult =
-                                com.jarvis.assistant.autoreply.WhatsAppAutoReplyControl.execute(applicationContext, action)
+                            val personaId = args.optString("persona").takeIf { it.isNotBlank() }
+                            val commandResult = com.jarvis.assistant.autoreply.WhatsAppAutoReplyControl.execute(
+                                applicationContext,
+                                com.jarvis.assistant.autoreply.WhatsAppAutoReplyInstruction(action, personaId)
+                            )
                             result.put("success", commandResult.success)
                             result.put("message", commandResult.message)
                         }
@@ -3814,6 +3897,31 @@ class JarvisConversationService : Service() {
     }
 
     private fun executeDetectedCommand(command: com.jarvis.assistant.automation.command.JarvisCommand, source: String) {
+        if (command is com.jarvis.assistant.automation.command.JarvisCommand.DownloadSharedMedia) {
+            val sharedUrl = com.jarvis.assistant.media.SharedMediaDownloadSession.getSharedUrl()
+            if (sharedUrl == null) {
+                serviceScope.launch {
+                    _events.emit("Share a direct HTTPS audio or video link with HOPE before asking to download it.")
+                }
+            } else {
+                val intent = Intent(
+                    applicationContext,
+                    com.jarvis.assistant.media.MediaDownloadActivity::class.java
+                ).apply {
+                    putExtra(com.jarvis.assistant.media.MediaDownloadActivity.EXTRA_SHARED_URL, sharedUrl)
+                    putExtra(
+                        com.jarvis.assistant.media.MediaDownloadActivity.EXTRA_KIND,
+                        command.kind.name
+                    )
+                    putExtra(com.jarvis.assistant.media.MediaDownloadActivity.EXTRA_START_DOWNLOAD, true)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                }
+                applicationContext.startActivity(intent)
+            }
+            hasExecutedCommandInCurrentTurn = true
+            lastCommandExecutionTime = System.currentTimeMillis()
+            return
+        }
         if (command is com.jarvis.assistant.automation.command.JarvisCommand.StartWordSearch) {
             val intent = Intent(applicationContext, com.jarvis.assistant.ui.wordsearch.WordSearchActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

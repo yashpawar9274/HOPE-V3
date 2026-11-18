@@ -3,6 +3,7 @@ package com.jarvis.assistant.data.memory
 import android.content.Context
 import android.util.JsonReader
 import android.util.JsonWriter
+import androidx.room.withTransaction
 import com.jarvis.assistant.data.model.ChatTurn
 import com.jarvis.assistant.data.preferences.AppPreferences
 import com.jarvis.assistant.data.supabase.SupabasePublicConfig
@@ -50,31 +51,251 @@ class CloudMemoryRepository(
             .put("assistantText", turn.jarvisResponse)
             .put("sourceCreatedAt", java.time.Instant.ofEpochMilli(turn.timestamp).toString())
             .put("source", source)
-        invoke(payload)
+        val ownerUid = requireEnabledOwner()
+        enqueueJob(
+            MemorySyncJob(
+                jobId = MemorySyncPolicy.turnJobId(ownerUid, turn.id),
+                ownerUid = ownerUid,
+                operation = MemorySyncJob.OPERATION_SAVE_TURN,
+                payload = payload.toString(),
+            )
+        )
     }
 
-    suspend fun rememberNote(content: String) {
+    suspend fun rememberNote(content: String, stableKey: String? = null) {
         val clean = content.trim()
         require(clean.isNotEmpty() && clean.length <= 20_000) {
             "Memory note must contain 1 to 20,000 characters."
         }
-        invoke(
-            JSONObject()
-                .put("operation", "remember")
-                .put("turnId", java.util.UUID.randomUUID().toString())
-                .put("content", clean)
+        val ownerUid = requireEnabledOwner()
+        require(stableKey == null || stableKey.isNotBlank() && stableKey.length <= 512) {
+            "Memory note sync key is invalid."
+        }
+        val jobId = stableKey?.let {
+            UUID.nameUUIDFromBytes("$ownerUid:$it".toByteArray(StandardCharsets.UTF_8)).toString()
+        } ?: UUID.randomUUID().toString()
+        enqueueJob(
+            MemorySyncJob(
+                jobId = jobId,
+                ownerUid = ownerUid,
+                operation = MemorySyncJob.OPERATION_REMEMBER_NOTE,
+                payload = JSONObject()
+                    .put("operation", "remember")
+                    .put("turnId", jobId)
+                    .put("content", clean)
+                    .toString(),
+                matchText = clean,
+            )
         )
+    }
+
+    suspend fun enqueueCoreBehaviorRule(rule: CoreBehaviorRule, action: String = "edited"): Boolean {
+        require(action in setOf("created", "edited", "disabled", "reactivated")) {
+            "Unsupported core behaviour history action."
+        }
+        if (!preferences.isCloudMemoryEnabled) return false
+        val ownerUid = requireEnabledOwner()
+        require(rule.ownerUid == ownerUid) {
+            "Cannot sync Core Behaviour instructions for a different account."
+        }
+        val payload = JSONObject()
+            .put("operation", "core_behavior_upsert")
+            .put("eventId", UUID.randomUUID().toString())
+            .put("action", action)
+            .put("rule", JSONObject()
+                .put("instructionId", rule.instructionId)
+                .put("instructionText", rule.instructionText)
+                .put("normalizedRule", rule.normalizedRule)
+                .put("category", rule.category)
+                .put("scope", rule.scope)
+                .put("priority", rule.priority)
+                .put("createdAt", rule.createdAt)
+                .put("updatedAt", rule.updatedAt)
+                .put("activeStatus", rule.activeStatus)
+                .put("sourceConversation", rule.sourceConversation)
+                .put("confirmationStatus", rule.confirmationStatus))
+        val jobId = UUID.nameUUIDFromBytes(
+            "$ownerUid:${rule.instructionId}:${rule.updatedAt}".toByteArray(StandardCharsets.UTF_8)
+        ).toString()
+        enqueueJob(
+            MemorySyncJob(
+                jobId = jobId,
+                ownerUid = ownerUid,
+                operation = MemorySyncJob.OPERATION_CORE_BEHAVIOR,
+                payload = payload.toString(),
+                matchText = rule.instructionId,
+            )
+        )
+        return true
+    }
+
+    suspend fun enqueueCoreBehaviorDelete(rule: CoreBehaviorRule): Boolean {
+        return enqueueCoreBehaviorDeletion(
+            CoreBehaviorDeletionEntity(
+                instructionId = rule.instructionId,
+                instructionSnapshot = rule.instructionText,
+                deletedAt = System.currentTimeMillis(),
+                ownerUid = rule.ownerUid,
+            )
+        )
+    }
+
+    suspend fun enqueueCoreBehaviorDeletion(
+        deletion: CoreBehaviorDeletionEntity,
+    ): Boolean {
+        if (!preferences.isCloudMemoryEnabled) return false
+        val ownerUid = requireEnabledOwner()
+        require(deletion.ownerUid == ownerUid) {
+            "Cannot sync Core Behaviour deletions for a different account."
+        }
+        val payload = JSONObject()
+            .put("operation", "core_behavior_delete")
+            .put(
+                "eventId",
+                UUID.nameUUIDFromBytes(
+                    "deleted:${deletion.instructionId}:${deletion.deletedAt}".toByteArray(StandardCharsets.UTF_8)
+                ).toString()
+            )
+            .put("rule", JSONObject()
+                .put("instructionId", deletion.instructionId)
+                .put("instructionText", deletion.instructionSnapshot)
+                .put("updatedAt", deletion.deletedAt))
+        val jobId = UUID.nameUUIDFromBytes(
+            "$ownerUid:${deletion.instructionId}:delete:${deletion.deletedAt}".toByteArray(StandardCharsets.UTF_8)
+        ).toString()
+        val database = MemoryDatabase.getInstance(appContext)
+        database.withTransaction {
+            val dao = database.memorySyncDao()
+            dao.cancelPendingCoreBehavior(ownerUid, deletion.instructionId)
+            dao.enqueue(
+                MemorySyncJob(
+                jobId = jobId,
+                ownerUid = ownerUid,
+                operation = MemorySyncJob.OPERATION_CORE_BEHAVIOR,
+                payload = payload.toString(),
+                matchText = deletion.instructionId,
+                )
+            )
+        }
+        scheduleSync(ownerUid)
+        return true
+    }
+
+    suspend fun fetchCoreBehaviorRules(): CloudCoreBehaviorSnapshot {
+        if (!preferences.isCloudMemoryEnabled) return CloudCoreBehaviorSnapshot(emptyList(), emptyList())
+        requireEnabledOwner()
+        val response = invoke(JSONObject().put("operation", "core_behavior_list"))
+        val instructions = response.optJSONArray("instructions")
+            ?: throw CloudMemoryException("Cloud core behaviour response did not contain instructions.")
+        val parsedInstructions = buildList {
+            for (index in 0 until instructions.length()) {
+                add(instructions.optJSONObject(index)
+                    ?: throw CloudMemoryException("Cloud core behaviour response contained an invalid instruction."))
+            }
+        }
+        val deletions = response.optJSONArray("deletedInstructions") ?: JSONArray()
+        val parsedDeletions = buildList {
+            for (index in 0 until deletions.length()) {
+                val deletion = deletions.optJSONObject(index)
+                    ?: throw CloudMemoryException("Cloud core behaviour response contained an invalid deletion event.")
+                val instructionId = deletion.optString("instruction_id")
+                val instructionSnapshot = deletion.optString("instruction_snapshot")
+                val occurredAt = deletion.optLong("occurred_at", -1)
+                if (instructionId.isBlank() || instructionSnapshot.length !in 1..2_000 || occurredAt < 0) {
+                    throw CloudMemoryException("Cloud core behaviour response contained an invalid deletion event.")
+                }
+                UUID.fromString(instructionId)
+                add(
+                    CloudCoreBehaviorDeletion(
+                        instructionId = instructionId,
+                        instructionSnapshot = instructionSnapshot,
+                        occurredAt = occurredAt,
+                    )
+                )
+            }
+        }
+        return CloudCoreBehaviorSnapshot(parsedInstructions, parsedDeletions)
+    }
+
+    suspend fun enqueueForgetQuery(query: String) {
+        val clean = query.trim()
+        require(clean.isNotEmpty() && clean.length <= 2_000) {
+            "Memory deletion query must contain 1 to 2,000 characters."
+        }
+        val ownerUid = requireEnabledOwner()
+        val job = MemorySyncJob(
+            jobId = UUID.randomUUID().toString(),
+            ownerUid = ownerUid,
+            operation = MemorySyncJob.OPERATION_FORGET_QUERY,
+            payload = JSONObject().put("query", clean).toString(),
+        )
+        val database = MemoryDatabase.getInstance(appContext)
+        database.withTransaction {
+            database.memorySyncDao().cancelPendingNotesMatching(ownerUid, clean)
+            database.memorySyncDao().enqueue(job)
+        }
+        scheduleSync(ownerUid)
+    }
+
+    suspend fun schedulePendingSync() {
+        val ownerUid = LicenseManager.currentUser(appContext)?.uid ?: return
+        if (MemoryDatabase.getInstance(appContext).memorySyncDao().pendingCount(ownerUid) > 0) {
+            scheduleSync(ownerUid)
+        }
+    }
+
+    suspend fun retryLocalSyncJobs(): Int {
+        val ownerUid = requireEnabledOwner()
+        val dao = MemoryDatabase.getInstance(appContext).memorySyncDao()
+        val failed = dao.failedCount(ownerUid)
+        dao.resetFailures(ownerUid)
+        if (dao.pendingCount(ownerUid) > 0) scheduleSync(ownerUid)
+        return failed
+    }
+
+    suspend fun getLocalSyncStatus(ownerUid: String): LocalMemorySyncStatus {
+        val dao = MemoryDatabase.getInstance(appContext).memorySyncDao()
+        return LocalMemorySyncStatus(
+            pending = dao.pendingCount(ownerUid),
+            failed = dao.failedCount(ownerUid),
+            lastError = dao.latestError(ownerUid),
+        )
+    }
+
+    internal suspend fun processOutboxJob(job: MemorySyncJob) {
+        val ownerUid = requireCurrentOwner()
+        if (ownerUid != job.ownerUid) {
+            throw CloudMemoryException("Cloud sync is paused for this account.", 403)
+        }
+        if (job.operation != MemorySyncJob.OPERATION_CLEAR_ALL &&
+            (!preferences.isCloudMemoryEnabled || preferences.cloudMemoryOwnerId != ownerUid)
+        ) {
+            throw CloudMemoryException("Cloud memory is paused for this account.", 403)
+        }
+        when (job.operation) {
+            MemorySyncJob.OPERATION_REMEMBER_NOTE,
+            MemorySyncJob.OPERATION_SAVE_TURN -> invoke(JSONObject(job.payload))
+            MemorySyncJob.OPERATION_FORGET_QUERY ->
+                deleteMatchingCloudMemories(JSONObject(job.payload).getString("query"))
+            MemorySyncJob.OPERATION_CLEAR_ALL -> invoke(JSONObject(job.payload))
+            MemorySyncJob.OPERATION_CORE_BEHAVIOR -> invoke(JSONObject(job.payload))
+            else -> throw CloudMemoryException("Unsupported local memory sync operation.", 400)
+        }
     }
 
     suspend fun backUpHistory(turns: List<ChatTurn>) {
         val currentUserId = LicenseManager.currentUser(appContext)?.uid
             ?: throw CloudMemoryException("Sign in to your existing HOPE account to back up history.")
-        turns
+        if (!preferences.isCloudMemoryEnabled || preferences.cloudMemoryOwnerId != currentUserId) {
+            throw CloudMemoryException("Cloud memory is paused or has not been enabled for this HOPE account.")
+        }
+        val eligibleTurns = turns
             .filter {
                 it.ownerUid == currentUserId &&
                     it.userTranscript.isNotBlank() &&
                     it.jarvisResponse.isNotBlank()
             }
+        eligibleTurns
             .chunked(HISTORY_BATCH_SIZE)
             .forEachIndexed { batchIndex, batch ->
                 val values = JSONArray()
@@ -88,7 +309,18 @@ class CloudMemoryRepository(
                             .put("sourceTurnOrder", batchIndex * HISTORY_BATCH_SIZE + index)
                     )
                 }
-                invoke(JSONObject().put("operation", "save_turns").put("turns", values))
+                val batchId = batch.joinToString("|") { it.id }
+                enqueueJob(
+                    MemorySyncJob(
+                        jobId = MemorySyncPolicy.turnJobId(currentUserId, "backup:$batchId"),
+                        ownerUid = currentUserId,
+                        operation = MemorySyncJob.OPERATION_SAVE_TURN,
+                        payload = JSONObject()
+                            .put("operation", "save_turns")
+                            .put("turns", values)
+                            .toString(),
+                    )
+                )
             }
     }
 
@@ -353,13 +585,30 @@ class CloudMemoryRepository(
         invoke(JSONObject().put("operation", "pause"))
     }
 
-    suspend fun retryFailedJobs(): Int {
-        return invoke(JSONObject().put("operation", "retry_failed")).optInt("queued")
+    suspend fun retryFailedJobs(): CloudMemoryRetryResult {
+        val localJobs = retryLocalSyncJobs()
+        val extractionJobs = invoke(JSONObject().put("operation", "retry_failed")).optInt("queued")
+        return CloudMemoryRetryResult(localJobs, extractionJobs)
     }
 
     suspend fun clearAll(): String {
-        return invoke(JSONObject().put("operation", "clear"))
-            .optString("mem0DeletionStatus", "unknown")
+        val ownerUid = LicenseManager.currentUser(appContext)?.uid
+            ?: throw CloudMemoryException("Sign in to your existing HOPE account to clear cloud memory.")
+        val database = MemoryDatabase.getInstance(appContext)
+        database.withTransaction {
+            val dao = database.memorySyncDao()
+            dao.cancelPendingUploads(ownerUid)
+            dao.enqueue(
+                MemorySyncJob(
+                    jobId = UUID.randomUUID().toString(),
+                    ownerUid = ownerUid,
+                    operation = MemorySyncJob.OPERATION_CLEAR_ALL,
+                    payload = JSONObject().put("operation", "clear").toString(),
+                )
+            )
+        }
+        scheduleSync(ownerUid)
+        return "pending"
     }
 
     suspend fun importHistory(openStream: () -> InputStream): JSONObject {
@@ -699,6 +948,102 @@ class CloudMemoryRepository(
         return this
     }
 
+    private suspend fun enqueueJob(job: MemorySyncJob) {
+        MemoryDatabase.getInstance(appContext).memorySyncDao().enqueue(job)
+        scheduleSync(job.ownerUid)
+    }
+
+    private fun scheduleSync(ownerUid: String) {
+        try {
+            MemorySyncScheduler.enqueue(appContext, ownerUid)
+        } catch (error: Exception) {
+            throw CloudMemoryException(
+                "Memory was saved locally, but background cloud sync could not be scheduled.",
+                cause = error,
+                queuedLocally = true,
+            )
+        }
+    }
+
+    private fun requireEnabledOwner(): String {
+        val ownerUid = requireCurrentOwner()
+        if (!preferences.isCloudMemoryEnabled || preferences.cloudMemoryOwnerId != ownerUid) {
+            throw CloudMemoryException("Cloud memory is paused or has not been enabled for this HOPE account.")
+        }
+        return ownerUid
+    }
+
+    private fun requireCurrentOwner(): String {
+        try {
+            config.requireConfigured()
+        } catch (error: IllegalStateException) {
+            throw CloudMemoryException(error.message ?: "Cloud memory is not configured.", cause = error)
+        }
+        val user = LicenseManager.currentUser(appContext)
+            ?: throw CloudMemoryException("Sign in to your existing HOPE account to use cloud memory.")
+        return user.uid
+    }
+
+    private suspend fun deleteMatchingCloudMemories(rawQuery: String) {
+        val query = rawQuery.trim()
+        require(query.isNotEmpty() && query.length <= 2_000) {
+            "Memory deletion query must contain 1 to 2,000 characters."
+        }
+
+        val structuredIds = mutableListOf<String>()
+        var offset = 0
+        while (true) {
+            val facts = searchKnowledge(query, offset = offset, limit = 50)
+                .optJSONArray("facts") ?: JSONArray()
+            for (index in 0 until facts.length()) {
+                val fact = facts.optJSONObject(index) ?: continue
+                val content = fact.optString("content")
+                if (content.contains(query, ignoreCase = true)) {
+                    fact.optString("memory_id")
+                        .takeIf(String::isNotBlank)
+                        ?.let(structuredIds::add)
+                }
+            }
+            if (facts.length() < 50) break
+            offset += facts.length()
+            if (offset > 100_000) {
+                throw CloudMemoryException("Cloud memory search exceeded the supported deletion range.", 400)
+            }
+        }
+        structuredIds.distinct().forEach { memoryId ->
+            deleteIfPresent { deleteStructuredMemory(memoryId) }
+        }
+
+        repeat(MAX_MEM0_DELETE_PASSES) {
+            val memories = searchCloudMemories(query)
+            val matches = memories.filter { it.text.contains(query, ignoreCase = true) }
+            if (matches.isEmpty()) {
+                if (memories.size >= MEM0_SEARCH_LIMIT) {
+                    throw CloudMemoryException(
+                        "Mem0 returned a full result page without enough evidence to verify all matching deletions.",
+                        409,
+                    )
+                }
+                return
+            }
+            matches.forEach { memory ->
+                deleteIfPresent { deleteCloudMemory(memory.id) }
+            }
+        }
+        throw CloudMemoryException(
+            "Mem0 deletion is still in progress and will be retried.",
+            503,
+        )
+    }
+
+    private suspend fun deleteIfPresent(delete: suspend () -> Unit) {
+        try {
+            delete()
+        } catch (error: CloudMemoryException) {
+            if (error.httpCode != 404) throw error
+        }
+    }
+
     private suspend fun invoke(payload: JSONObject): JSONObject {
         config.requireConfigured()
         val user = LicenseManager.currentUser(appContext)
@@ -746,6 +1091,8 @@ class CloudMemoryRepository(
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private const val MAX_CONTEXT_CHARS = 6_000
+        private const val MEM0_SEARCH_LIMIT = 20
+        private const val MAX_MEM0_DELETE_PASSES = 20
         private const val HISTORY_BATCH_SIZE = 10
         private const val MAX_IMPORT_TURNS = 1_000_000
         private const val EXPORT_PAGE_SIZE = 200
@@ -762,6 +1109,28 @@ class CloudMemoryRepository(
         )
     }
 }
+
+data class LocalMemorySyncStatus(
+    val pending: Int,
+    val failed: Int,
+    val lastError: String?,
+)
+
+data class CloudCoreBehaviorSnapshot(
+    val instructions: List<JSONObject>,
+    val deletedInstructions: List<CloudCoreBehaviorDeletion>,
+)
+
+data class CloudCoreBehaviorDeletion(
+    val instructionId: String,
+    val instructionSnapshot: String,
+    val occurredAt: Long,
+)
+
+data class CloudMemoryRetryResult(
+    val localSyncJobs: Int,
+    val extractionJobs: Int,
+)
 
 data class CloudMemoryExportResult(
     val exportId: String,
@@ -801,4 +1170,5 @@ class CloudMemoryException(
     message: String,
     val httpCode: Int? = null,
     cause: Throwable? = null,
+    val queuedLocally: Boolean = false,
 ) : IllegalStateException(message, cause)

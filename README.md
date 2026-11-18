@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-3.0-4169E1" alt="Version 3.0">
+  <img src="https://img.shields.io/badge/Version-3.1.5-4169E1" alt="Version 3.1.5">
   <img src="https://img.shields.io/badge/Android-API%2026%2B-3DDC84?logo=android&logoColor=white" alt="Android 8.0+">
   <img src="https://img.shields.io/badge/Package-com.jarvis.assistant-6A5ACD" alt="Android package">
 </p>
@@ -27,9 +27,13 @@
 
 HOPE is an Android voice assistant with conversational voice features, phone and contact tools, notification intelligence, and on-screen task automation. It combines Gemini Live and Android voice capabilities with system integrations that work when the required permissions and services are enabled.
 
+### Local AI status
+
+HOPE uses Gemini Online for AI text and Live voice; an API key and network access are required. The on-device Gemma inference runtime, model UI, and Offline/Automatic AI routing were removed in version 3.1.5. Vosk remains only for local wake-word detection and does not provide offline conversations. Existing Gemma model files are left in app storage but are no longer loaded. The proposed llama.cpp/GGUF and Ollama migration has not been implemented.
+
 ## 🚀 Get started
 
-1. 📥 **Install HOPE:** download the HOPE AI 3.0 APK from [GitHub Releases](https://github.com/yashpawar9274/HOPE-V3/releases). The attached APK is a debug-signed build, not a production release-signed package.
+1. 📥 **Install HOPE:** download the latest APK from [GitHub Releases](https://github.com/yashpawar9274/HOPE-V3/releases). Debug builds are signed with Android's debug key, not a production release key.
 2. 🔐 **Sign in:** use the Firebase sign-in configured for this app. Cloud features are unavailable until their backend is deployed.
 3. 🛡️ **Grant access deliberately:** allow only the Android permissions or system services needed for the features you choose.
 4. 🎛️ **Choose features:** enable optional experiences separately in HOPE settings. Cloud Memory, Cloud Agent, clipboard analysis, standby listening, and other integrations are opt-in.
@@ -92,6 +96,12 @@ See the [implementation process](./docs/architecture/cloud-agent-implementation.
 - The project URL/publishable key are public client values. Firebase project ID and `MEM0_API_KEY` belong in Supabase Function Secrets; the service-role key is used only inside the Edge Function and never in Android. The memory function verifies Firebase ID tokens and scopes database operations to the verified Firebase UID. Deploy both database migrations and the Edge Function, then test with two Firebase accounts. See [SUPABASE_SETUP.md](./SUPABASE_SETUP.md).
 - Existing Gemini requests remain client-side to preserve current functionality. The optional Edge text gateway is not yet a replacement; client-held Gemini keys remain extractable and Gemini Live has not been proxied.
 
+### 🔒 Core Behaviour account isolation
+- Core Behaviour rules, application history, and deletion markers are stored and queried with the active Firebase UID. Local edits and cloud outbox uploads reject records belonging to another account.
+- Room schema migration 3→4 quarantines previously unscoped Core Behaviour rows under a reserved legacy owner instead of silently assigning them to whichever account signs in next. Those old rows are not visible or synced for any account; a safe, authenticated recovery flow has not been implemented.
+- Supabase Core Behaviour tables are restricted to `service_role`; the Edge Function must verify Firebase identity and use the verified UID. Deploy and test the updated function/migration with two accounts before enabling cloud sync in production.
+- The Android Room database remains app-private but is not encrypted with SQLCipher. Device compromise/root access is outside the account-isolation protection described above.
+
 ### 🤖 Cloud Agent Tasks — new in 2.0.0
 - Submit an objective through the opt-in Cloud Agent screen, review task state and ordered events, and pause, resume, or cancel tasks.
 - A Kotlin/JVM Google ADK worker produces a bounded plan; it has no callable device tools. Android independently validates every proposed tool call.
@@ -111,6 +121,7 @@ See the [implementation process](./docs/architecture/cloud-agent-implementation.
 - Use the Dial Pad, Contacts, and Recent Calls screens.
 - Access device contacts and call history when the required Android permissions are granted.
 - Place cellular calls through Android Telecom.
+- Open the dialer directly from the separate orb-style **HOPE Call** launcher icon, even when HOPE's voice assistant service is off. Add it to the Home screen from the launcher if desired; HOPE must be the default phone app to use its full dialer.
 - Use supported in-call controls, including mute, speaker, keypad, and hold.
 - See call screens update from Android Telecom’s actual call state.
 - Incoming-call voice confirmation is optional. HOPE does not record or transcribe cellular call audio.
@@ -139,7 +150,10 @@ See the [implementation process](./docs/architecture/cloud-agent-implementation.
 - Replies are limited to selected apps and supported Android inline-reply actions.
 - Unsupported reply actions, disabled permissions/settings, and safety exclusions prevent sending.
 - Reply previews and spoken replies are separate from sending a message.
-- Ask HOPE by text or voice to start, stop, or check WhatsApp auto-reply; starting checks Notification Access, notification monitoring, an enabled WhatsApp `AUTHORIZED_AUTO_REPLY` rule, and AI configuration before enabling WhatsApp monitoring.
+- Ask HOPE by text or voice to start, stop, or check WhatsApp auto-reply; starting verifies Notification Access, monitoring, and AI configuration. Smart Auto-Reply needs no rule; rule-based sending still requires an enabled WhatsApp `AUTHORIZED_AUTO_REPLY` rule.
+- Select HOPE, FRIDAY, E.D.I.T.H., or ULTRON for WhatsApp without changing the app-wide persona. Text/voice commands can select the WhatsApp persona or enable, disable, and check ULTRON Auto-Defense.
+- ULTRON Auto-Defense is a separate opt-in, WhatsApp-only feature. It uses the configured AI service to classify recent context, fails closed below the selected confidence threshold, excludes quoted/reported or playful abuse, and keeps each takeover conversation-specific with a 5–60 minute expiry. It must not be used to send personal attacks, threats, or slurs.
+- Auto-Defense stores only a hashed conversation key and session metadata locally; the classifier still receives recent message context through the configured AI service. No Supabase migration was added for this local-only state.
 - Message replies use HOPE's configured AI router when AI replies are enabled, or the configured authorized-rule/template reply otherwise. Messages are screened for sensitive content and hashed fingerprints prevent recent duplicate submissions.
 - Android must provide a supported notification `RemoteInput` action. HOPE reports the action submission, not confirmed recipient delivery; WhatsApp does not expose a universal personal-account send API to this app.
 - Notification callbacks may run with the screen off, but Android/OEM process limits can delay or stop processing. Pending replies are in-process work and are not guaranteed to survive process termination.
@@ -160,9 +174,23 @@ HOPE’s system integrations require the relevant Android permissions or user-en
 
 The HOPE app-lock verifier and encrypted security settings remain on-device. App-lock credentials are entered only in the security screen and are not included in AI prompts, notification content, analytics, or cloud requests. Notification history and screenshots are handled on-device where supported. AI features that use Gemini require network access and may send the content needed to answer your request to the configured Gemini service. Review the in-app settings and Android permission prompts before enabling integrations.
 
-## 🆕 HOPE AI 3.0
+## 🆕 HOPE AI 3.0.2
 
-The Android app version is **3.0** (version code **155**). Highlights:
+The Android app version is **3.0.2** (version code **157**). Version 3.0.2 adds a separate **HOPE Call** launcher icon with orb-style artwork, launching the existing dialer without starting the main voice assistant service. Incoming, outgoing, and active call screens now use the same bundled WebGL orb renderer as the main app. Android requires the user to add the launcher entry to the Home screen; the full dialer requires HOPE to be selected as the default phone app.
+
+## HOPE AI 3.0.1
+
+The Android app version is **3.0.1** (version code **156**). Version 3.0.1 adds a rights-confirmed shared-media downloader:
+
+- Share a link to HOPE from another app or paste a direct HTTPS media-file URL.
+- Ask HOPE to download the video or get the audio/song. A voice request starts the download after you confirm that you own the media or have permission.
+- Direct audio/video files up to 250 MB are supported. HOPE verifies the response as playable media; supported AAC/AMR audio tracks can be extracted from a direct video file to M4A.
+- Files save to Android's Movies/Music library on Android 10+, or HOPE's private app storage on older versions. Use **Share saved media** to choose a destination.
+- Streaming-platform pages, DRM-protected media, non-HTTPS links, and unsupported codecs are not downloaded. HOPE does not bypass platform restrictions, and it never sends a file to another person without your explicit share choice.
+
+## HOPE AI 3.0 highlights
+
+The version 3.0 foundation (version code **155**) includes:
 
 - **Authentication:** improved login and signup field contrast, dark/light styling, password visibility, strength guidance, and validation while preserving the existing Firebase and Google sign-in and password-reset flows.
 - **Smart Auto-Reply:** uses up to five available conversation messages, adapts tone and language, and introduces HOPE once per saved conversation. Sensitive or high-impact notifications are not automatically sent.
@@ -183,28 +211,46 @@ See [CHANGELOG.md](./CHANGELOG.md) for details and known limitations.
 
 ## ✅ Verification
 
-- Debug APK build: **passed** with `.\gradlew.bat assembleDebug`
-- Unit tests: **passed** with `.\gradlew.bat testDebugUnitTest`
-- Debug APK output: `app/build/outputs/apk/debug/app-debug.apk`
+- Android unit tests: **passed** (196 tests) with `.\gradlew.bat :app:testDebugUnitTest`
+- Android lint: **passed** with `.\gradlew.bat :app:lintDebug`; 1,044 warnings and no errors.
+- Debug APK build: **passed** with `.\gradlew.bat :app:assembleDebug`
+- Debug APK output: `app/build/outputs/apk/debug/app-debug.apk`; debug-key signed and not suitable as a production release.
+- Version 3.1.3 changes Updates into a filterable, compact feed with expandable release details and a separate pending-work filter.
+- Version 3.1.4 redesigns Settings with live search and category filters for AI & Voice, Device, Automation, and Security.
+- Version 3.1.5 removes the Gemma offline inference path and routes AI and Live voice through Gemini Online; Vosk wake-word detection remains local.
+- Version 3.1.2 routes clipboard text through the selected AI provider and blocks several direct cloud-AI paths in local-only mode. The larger local-runtime migration is still pending; see the Local AI status above and [CHANGELOG.md](./CHANGELOG.md).
+- Version 3.1.1 expands the in-app Updates screen with detailed release notes, filters sensitive history before AI requests, and includes the latest memory, Core Behaviour, social-reply, login, and licence reliability work.
+- Version 3.1.0 adds opt-in, conversation-scoped ULTRON Auto-Defense for WhatsApp, confidence and timeout controls, plus WhatsApp-only voice/text persona commands. See [the persona engine notes](./docs/PERSONA_ENGINE.md).
+- Version 3.0.8 refines the four existing persona behaviors and remembers a supported Gemini voice independently for each persona. HOPE remains the default. Voice preview and independent pitch/rate controls are not available in the current integration.
+- Version 3.0.9 lets ULTRON use pointed, playful roasts about low-stakes choices or reasoning when appropriate, while avoiding sensitive situations and stopping if the tone is unwanted.
+- Version 3.0.7 assigns distinct identities and behavior profiles to HOPE, FRIDAY, E.D.I.T.H., and ULTRON across persona-aware AI paths; HOPE remains the default. See [the persona engine notes](./docs/PERSONA_ENGINE.md).
+- Version 3.0.6 was installed on an API 37 emulator; MainActivity opened after a cold restart with saved licence state and stayed open during Light/Dark theme changes. Physical-device testing and fresh licence activation remain pending.
 - Cloud Agent worker tests and distribution build: **passed** with `.\gradlew.bat -p cloud-agent-runtime test installDist`
 - Eight memory policy tests and Edge Function TypeScript syntax checks: **passed** using a Node-compatible harness
-- Deno type-check, Supabase migration execution, Cloud Agent deployment, and authenticated cloud integration: **not performed**
+- Deno type-check, Supabase migration execution/deployment, Cloud Agent deployment, and authenticated cloud integration: **not performed**
 - Device tests for WhatsApp notification formats, inline reply availability and acceptance, screen-off processing, process recreation, Android Keystore persistence, biometrics/recovery UI, app lifecycle relocking, OS keyguard requests, clipboard interoperability, wake false activations, and Android/OEM background limits: **not performed**
+
+### Remaining production work
+- The Android app still needs an authenticated two-account migration/sync test. Existing unscoped Core Behaviour rows are quarantined; there is no authenticated recovery screen.
+- There is no durable Pending Decisions queue with edit/approve/send, no Gmail OAuth/module, and no contact-priority ranking. WhatsApp remains limited to accessible notifications and supported inline-reply actions.
+- Gmail/other-channel deterministic decision gates, the complete proactive briefing/activity timeline, and full autonomous tool execution are not production-complete. Supabase migrations/functions and Cloud Agent services require authorized deployment and credentials.
+- A release APK requires the verified publisher identity, release signing key, and certificate fingerprint; these are intentionally not included in the repository.
 
 ## 📲 Install
 
-The HOPE AI 3.0 APK is available on [GitHub Releases](https://github.com/yashpawar9274/HOPE-V3/releases). It is debug-signed and intended for testing, not as a production release build. To build it locally:
+The published GitHub APK may not yet include the 3.1.5 source update. Build the current source locally to use the latest Gemini-only AI routing, Settings hub, Updates feed, persona, Auto-Defense, social-reply, memory, theme, and licence-startup fixes. Debug APKs are signed with Android's debug key and are intended for testing, not as production release builds:
 
 ```powershell
-.\gradlew.bat testDebugUnitTest
-.\gradlew.bat assembleDebug
+.\gradlew.bat :app:testDebugUnitTest
+.\gradlew.bat :app:lintDebug
+.\gradlew.bat :app:assembleDebug
 ```
 
 The debug APK is written to `app\build\outputs\apk\debug\app-debug.apk`. It is not a release-signed APK. Install on Android 8.0 (API 26) or later; Android may ask you to allow installation from the source used to download the APK.
 
 ## 🏷️ Topics
 
-`hope-ai` · `android` · `voice-assistant` · `phone-dialer` · `notifications` · `auto-reply` · `accessibility` · `security-manager` · `speaker-recognition` · `cloud-agent` · `v2.0.0`
+`hope-ai` · `android` · `voice-assistant` · `phone-dialer` · `notifications` · `auto-reply` · `media-download` · `accessibility` · `security-manager` · `speaker-recognition` · `cloud-agent` · `v3.1.5`
 
 ---
 

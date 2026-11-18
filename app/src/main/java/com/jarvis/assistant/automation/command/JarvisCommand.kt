@@ -1,5 +1,7 @@
 package com.jarvis.assistant.automation.command
 
+import com.jarvis.assistant.media.MediaDownloadKind
+
 sealed class JarvisCommand {
     data class PlayYouTube(val query: String) : JarvisCommand()
     data class SearchYouTube(val query: String) : JarvisCommand()
@@ -28,5 +30,6 @@ sealed class JarvisCommand {
     object RecallFavoriteSong : JarvisCommand()
     object RecallRoutine : JarvisCommand()
     object StartWordSearch : JarvisCommand()
+    data class DownloadSharedMedia(val kind: MediaDownloadKind) : JarvisCommand()
     object GoToBackground : JarvisCommand()
 }

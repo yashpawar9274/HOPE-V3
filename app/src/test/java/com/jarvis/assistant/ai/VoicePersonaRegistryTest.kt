@@ -30,6 +30,19 @@ class VoicePersonaRegistryTest {
     }
 
     @Test
+    fun voiceTaskProfileCannotOverrideSelectedAssistantIdentity() {
+        val prompt = VoicePersonaRegistry.promptFor(
+            selectedVoice = "Aoede",
+            task = "Help me debug a Kotlin crash",
+            automaticSwitchingEnabled = true,
+            assistantIdentity = PersonaEngine.FRIDAY
+        )
+
+        assertTrue(prompt.contains("The assistant remains FRIDAY"))
+        assertTrue(prompt.contains("task-expertise profile, not the assistant's identity"))
+    }
+
+    @Test
     fun capabilityGuidanceDoesNotClaimUnavailableResearchTools() {
         assertTrue(CapabilityRegistry.promptGuidance().contains("live_web_research: UNAVAILABLE"))
         assertTrue(CapabilityRegistry.promptGuidance().contains("calendar_service: REQUIRES_RUNTIME_CHECK"))

@@ -136,7 +136,17 @@ class CloudAgentTaskActivity : AppCompatActivity() {
         submitButton.isEnabled = false
         lifecycleScope.launch {
             try {
-                val task = repository.createTask(objective)
+                val app = JarvisApp.instance
+                if (app.coreBehaviorEngine.hasConflictingRulesFor("background_agent")) {
+                    throw IllegalStateException("Cloud task was not created because permanent behavior rules conflict. Resolve them in Settings > Memory & Intelligence > Core Behaviour.")
+                }
+                val permanentRules = app.coreBehaviorEngine.activeInstructionsFor("background_agent")
+                val objectiveWithRules = if (permanentRules.isBlank()) {
+                    objective
+                } else {
+                    "$objective\n\n$permanentRules"
+                }
+                val task = repository.createTask(objectiveWithRules)
                 taskId = task.taskId
                 refreshButton.isEnabled = true
                 statusText.text = "Cloud task created. Waiting for the Cloud Run worker to plan it."

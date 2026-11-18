@@ -54,6 +54,7 @@ object SmartAutoReply {
     fun disable(context: Context) {
         val app = context.applicationContext
         AutoReplyPreferences.setSmartModeEnabled(app, false)
+        AutoReplyPreferences.clearUltronDefenseSessions(app)
         AutoReplyCoordinator.cancelPendingReplies()
     }
 

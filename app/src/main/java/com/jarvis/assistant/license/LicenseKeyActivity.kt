@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.TextView
@@ -19,6 +20,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import com.jarvis.assistant.R
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -36,6 +38,7 @@ class LicenseKeyActivity : AppCompatActivity() {
     private lateinit var progress: View
     private var orb: LicenseOrb? = null
     private var loading = false
+    private var navigationStarted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -132,7 +135,7 @@ class LicenseKeyActivity : AppCompatActivity() {
     }
 
     private fun unlock() {
-        if (loading) return
+        if (loading || navigationStarted) return
         val formatted = LicenseKeyFormat.format(keyInput.text?.toString().orEmpty())
         if (!LicenseKeyFormat.isComplete(formatted)) {
             keyLayout.error = "Enter the full key: HOPE-XXXXX-XXXXX-XXXXX-XXXXX"
@@ -142,26 +145,43 @@ class LicenseKeyActivity : AppCompatActivity() {
         banner.visibility = View.GONE
         setLoading(true)
         lifecycleScope.launch {
-            when (val outcome = LicenseManager.activate(this@LicenseKeyActivity, formatted)) {
-                is ActivateOutcome.Success -> {
-                    Toast.makeText(this@LicenseKeyActivity, "HOPE unlocked", Toast.LENGTH_SHORT).show()
-                    LicenseGateActivity.openMain(this@LicenseKeyActivity, startVoiceSession())
+            try {
+                when (val outcome = LicenseManager.activate(this@LicenseKeyActivity, formatted)) {
+                    is ActivateOutcome.Success -> {
+                        if (navigationStarted) return@launch
+                        navigationStarted = true
+                        Toast.makeText(this@LicenseKeyActivity, "HOPE unlocked", Toast.LENGTH_SHORT).show()
+                        LicenseGateActivity.openMain(this@LicenseKeyActivity, startVoiceSession())
+                    }
+                    is ActivateOutcome.Rejected -> {
+                        setLoading(false)
+                        showBanner(outcome.message, error = true) // the server's message, as is
+                    }
+                    ActivateOutcome.SignInRequired -> {
+                        if (navigationStarted) return@launch
+                        navigationStarted = true
+                        startActivity(
+                            Intent(this@LicenseKeyActivity, LoginActivity::class.java)
+                                .putExtra(LicenseGateActivity.EXTRA_START_VOICE_SESSION, startVoiceSession())
+                        )
+                        finish()
+                    }
+                    is ActivateOutcome.NetworkError -> {
+                        setLoading(false)
+                        showBanner(outcome.message, error = true)
+                    }
                 }
-                is ActivateOutcome.Rejected -> {
-                    setLoading(false)
-                    showBanner(outcome.message, error = true) // the server's message, as is
-                }
-                ActivateOutcome.SignInRequired -> {
-                    startActivity(
-                        Intent(this@LicenseKeyActivity, LoginActivity::class.java)
-                            .putExtra(LicenseGateActivity.EXTRA_START_VOICE_SESSION, startVoiceSession())
-                    )
-                    finish()
-                }
-                is ActivateOutcome.NetworkError -> {
-                    setLoading(false)
-                    showBanner(outcome.message, error = true)
-                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.e(TAG, "Unexpected error while activating the licence.", error)
+                setLoading(false)
+                val detail = error.localizedMessage?.takeIf(String::isNotBlank)
+                showBanner(
+                    detail?.let { "Could not complete licence activation: $it" }
+                        ?: "Could not complete licence activation. Please try again.",
+                    error = true
+                )
             }
         }
     }
@@ -192,6 +212,7 @@ class LicenseKeyActivity : AppCompatActivity() {
     }
 
     companion object {
+        private const val TAG = "LicenseKeyActivity"
         private const val EXTRA_REASON = "hope_license_reason"
 
         fun intent(context: Context, reason: String?, startVoice: Boolean): Intent =

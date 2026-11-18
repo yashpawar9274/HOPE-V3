@@ -1,6 +1,9 @@
 package com.jarvis.assistant.ui.home
 
 import android.os.Bundle
+import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -14,6 +17,7 @@ class UpdatesFragment : Fragment() {
 
     private var _binding: FragmentUpdatesBinding? = null
     private val binding get() = _binding!!
+    private var selectedFilter = UpdateFilter.ALL
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -25,10 +29,98 @@ class UpdatesFragment : Fragment() {
         return binding.root
     }
 
-    private data class FeatureNotice(val feature: String, val title: String, val details: String, val kind: String = "FEATURE")
+    private enum class UpdateCategory(val label: String) {
+        FEATURE("FEATURE"),
+        FIX("FIX"),
+        PENDING("PENDING")
+    }
+
+    private enum class UpdateFilter(val label: String, val category: UpdateCategory?) {
+        ALL("All", null),
+        FEATURES("Features", UpdateCategory.FEATURE),
+        FIXES("Fixes", UpdateCategory.FIX),
+        PENDING("Pending", UpdateCategory.PENDING)
+    }
+
+    private data class FeatureNotice(
+        val feature: String,
+        val title: String,
+        val details: String,
+        val kind: String = "FEATURE",
+        val category: UpdateCategory = UpdateCategory.FEATURE
+    )
 
     private fun renderFeatureUpdates() {
         val features = listOf(
+            FeatureNotice(
+                "HOPE AI 3.1.5",
+                "Online-only AI and Gemini voice fix",
+                "Removed Gemma offline inference and Automatic/Offline AI routing. Existing installs now use Gemini Online, fixing the Offline Voice Unavailable block for Live voice. Gemini requires an API key and network access. The separate on-device Vosk wake-word detector remains; it does not provide offline conversations. Previously downloaded Gemma model files are left untouched in app storage."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.1.4",
+                "Settings hub with search and quick filters",
+                "Settings now has a search field and filters for AI & Voice, Device, Automation, and Security. Results narrow to matching settings while preserving the existing controls, status values, and destinations."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.1.3",
+                "A cleaner, filterable Updates feed",
+                "Browse updates by Features, Fixes, or Pending work. Release notes are now compact by default; tap Read full update to expand the complete details."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.1.2",
+                "Local AI mode safeguards and transparent limits",
+                "Clipboard text now follows the selected AI router. Gemini Live voice, clipboard image analysis, and new or resumed Cloud Agent AI work are blocked when cloud inference is not permitted.",
+                category = UpdateCategory.FIX
+            ),
+            FeatureNotice(
+                "IN PROGRESS",
+                "Local AI migration and other known pending work",
+                "The removed Gemma runtime has not been replaced by llama.cpp/GGUF or Ollama. Offline conversational voice and image models are not implemented. Cloud Memory may still sync when enabled, and already-running server-side tasks are not stopped automatically. Physical-device performance testing, Cloud Agent/Memory deployment checks, contact-priority ranking, a persistent approve-and-send queue, Gmail decision gates, and production signing are also pending.",
+                category = UpdateCategory.PENDING
+            ),
+            FeatureNotice(
+                "HOPE AI 3.1.1",
+                "Socially aware Smart Auto-Reply",
+                "Before replying, HOPE checks available conversation context, intent, tone, repeat questions, stop-contact boundaries, and whether the conversation is naturally finished. Career, meeting, sensitive, and owner-decision requests can be escalated privately to Yash with the original request, available context, missing details, and a suggested response; personal facts are not invented. Settings → Smart Auto-Reply lets you configure social intelligence, professional tone, emotional cues, conversation ending, escalation, and human review. Sensitive latest messages are not sent to AI; sensitive history is filtered, and ambiguous cross-message patterns use only the latest message. Contact-priority ranking and a persistent approve-and-send queue are not available yet."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.1.1",
+                "Persistent Core Behaviour instructions",
+                "Tell HOPE which behaviors or preferences to remember permanently. Explicit rules are stored separately from conversational memories and can be searched, edited, disabled, reactivated, or deleted with a local history. Applicable instructions guide text chat, Gemini Live, WhatsApp Auto-Reply, and Cloud Agent prompts; detectable conflicts pause affected tasks instead of silently choosing a rule. Android permissions, authentication, and action confirmations still take priority. Rules save locally first; optional cloud sync needs Cloud Memory consent and the configured Supabase backend."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.1.1",
+                "More reliable memory and factual answers",
+                "HOPE no longer promotes app usage or frequently played songs into confirmed favorites, invents fallback favorites, or presents unconfirmed facts as certain. Explicit saves persist locally before cloud sync is attempted, and responses distinguish local deletion from cloud deletion that has not been confirmed. Destructive Room migration fallback was removed. Cloud retrieval, synchronization, and deletion behavior still depends on the required Supabase migrations and Edge Function being deployed.",
+                category = UpdateCategory.FIX
+            ),
+            FeatureNotice(
+                "HOPE AI 3.1.1",
+                "Login, licence, and startup reliability",
+                "Sign-in and sign-up use clearer dark-mode fields and validation while preserving the existing Firebase email/password, Google sign-in, and password-reset flows. Licence activation is guarded against duplicate navigation, valid cached verification can be reused during its offline-valid period, and optional Firebase or startup-service failures are handled without bypassing authentication. Theme-resource compatibility fixes address the reported MainActivity layout inflation crash. This APK has build and unit-test validation; new licence activation and crash-free behavior have not been retested on a physical Android device.",
+                category = UpdateCategory.FIX
+            ),
+            FeatureNotice(
+                "HOPE AI 3.1.0",
+                "WhatsApp personas and ULTRON Auto-Defense",
+                "Choose HOPE, FRIDAY, E.D.I.T.H., or ULTRON for WhatsApp without changing the app-wide persona. Optional ULTRON Auto-Defense uses the configured AI service to classify non-sensitive context before taking over a single WhatsApp conversation; it ignores quoted/reported or playful abuse, fails closed when confidence is low, introduces ULTRON once, and restores the selected persona when the conversation normalizes or the session expires. Set its sensitivity and 5–60 minute timeout under Settings → Smart Auto-Reply. It only sends through the existing authorized Android quick-reply action, never sends personal attacks or threats, and cannot confirm recipient delivery. Sensitive messages are filtered before AI requests; hashed defense-session metadata stays local. Voice/text commands are limited to WhatsApp."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.0.9",
+                "Sharper ULTRON persona and saved voices",
+                "HOPE, FRIDAY, E.D.I.T.H., and ULTRON now have more distinct conversational behavior while HOPE remains the default. Choose a Gemini voice for each persona under Settings → AI Persona; each choice is remembered separately when you switch personas. ULTRON can use pointed, playful roasts about a low-stakes choice or line of reasoning when appropriate, and switches to direct support for serious or sensitive situations. Voice preview and independent pitch/rate controls are not available in this integration."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.0.2",
+                "Dedicated HOPE Call launcher",
+                "Open HOPE's dialer from a separate orb-style launcher icon, even when the HOPE voice assistant service is off. The icon appears in the app launcher; add it to the Home screen from your launcher if desired. HOPE must be the default phone app to use its full dialer."
+            ),
+            FeatureNotice(
+                "HOPE AI 3.0.1",
+                "Rights-confirmed shared media downloads",
+                "Share a direct HTTPS audio/video file link into HOPE or paste one, then ask for the video or its song. HOPE validates the downloaded file as playable media and caps downloads at 250 MB. Supported AAC/AMR audio tracks can be extracted from a direct video into M4A. You must confirm you own the media or have permission; after the download, Android's Share Sheet lets you choose where to send it. Streaming-platform pages, DRM-protected media, private-network hosts, non-HTTPS links, and unsupported codecs are not downloaded. On Android 10+ files save to Movies/Music; older Android versions use HOPE's private app storage."
+            ),
             FeatureNotice(
                 "HOPE AI 3.0",
                 "Advanced Memory & Knowledge dashboard",
@@ -42,12 +134,12 @@ class UpdatesFragment : Fragment() {
             FeatureNotice(
                 "HOPE AI 3.0",
                 "Context-aware Smart Auto-Reply",
-                "HOPE introduces itself with the exact first-contact message “Hey, I'm HOPE 😼” once per saved conversation, uses up to the latest five available messages, and adapts reply style to conversational tone and configured contact preferences. Sensitive or high-impact messages are held for manual review rather than auto-sent. Context remains local with notification-history retention controls. Automatic sends still use only authorized Android notification quick-reply actions; WhatsApp, Instagram Direct, and SMS are supported when an action is available. Telegram and Facebook Messenger are unsupported, and Android cannot confirm recipient delivery."
+                "The selected persona uses up to the latest five available messages and adapts its reply to conversational tone and configured contact preferences without unsolicited introductions. Sensitive or high-impact messages are held for manual review rather than auto-sent. Context remains local with notification-history retention controls. Automatic sends still use only authorized Android notification quick-reply actions; WhatsApp, Instagram Direct, and SMS are supported when an action is available. Telegram and Facebook Messenger are unsupported, and Android cannot confirm recipient delivery."
             ),
             FeatureNotice(
                 "HOPE AI 3.0",
                 "Smart Auto-Reply overview and context controls",
-                "The Auto-Reply screen now shows retained-message and recent-chat counts, submitted reply-action counts, current status, supported integrations, and recent activity. Clearing local conversation context also clears first-contact state; HOPE may introduce itself again after that explicit reset. Suggest-only replies are not sent automatically; a separate approve/send queue is not available."
+                "The Auto-Reply screen now shows retained-message and recent-chat counts, submitted reply-action counts, current status, supported integrations, and recent activity. Clearing local conversation context clears saved chat history. Suggest-only replies are not sent automatically; a separate approve/send queue is not available."
             ),
             FeatureNotice(
                 "HOPE AI 3.0",
@@ -260,43 +352,153 @@ class UpdatesFragment : Fragment() {
             FeatureNotice("Silent execution", "Quiet task automation", "When enabled, task narration is muted while ordinary conversation stays audible."),
             FeatureNotice("WhatsApp", "Saved contact lookup", "Contact aliases are supported. Grant Contacts permission first; HOPE will report a missing permission separately from a name mismatch."),
             FeatureNotice("Phone calls", "Permission-aware calling", "Normal calls require Contacts and Phone permissions. WhatsApp calls use WhatsApp and do not place a cellular call."),
-            FeatureNotice("Google Flow / AI Studio", "Browser input diagnostics", "The captured Flow run could not verify the prompt input in Chrome. Some editor fields are not exposed to Accessibility; screen sharing must be active and have a fresh frame for visual targeting. The captured logs did not show a Google AI Studio page, so that failure still needs a fresh log capture.", "DIAGNOSTIC"),
-            FeatureNotice("Instagram", "Bulk action safety", "Bulk tasks track list progress and require end-of-list evidence. The captured run repeatedly reached the action limit and did not establish completion; avoid treating an unverified result as done.", "DIAGNOSTIC"),
+            FeatureNotice("Google Flow / AI Studio", "Browser input diagnostics", "The captured Flow run could not verify the prompt input in Chrome. Some editor fields are not exposed to Accessibility; screen sharing must be active and have a fresh frame for visual targeting. The captured logs did not show a Google AI Studio page, so that failure still needs a fresh log capture.", "DIAGNOSTIC", UpdateCategory.PENDING),
+            FeatureNotice("Instagram", "Bulk action safety", "Bulk tasks track list progress and require end-of-list evidence. The captured run repeatedly reached the action limit and did not establish completion; avoid treating an unverified result as done.", "DIAGNOSTIC", UpdateCategory.PENDING),
             FeatureNotice("Spotify", "Song search and playback checks", "Searches can inspect results and verify playback before reporting success; physical-device behavior still depends on the Spotify screen and account."),
             FeatureNotice("Permissions", "Per-feature access status", "The System Authorizations page lists microphone, location, notifications, overlay, Accessibility, contacts, phone, camera, Bluetooth, battery, and brightness access."),
             FeatureNotice("AI persona", "Operator profile preview", "Preview your selected assistant voice and the name it will use before activating the persona."),
             FeatureNotice("Appearance", "Light theme by default", "Fresh installs start with the Light theme; you can still select other themes in Settings.")
         )
-        val list = binding.updatesList
-        list.removeAllViews()
-        features.forEach { feature ->
-            val card = LinearLayout(requireContext()).apply {
-                orientation = LinearLayout.VERTICAL
-                background = androidx.core.content.ContextCompat.getDrawable(requireContext(), com.jarvis.assistant.R.drawable.bg_jarvis_card)
-                setPadding(dp(18), dp(18), dp(18), dp(18))
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    bottomMargin = dp(14)
+        renderFilters(features)
+        renderUpdateCards(features)
+    }
+
+    private fun renderFilters(features: List<FeatureNotice>) {
+        val filterRow = binding.updatesFilters
+        filterRow.removeAllViews()
+        UpdateFilter.entries.forEach { filter ->
+            val count = if (filter.category == null) {
+                features.size
+            } else {
+                features.count { it.category == filter.category }
+            }
+            val chip = TextView(requireContext()).apply {
+                text = "${filter.label}  $count"
+                textSize = 13f
+                minHeight = dp(42)
+                gravity = Gravity.CENTER
+                setPadding(dp(14), 0, dp(14), 0)
+                isClickable = true
+                isFocusable = true
+                contentDescription = "Show ${filter.label.lowercase()} updates, $count items"
+                val selected = selectedFilter == filter
+                background = if (selected) {
+                    GradientDrawable().apply {
+                        setColor(themeColor(com.jarvis.assistant.R.attr.themeAccentLight))
+                        cornerRadius = dp(22).toFloat()
+                    }
+                } else {
+                    androidx.core.content.ContextCompat.getDrawable(
+                        requireContext(),
+                        com.jarvis.assistant.R.drawable.bg_jarvis_card
+                    )
+                }
+                setTextColor(
+                    themeColor(
+                        if (selected) com.jarvis.assistant.R.attr.themeAccent
+                        else com.jarvis.assistant.R.attr.themeTextPrimary
+                    )
+                )
+                setOnClickListener {
+                    selectedFilter = filter
+                    renderFilters(features)
+                    renderUpdateCards(features)
                 }
             }
-            card.addView(TextView(requireContext()).apply {
-                text = feature.feature.uppercase() + if (feature.kind == "DIAGNOSTIC") "  ·  DIAGNOSTIC" else ""
-                textSize = 12f
+            filterRow.addView(chip, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ).apply {
+                marginEnd = dp(8)
+            })
+        }
+    }
+
+    private fun renderUpdateCards(features: List<FeatureNotice>) {
+        val list = binding.updatesList
+        list.removeAllViews()
+        val visibleFeatures = features.filter { feature ->
+            selectedFilter.category == null || feature.category == selectedFilter.category
+        }
+        visibleFeatures.forEach { feature ->
+            val card = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.VERTICAL
+                background = androidx.core.content.ContextCompat.getDrawable(
+                    requireContext(),
+                    com.jarvis.assistant.R.drawable.bg_jarvis_card
+                )
+                setPadding(dp(16), dp(14), dp(16), dp(10))
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = dp(10)
+                }
+            }
+            val metadata = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            metadata.addView(TextView(requireContext()).apply {
+                text = feature.feature.uppercase()
+                textSize = 11f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(themeColor(com.jarvis.assistant.R.attr.themeTextMuted))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            val categoryLabel = if (feature.kind == "DIAGNOSTIC") "DIAGNOSTIC" else feature.category.label
+            metadata.addView(TextView(requireContext()).apply {
+                text = categoryLabel
+                textSize = 10f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 setTextColor(themeColor(com.jarvis.assistant.R.attr.themeAccent))
+                setPadding(dp(9), dp(5), dp(9), dp(5))
+                background = GradientDrawable().apply {
+                    setColor(themeColor(com.jarvis.assistant.R.attr.themeAccentLight))
+                    cornerRadius = dp(12).toFloat()
+                }
             })
+            card.addView(metadata)
             card.addView(TextView(requireContext()).apply {
                 text = feature.title
-                textSize = 15f
+                textSize = 16f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 setTextColor(themeColor(com.jarvis.assistant.R.attr.themeTextPrimary))
-                setPadding(0, dp(8), 0, dp(5))
+                setPadding(0, dp(9), 0, dp(5))
             })
-            card.addView(TextView(requireContext()).apply {
+            val details = TextView(requireContext()).apply {
                 text = feature.details
                 textSize = 13f
                 setTextColor(themeColor(com.jarvis.assistant.R.attr.themeTextMuted))
                 setLineSpacing(dp(2).toFloat(), 1f)
-            })
+                maxLines = 3
+                ellipsize = TextUtils.TruncateAt.END
+            }
+            card.addView(details)
+            if (feature.details.length > COLLAPSED_DETAILS_LENGTH) {
+                var expanded = false
+                card.addView(TextView(requireContext()).apply {
+                    text = "Read full update"
+                    textSize = 13f
+                    minHeight = dp(44)
+                    gravity = Gravity.CENTER_VERTICAL or Gravity.END
+                    isClickable = true
+                    isFocusable = true
+                    setTextColor(themeColor(com.jarvis.assistant.R.attr.themeAccent))
+                    contentDescription = "Read full update: ${feature.title}"
+                    setOnClickListener {
+                        expanded = !expanded
+                        details.maxLines = if (expanded) Int.MAX_VALUE else 3
+                        details.ellipsize = if (expanded) null else TextUtils.TruncateAt.END
+                        text = if (expanded) "Show less" else "Read full update"
+                        contentDescription = if (expanded) {
+                            "Show less: ${feature.title}"
+                        } else {
+                            "Read full update: ${feature.title}"
+                        }
+                    }
+                })
+            }
             list.addView(card)
         }
     }
@@ -308,6 +510,10 @@ class UpdatesFragment : Fragment() {
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    private companion object {
+        const val COLLAPSED_DETAILS_LENGTH = 170
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)

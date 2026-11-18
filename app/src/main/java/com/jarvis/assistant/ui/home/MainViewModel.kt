@@ -9,6 +9,7 @@ import com.jarvis.assistant.JarvisApp
 import com.jarvis.assistant.ai.AiRouter
 import com.jarvis.assistant.ai.CriticalThinkingInstructions
 import com.jarvis.assistant.ai.CapabilityRegistry
+import com.jarvis.assistant.ai.PersonaEngine
 import com.jarvis.assistant.ai.VoicePersonaRegistry
 import com.jarvis.assistant.background.JarvisConversationService
 import com.jarvis.assistant.autoreply.AutoReplyCoordinator
@@ -141,7 +142,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         chatGenerationJob = viewModelScope.launch {
             _isGeneratingChatReply.value = true
             try {
-                val autoReplyCommand = WhatsAppAutoReplyCommandPolicy.detect(prompt)
+                val app = getApplication<JarvisApp>()
+                val capturedInstruction = app.coreBehaviorEngine.captureUserInstruction(prompt)
+                if (capturedInstruction != null) {
+                    val response = when (capturedInstruction) {
+                        is com.jarvis.assistant.data.memory.CoreBehaviorEngine.CaptureResult.Saved -> {
+                            when {
+                                capturedInstruction.syncQueued ->
+                                    "Saved and verified as a permanent HOPE behaviour rule. Supabase sync is queued."
+                                capturedInstruction.syncError != null ->
+                                    "Saved locally and verified, but Supabase sync could not be queued: ${capturedInstruction.syncError}"
+                                else ->
+                                    "Saved locally and verified as a permanent HOPE behaviour rule. Cloud Memory is off, so it has not been synced to Supabase."
+                            }
+                        }
+                        is com.jarvis.assistant.data.memory.CoreBehaviorEngine.CaptureResult.AlreadyExists ->
+                            if (capturedInstruction.rule.activeStatus) {
+                                "That permanent rule is already saved and active."
+                            } else {
+                                "That rule is already saved but disabled. You can reactivate it in Settings > Memory & Intelligence > Core Behaviour."
+                            }
+                        is com.jarvis.assistant.data.memory.CoreBehaviorEngine.CaptureResult.Conflict ->
+                            "I did not change anything because this conflicts with an existing permanent rule: “${capturedInstruction.existing.instructionText}”. Please clarify which behavior you want."
+                        com.jarvis.assistant.data.memory.CoreBehaviorEngine.CaptureResult.NeedsClarification ->
+                            "I can save that permanently, but I need the specific behavior you want me to follow."
+                    }
+                    chatRepository.addTurn(prompt, response, "Core Behaviour Engine")
+                    return@launch
+                }
+                val activeRuleConflict = app.coreBehaviorEngine.firstConflictingRules("text")
+                if (activeRuleConflict != null) {
+                    val response = "I found conflicting permanent rules: “${activeRuleConflict.first.instructionText}” and “${activeRuleConflict.second.instructionText}”. I won't apply either one until you clarify which behavior should remain."
+                    chatRepository.addTurn(prompt, response, "Core Behaviour Engine")
+                    return@launch
+                }
+                val autoReplyCommand = WhatsAppAutoReplyCommandPolicy.detectInstruction(prompt)
                 if (autoReplyCommand != null) {
                     val result = WhatsAppAutoReplyControl.execute(getApplication(), autoReplyCommand)
                     chatRepository.addTurn(prompt, result.message, "On-device WhatsApp auto-reply control")
@@ -150,9 +185,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val recentContext = chatRepository.currentUserTurns().takeLast(8).joinToString("\n") { turn ->
                     "User: ${turn.userTranscript}\nHOPE: ${turn.jarvisResponse}"
                 }
+                val localMemories = try {
+                    app.memoryRepository.findRelevantMemories(prompt)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    _chatErrors.emit("Local memory could not be searched: ${error.message ?: "storage unavailable"}")
+                    emptyList()
+                }
+                val localMemoryContext = localMemories.joinToString("\n") {
+                    "- [${it.verificationStatus}; confidence ${"%.2f".format(Locale.ROOT, it.confidence)}] ${it.rawText}"
+                }
+                val coreBehaviorContext = app.coreBehaviorEngine.activeInstructionsFor("text")
                 val cloudMemoryContext = if (preferences.isCloudMemoryEnabled) {
                     try {
-                        (getApplication<JarvisApp>()).cloudMemoryRepository.search(prompt)
+                        app.cloudMemoryRepository.search(prompt)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
@@ -164,6 +211,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 val context = listOf(
                     recentContext,
+                    localMemoryContext.takeIf(String::isNotBlank)?.let {
+                        "[RELEVANT LOCAL MEMORIES]\n$it"
+                    }.orEmpty(),
                     cloudMemoryContext.takeIf(String::isNotBlank)?.let {
                         "[RELEVANT CLOUD MEMORIES AND PAST CONVERSATIONS]\n$it"
                     }.orEmpty()
@@ -223,12 +273,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ""
                 }
                 val result = aiRouter.generate(
-                    mode = preferences.aiMode,
                     systemInstruction = listOf(
                         CriticalThinkingInstructions.forText(
                             preferences.aiSystemInstruction,
                             preferences.isCriticalThinkingEnabled
                         ),
+                        coreBehaviorContext,
+                        PersonaEngine.promptFor(preferences.personality),
                         locationGuidance,
                         CapabilityRegistry.promptGuidance(),
                         VoicePersonaRegistry.promptFor(
@@ -237,7 +288,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             automaticSwitchingEnabled = preferences.isAutomaticPersonaSwitchingEnabled,
                             customName = preferences.getVoicePersonaCustomization(voice, "name"),
                             customExpertise = preferences.getVoicePersonaCustomization(voice, "expertise"),
-                            customTone = preferences.getVoicePersonaCustomization(voice, "tone")
+                            customTone = preferences.getVoicePersonaCustomization(voice, "tone"),
+                            assistantIdentity = PersonaEngine.profileFor(preferences.personality).identityName
                         ),
                         if (preferences.isAutomaticPersonaSwitchingEnabled) VoicePersonaRegistry.routingGuide() else ""
                     ).filter(String::isNotBlank).joinToString("\n\n"),

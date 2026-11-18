@@ -53,7 +53,7 @@ object YouTubeController {
         if (cleanQ.isBlank() || cleanQ.equals("video", ignoreCase = true) || cleanQ.equals("song", ignoreCase = true) ||
             cleanQ.equals("a video", ignoreCase = true) || cleanQ.equals("a song", ignoreCase = true) ||
             cleanQ.equals("music", ignoreCase = true) || cleanQ.equals("songs", ignoreCase = true)) {
-            val fav = try { JarvisApp.instance.memoryManager.resolveSongQuery("my favorite song") } catch (_: Exception) { "Arijit Singh top hits" }
+            val fav = try { JarvisApp.instance.memoryManager.resolveSongQuery("my favorite song") } catch (_: Exception) { "" }
             cleanQ = fav.ifBlank { "Trending music" }
         }
 

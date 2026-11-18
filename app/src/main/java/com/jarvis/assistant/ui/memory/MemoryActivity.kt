@@ -60,6 +60,9 @@ class MemoryActivity : AppCompatActivity() {
         com.jarvis.assistant.util.ThemeManager.applyDynamicBackground(binding.root)
 
         setupToolbar()
+        binding.btnCoreBehavior.setOnClickListener {
+            startActivity(Intent(this, CoreBehaviorActivity::class.java))
+        }
         setupCloudMemoryControls()
         setupCloudAgentControls()
         setupRecyclerView()
@@ -77,6 +80,21 @@ class MemoryActivity : AppCompatActivity() {
     private fun setupCloudMemoryControls() {
         val preferences = JarvisApp.instance.preferences
         val currentUserId = LicenseManager.currentUser(this)?.uid
+        if (currentUserId != null) {
+            lifecycleScope.launch {
+                try {
+                    JarvisApp.instance.cloudMemoryRepository.schedulePendingSync()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Toast.makeText(
+                        this@MemoryActivity,
+                        error.message ?: "Pending local memory sync could not be scheduled.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
         if (currentUserId != null && preferences.isCloudMemoryEnabled &&
             preferences.cloudMemoryOwnerId != currentUserId
         ) {
@@ -123,7 +141,7 @@ class MemoryActivity : AppCompatActivity() {
                 MaterialAlertDialogBuilder(this@MemoryActivity)
                     .setTitle("Enable Cloud Long-Term Memory?")
                     .setMessage(
-                        "When enabled, completed text chats and regular voice transcripts are sent to HOPE's Supabase database and Mem0 under your Firebase account ID. Up to 100 existing local turns already associated with this Firebase account are backed up once; older untagged history is not copied. Mem0 extracts searchable memories, and HOPE may use relevant saved memories in later replies. Voice audio is not stored; clipboard and automation-only turns are excluded. You can turn this off or clear cloud memories here at any time."
+                        "When enabled, completed text chats and regular voice transcripts are sent to HOPE's Supabase database and Mem0 under your Firebase account ID. Saved Core Behaviour instructions are also synced to your private account so they can be restored on this device. Up to 100 existing local turns already associated with this Firebase account are backed up once; older untagged history is not copied. Mem0 extracts searchable memories, and HOPE may use relevant saved memories in later replies. Voice audio is not stored; clipboard and automation-only turns are excluded. You can turn this off or clear cloud memories here at any time."
                     )
                     .setNegativeButton("Cancel", null)
                     .setPositiveButton("Enable") { _, _ ->
@@ -137,6 +155,21 @@ class MemoryActivity : AppCompatActivity() {
                         binding.switchCloudMemory.setOnCheckedChangeListener(null)
                         binding.switchCloudMemory.isChecked = true
                         binding.switchCloudMemory.setOnCheckedChangeListener(cloudMemoryListener)
+                        lifecycleScope.launch {
+                            try {
+                                JarvisApp.instance.coreBehaviorEngine.syncFromCloud()
+                                JarvisApp.instance.coreBehaviorEngine.syncAllToCloud()
+                                JarvisApp.instance.cloudMemoryRepository.schedulePendingSync()
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                Toast.makeText(
+                                    this@MemoryActivity,
+                                    "Cloud memory is enabled, but synchronization could not be completed: ${error.message ?: "service unavailable"}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
                         refreshCloudMemoryStatus()
                         if (preferences.cloudMemoryHistoryBackedUpForUserId != userId) {
                             val canImportHistory = preferences.cloudMemoryHistoryOwnerId.isBlank() ||
@@ -159,7 +192,7 @@ class MemoryActivity : AppCompatActivity() {
                                     preferences.cloudMemoryHistoryBackedUpForUserId = userId
                                     Toast.makeText(
                                         this@MemoryActivity,
-                                        "Existing transcripts uploaded; Mem0 extraction is queued and will update in Cloud Memory Status.",
+                                        "Existing transcripts are queued for sync; Mem0 extraction status will update in Cloud Memory Status.",
                                         Toast.LENGTH_LONG
                                     ).show()
                                     refreshCloudMemoryStatus()
@@ -190,11 +223,14 @@ class MemoryActivity : AppCompatActivity() {
             }
             lifecycleScope.launch {
                 try {
-                    val queued = JarvisApp.instance.cloudMemoryRepository.retryFailedJobs()
+                    val retry = JarvisApp.instance.cloudMemoryRepository.retryFailedJobs()
                     Toast.makeText(
                         this@MemoryActivity,
-                        if (queued > 0) "$queued failed extraction job(s) queued for retry."
-                        else "There are no failed extraction jobs to retry.",
+                        if (retry.localSyncJobs > 0 || retry.extractionJobs > 0) {
+                            "${retry.localSyncJobs} local sync job(s) and ${retry.extractionJobs} extraction job(s) queued for retry."
+                        } else {
+                            "There are no failed memory sync or extraction jobs to retry."
+                        },
                         Toast.LENGTH_LONG
                     ).show()
                     refreshCloudMemoryStatus()
@@ -232,7 +268,7 @@ class MemoryActivity : AppCompatActivity() {
                             Toast.makeText(
                                 this@MemoryActivity,
                                 if (status == "pending") {
-                                    "Cloud transcripts deleted; Mem0 deletion is pending. Refresh status to verify."
+                                    "Cloud clear is queued. Refresh status to verify transcript and Mem0 deletion."
                                 } else {
                                     "Cloud transcripts deleted; Mem0 deletion status: $status."
                                 },
@@ -299,7 +335,7 @@ class MemoryActivity : AppCompatActivity() {
             MaterialAlertDialogBuilder(this)
                 .setTitle("Enable Cloud Agent Tasks?")
                 .setMessage(
-                    "Task objectives are sent to Gemini to create a plan, and task status and the plan are stored in HOPE's cloud gateway under your existing Firebase account. Device readings are shared only after you approve a specific request. Cloud Memory is separate and will not be read unless separately enabled. No device action runs without your confirmation here. You can turn Cloud Agent off here at any time."
+                    "Task objectives and the applicable permanent Core Behaviour rules are sent to Gemini to create a plan, and task status and the plan are stored in HOPE's cloud gateway under your existing Firebase account. Device readings are shared only after you approve a specific request. Cloud Memory retrieval is separate and will not be used unless separately enabled. No device action runs without your confirmation here. You can turn Cloud Agent off here at any time."
                 )
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Enable") { _, _ ->
@@ -344,6 +380,8 @@ class MemoryActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val status = JarvisApp.instance.cloudMemoryRepository.getSyncStatus()
+                val localStatus = JarvisApp.instance.cloudMemoryRepository
+                    .getLocalSyncStatus(user.uid)
                 val currentUser = LicenseManager.currentUser(this@MemoryActivity)
                 val currentEnabled = currentUser != null &&
                     JarvisApp.instance.preferences.isCloudMemoryEnabled &&
@@ -353,6 +391,8 @@ class MemoryActivity : AppCompatActivity() {
                     append(" · Cloud Memory: ${if (currentEnabled) "on" else "off"}")
                     append("\nMem0 API: ${status.mem0KeyStatus}")
                     append("\nExtraction: ${status.queued} queued, ${status.processing} processing, ${status.pending} pending, ${status.retryWait} retrying, ${status.failed} failed")
+                    append("\nDevice sync: ${localStatus.pending} queued, ${localStatus.failed} failed")
+                    localStatus.lastError?.let { append("\nLast device sync error: ${it.take(160)}") }
                     append("\nSuccessful extractions: ${status.succeeded}")
                     status.lastSuccessfulExtractionAt?.let { append("\nLast successful extraction: $it") }
                     status.lastRetrievalAt?.let {
@@ -997,7 +1037,15 @@ class MemoryActivity : AppCompatActivity() {
             matchesCategory && matchesSearch
         }
 
-        binding.tvMemoryCount.text = "SAVED MEMORIES (${filtered.size})"
+        val confirmedCount = filtered.count {
+            it.verificationStatus == MemoryEntity.STATUS_USER_CONFIRMED
+        }
+        val needsReviewCount = filtered.count {
+            it.verificationStatus != MemoryEntity.STATUS_USER_CONFIRMED &&
+                it.verificationStatus != MemoryEntity.STATUS_SUPERSEDED
+        }
+        binding.tvMemoryCount.text =
+            "SAVED (${filtered.size}) · CONFIRMED ($confirmedCount) · REVIEW ($needsReviewCount)"
         adapter.submitList(filtered)
 
         if (filtered.isEmpty()) {
@@ -1055,24 +1103,29 @@ class MemoryActivity : AppCompatActivity() {
                 if (fact.isNotBlank()) {
                     lifecycleScope.launch {
                         try {
-                            memoryRepo.saveMemory(
+                            val localMemoryId = memoryRepo.saveMemory(
                                 rawText = fact,
                                 category = category,
                                 key = fact.take(30).trim(),
                                 value = fact
                             )
                             if (JarvisApp.instance.preferences.isCloudMemoryEnabled) {
-                                JarvisApp.instance.cloudMemoryRepository.rememberNote(fact)
+                                JarvisApp.instance.cloudMemoryRepository.rememberNote(
+                                    fact,
+                                    "local-memory:$localMemoryId"
+                                )
                             }
                             Toast.makeText(
                                 this@MemoryActivity,
                                 if (JarvisApp.instance.preferences.isCloudMemoryEnabled) {
-                                    "Memory saved on this device and to cloud memory."
+                                    "Memory saved locally and queued for cloud sync."
                                 } else {
                                     "Memory saved on this device."
                                 },
                                 Toast.LENGTH_SHORT
                             ).show()
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
                         } catch (error: Exception) {
                             Toast.makeText(
                                 this@MemoryActivity,
@@ -1115,7 +1168,10 @@ class MemoryActivity : AppCompatActivity() {
                             memory.copy(
                                 rawText = newFact,
                                 value = newFact,
-                                timestamp = System.currentTimeMillis()
+                                timestamp = System.currentTimeMillis(),
+                                confidence = 1.0f,
+                                verificationStatus = MemoryEntity.STATUS_USER_CONFIRMED,
+                                sourceType = MemoryEntity.SOURCE_USER_CORRECTION,
                             )
                         )
                         Toast.makeText(this@MemoryActivity, "Memory updated", Toast.LENGTH_SHORT).show()

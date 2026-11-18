@@ -22,6 +22,9 @@ import com.jarvis.assistant.R
 import com.jarvis.assistant.background.JarvisConversationService
 import com.jarvis.assistant.data.model.ConversationState
 import com.jarvis.assistant.databinding.ActivityMainBinding
+import com.jarvis.assistant.media.MediaDownloadActivity
+import com.jarvis.assistant.media.MediaDownloadPolicy
+import com.jarvis.assistant.media.SharedMediaDownloadSession
 import com.jarvis.assistant.ui.chat.ChatFragment
 import com.jarvis.assistant.ui.settings.SettingsFragment
 import com.jarvis.assistant.util.PermissionHelper
@@ -151,6 +154,7 @@ class MainActivity : AppCompatActivity() {
         appliedThemeKey = prefs.appTheme
         appliedCustomHex = prefs.customThemeColor
         super.onCreate(savedInstanceState)
+        rememberSharedMediaForAuthentication(intent)
         // Licence gate: HOPE's main screen opens only for a signed-in user with a valid licence.
         if (!com.jarvis.assistant.license.LicenseManager.guardAllows(this)) {
             com.jarvis.assistant.license.LicenseGateActivity.redirect(this, intent)
@@ -184,40 +188,11 @@ class MainActivity : AppCompatActivity() {
             trans.commitNowAllowingStateLoss()
         }
 
-        // Add all 4 fragments fresh into container
-        val trans = supportFragmentManager.beginTransaction()
-            .add(R.id.fragmentContainer, homeFragment, "TAB_0")
-            .add(R.id.fragmentContainer, chatFragment, "TAB_1")
-            .add(R.id.fragmentContainer, settingsFragment, "TAB_2")
-            .add(R.id.fragmentContainer, updatesFragment, "TAB_3")
-
-        val allTabs = listOf(
-            TAB_HOME to homeFragment,
-            TAB_CHAT to chatFragment,
-            TAB_SETTINGS to settingsFragment,
-            TAB_UPDATES to updatesFragment
-        )
-
-        allTabs.forEach { (tabId, frag) ->
-            if (tabId == currentTab) {
-                trans.show(frag)
-            } else {
-                trans.hide(frag)
-            }
-        }
-        trans.commitNow()
-
         setupNavigationDock()
         selectTab(currentTab)
         observeViewModel()
-        if (intent?.getBooleanExtra(
-                HopeVoiceInteractionSessionService.EXTRA_START_ASSISTANT_VOICE_SESSION,
-                false
-            ) != true
-        ) {
-            showPhoneSetupOnFirstLaunch()
-        }
         handleAssistantVoiceIntent(intent)
+        handleIncomingMediaShare(intent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (currentTab != TAB_HOME) {
@@ -233,15 +208,6 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun showPhoneSetupOnFirstLaunch() {
-        val setupPreferences = getSharedPreferences("hope_phone_setup", MODE_PRIVATE)
-        if (setupPreferences.getBoolean("first_launch_checked", false)) return
-        check(setupPreferences.edit().putBoolean("first_launch_checked", true).commit()) {
-            "Could not persist the first-launch phone setup state."
-        }
-        startActivity(Intent(this, com.jarvis.assistant.telephony.PhoneSetupActivity::class.java))
-    }
-
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt("CURRENT_TAB", currentTab)
@@ -251,6 +217,38 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleAssistantVoiceIntent(intent)
+        handleIncomingMediaShare(intent)
+    }
+
+    private fun handleIncomingMediaShare(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_SEND) {
+            val sharedText = (intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+                ?: intent.dataString.orEmpty()).take(4096)
+            val sharedUrl = MediaDownloadPolicy.extractHttpsUrl(sharedText)
+            SharedMediaDownloadSession.setSharedUrl(sharedUrl.orEmpty())
+            openMediaDownloadScreen(sharedText, sharedUrl)
+            return
+        }
+        val pendingUrl = SharedMediaDownloadSession.consumeOpenAfterAuthentication() ?: return
+        openMediaDownloadScreen(pendingUrl, pendingUrl)
+    }
+
+    private fun rememberSharedMediaForAuthentication(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val sharedText = (intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+            ?: intent.dataString.orEmpty()).take(4096)
+        val sharedUrl = MediaDownloadPolicy.extractHttpsUrl(sharedText)
+        if (sharedUrl != null) {
+            SharedMediaDownloadSession.setSharedUrl(sharedUrl, shouldOpenAfterAuthentication = true)
+        }
+    }
+
+    private fun openMediaDownloadScreen(sharedText: String, sharedUrl: String?) {
+        startActivity(
+            Intent(this, MediaDownloadActivity::class.java)
+                .putExtra(MediaDownloadActivity.EXTRA_SHARED_TEXT, sharedText)
+                .putExtra(MediaDownloadActivity.EXTRA_SHARED_URL, sharedUrl)
+        )
     }
 
     private fun handleAssistantVoiceIntent(intent: Intent?) {
@@ -301,23 +299,25 @@ class MainActivity : AppCompatActivity() {
 
     fun selectTab(tab: Int) {
         val previousTab = currentTab
-        currentTab = tab
-
         val tabs = listOf(
             TAB_HOME to homeFragment,
             TAB_CHAT to chatFragment,
             TAB_SETTINGS to settingsFragment,
             TAB_UPDATES to updatesFragment
         )
+        val selectedTab = tabs.firstOrNull { it.first == tab }?.first ?: TAB_HOME
+        currentTab = selectedTab
 
         val trans = supportFragmentManager.beginTransaction()
         tabs.forEach { (tabId, frag) ->
-            if (frag.isAdded) {
-                if (tabId == tab) {
+            if (tabId == selectedTab) {
+                if (frag.isAdded) {
                     trans.show(frag)
                 } else {
-                    trans.hide(frag)
+                    trans.add(R.id.fragmentContainer, frag, "TAB_$tabId")
                 }
+            } else if (frag.isAdded) {
+                trans.hide(frag)
             }
         }
         trans.commitNowAllowingStateLoss()
@@ -325,12 +325,12 @@ class MainActivity : AppCompatActivity() {
         tabs.forEach { (tabId, frag) ->
             val v = frag.view
             if (v != null) {
-                if (tabId == tab) {
+                if (tabId == selectedTab) {
                     v.visibility = View.VISIBLE
                     com.jarvis.assistant.util.ThemeManager.applyDynamicBackground(v)
-                    if (previousTab != tab) {
+                    if (previousTab != selectedTab) {
                         v.alpha = 0f
-                        v.translationX = if (tab > previousTab) 18f else -18f
+                        v.translationX = if (selectedTab > previousTab) 18f else -18f
                         v.animate().cancel()
                         v.animate()
                             .alpha(1f)
@@ -349,7 +349,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        updateDockUI(tab)
+        updateDockUI(selectedTab)
     }
 
     private fun updateDockUI(tab: Int) {

@@ -151,7 +151,8 @@ object VoicePersonaRegistry {
         automaticSwitchingEnabled: Boolean,
         customName: String = "",
         customExpertise: String = "",
-        customTone: String = ""
+        customTone: String = "",
+        assistantIdentity: String = PersonaEngine.HOPE
     ): String {
         val profile = selectForTask(selectedVoice, task, automaticSwitchingEnabled)
         val isSelectedVoiceProfile = profile.voiceName.equals(selectedVoice, ignoreCase = true)
@@ -169,13 +170,15 @@ object VoicePersonaRegistry {
 - Preferred response structure: ${profile.responsePreference}.
 - Tool-use strategy: ${profile.toolStrategy}.
 - Limits: ${profile.limitations}.
-- This is an instruction profile, not a separate model or a claim of special capability. Keep the user's selected audio voice ($selectedVoice) unchanged. Use this expertise only as a response strategy; permissions and tool availability remain authoritative.
+- This is a task-expertise profile, not the assistant's identity, a separate model, or a claim of special capability. The assistant remains $assistantIdentity.
+- Keep the user's selected audio voice ($selectedVoice) unchanged. Use this expertise only as a response strategy; permissions and tool availability remain authoritative.
 """.trimIndent()
     }
 
     fun routingGuide(): String = """
 [INTERNAL EXPERTISE ROUTING]
 - Keep the user's configured audio voice fixed. When automatic expertise routing is enabled, select the most relevant response profile for each request and use its approach without claiming a voice change.
+- Expertise routing must never change or replace the active assistant identity.
 - Never change the configured audio voice automatically. If an actual voice change is necessary, explain why and ask the user before changing it in settings.
 - Select only one profile per request. If none clearly matches, retain the user's selected profile. Do not announce routine internal expertise routing.
 ${profiles.joinToString("\n") { "- ${it.personaName}: ${it.primaryExpertise}. Use for terms such as ${it.keywords.take(5).joinToString(", ")}." }}

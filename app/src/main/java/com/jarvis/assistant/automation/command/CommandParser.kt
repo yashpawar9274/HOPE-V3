@@ -1,6 +1,7 @@
 package com.jarvis.assistant.automation.command
 
 import com.jarvis.assistant.automation.phone.DomainNormalizer
+import com.jarvis.assistant.media.MediaDownloadKind
 import java.util.Locale
 
 data class ParsedCommandResult(
@@ -259,6 +260,33 @@ object CommandParser {
         )
         if (wordSearchPatterns.any { it.matches(clean) }) {
             return ParsedCommandResult(JarvisCommand.StartWordSearch, 0.98f, "START_WORD_SEARCH")
+        }
+
+        // Media downloads are limited to a link the user explicitly shared with HOPE.
+        val downloadVideoPatterns = listOf(
+            Regex("""^(?:please\s+)?(?:download|save|get|fetch)\s+(?:me\s+)?(?:(?:this|the|shared)\s+)?(?:video|clip)(?:\s+from\s+(?:this|the|shared)\s+link)?$"""),
+            Regex("""^(?:mujhe\s+)?(?:is|iss|ye|yeh|this|shared)\s+(?:video|clip)\s+(?:chahiye|download\s+karo|save\s+karo)$"""),
+            Regex("""^mujhe\s+(?:video|clip)\s+chahiye$""")
+        )
+        if (downloadVideoPatterns.any { it.matches(clean) }) {
+            return ParsedCommandResult(
+                JarvisCommand.DownloadSharedMedia(MediaDownloadKind.VIDEO),
+                0.97f,
+                "DOWNLOAD_SHARED_VIDEO"
+            )
+        }
+
+        val downloadAudioPatterns = listOf(
+            Regex("""^(?:please\s+)?(?:download|save|get|extract)\s+(?:(?:the|this|its|shared)\s+)?(?:audio|song|music|track|gana|gaana)(?:\s+from\s+(?:this|the|shared)\s+(?:video|link))?$"""),
+            Regex("""^(?:(?:mujhe\s+)?(?:is(?:\s+video)?\s+ka|iska|iss\s+video\s+ka|this\s+video's|this)\s+)?(?:song|audio|music|gana|gaana)\s+(?:chahiye|download\s+karo|save\s+karo)$"""),
+            Regex("""^mujhe\s+(?:is(?:\s+video)?\s+ka|iska|iss\s+video\s+ka)\s+(?:song|audio|music|gana|gaana)\s+chahiye$""")
+        )
+        if (downloadAudioPatterns.any { it.matches(clean) }) {
+            return ParsedCommandResult(
+                JarvisCommand.DownloadSharedMedia(MediaDownloadKind.AUDIO),
+                0.97f,
+                "DOWNLOAD_SHARED_AUDIO"
+            )
         }
 
         // 9. Calling & Messaging (Strict Intent Filtering)

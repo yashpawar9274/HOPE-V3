@@ -819,7 +819,7 @@ class GeminiLiveWebSocket(
                             put("name", "manage_whatsapp_auto_reply")
                             put(
                                 "description",
-                                "Only when the user explicitly asks to start, stop, or check WhatsApp automatic replies, run that control command. Starting verifies Notification Access, global notification monitoring, an enabled WhatsApp AUTHORIZED_AUTO_REPLY rule, and AI configuration, then enables WhatsApp monitoring. Never claim all messages can be replied to: Android must provide an inline reply action, and recipient delivery is not confirmed."
+                                "Only when the user explicitly asks to start, stop, check WhatsApp replies, choose the WhatsApp persona, or control ULTRON Auto-Defense, run the matching WhatsApp-only command. Starting or enabling defense must respect notification permissions and existing authorization controls; do not enable Instagram, SMS, or email as a side effect. Never claim recipient delivery is confirmed."
                             )
                             put("parameters", JSONObject().apply {
                                 put("type", "OBJECT")
@@ -827,11 +827,48 @@ class GeminiLiveWebSocket(
                                     "action",
                                     JSONObject().apply {
                                         put("type", "STRING")
-                                        put("enum", JSONArray().put("start").put("stop").put("status"))
-                                        put("description", "The user's explicit requested operation.")
+                                        put(
+                                            "enum",
+                                            JSONArray()
+                                                .put("start")
+                                                .put("stop")
+                                                .put("status")
+                                                .put("select_persona")
+                                                .put("enable_ultron_defense")
+                                                .put("disable_ultron_defense")
+                                                .put("ultron_defense_status")
+                                        )
+                                        put("description", "The user's explicit requested WhatsApp-only operation.")
                                     }
                                 ))
+                                put(
+                                    "persona",
+                                    JSONObject().apply {
+                                        put("type", "STRING")
+                                        put("enum", JSONArray().put("HOPE").put("FRIDAY").put("E.D.I.T.H.").put("ULTRON"))
+                                        put("description", "Required only for select_persona.")
+                                    }
+                                )
                                 put("required", JSONArray().put("action"))
+                            })
+                        })
+
+                        put(JSONObject().apply {
+                            put("name", "save_core_behavior_instruction")
+                            put(
+                                "description",
+                                "Persist an owner's explicit permanent behavioral instruction. Use only when the owner explicitly says to always/never do something, not for one-time requests or rules quoted from other people. Send the owner's exact words in instructionText. HOPE must not claim success until this tool returns success=true and persisted=true; conflicts and vague instructions must be clarified without replacing existing rules."
+                            )
+                            put("parameters", JSONObject().apply {
+                                put("type", "OBJECT")
+                                put("properties", JSONObject().put(
+                                    "instructionText",
+                                    JSONObject().apply {
+                                        put("type", "STRING")
+                                        put("description", "Exact owner-authored instruction from the current verified turn.")
+                                    }
+                                ))
+                                put("required", JSONArray().put("instructionText"))
                             })
                         })
 

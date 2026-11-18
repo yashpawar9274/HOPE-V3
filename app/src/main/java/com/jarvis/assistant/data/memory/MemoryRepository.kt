@@ -20,12 +20,29 @@ class MemoryRepository(private val memoryDao: MemoryDao) {
 
     suspend fun searchMemories(query: String): List<MemoryEntity> = memoryDao.searchMemories(query)
 
+    suspend fun findRelevantMemories(query: String, limit: Int = 6): List<MemoryEntity> =
+        MemoryRetrievalPolicy.selectRelevant(query, getAllMemories(), limit)
+
     suspend fun saveMemory(
         rawText: String,
         category: String = MemoryEntity.CATEGORY_NOTES,
         key: String = "",
-        value: String = ""
+        value: String = "",
+        confidence: Float = 1.0f,
+        verificationStatus: String = MemoryEntity.STATUS_USER_CONFIRMED,
+        sourceType: String = MemoryEntity.SOURCE_USER_STATEMENT,
+        sourceConversationId: String? = null,
+        sourceTurnId: String? = null,
     ): Long {
+        require(confidence in 0.0f..1.0f) { "Memory confidence must be between 0 and 1." }
+        require(
+            verificationStatus in setOf(
+                MemoryEntity.STATUS_USER_CONFIRMED,
+                MemoryEntity.STATUS_NEEDS_CONFIRMATION,
+                MemoryEntity.STATUS_INFERRED,
+                MemoryEntity.STATUS_SUPERSEDED,
+            )
+        ) { "Memory verification status is invalid." }
         val calculatedKey = key.ifBlank {
             rawText.take(30).trim()
         }
@@ -35,9 +52,14 @@ class MemoryRepository(private val memoryDao: MemoryDao) {
             category = category,
             key = calculatedKey,
             value = calculatedValue,
-            rawText = rawText
+            rawText = rawText,
+            confidence = confidence,
+            verificationStatus = verificationStatus,
+            sourceType = sourceType,
+            sourceConversationId = sourceConversationId,
+            sourceTurnId = sourceTurnId,
         )
-        return memoryDao.insertMemory(entity)
+        return memoryDao.insertMemoryIfAbsent(entity)
     }
 
     suspend fun updateMemory(memory: MemoryEntity) {
@@ -48,9 +70,8 @@ class MemoryRepository(private val memoryDao: MemoryDao) {
         memoryDao.deleteMemoryById(id)
     }
 
-    suspend fun deleteMemoriesByKeyword(keyword: String): Int {
-        return memoryDao.deleteMemoriesByKeyword(keyword)
-    }
+    suspend fun deleteMemoriesByKeyword(keyword: String): Int =
+        memoryDao.deleteMemoriesByKeyword(MemoryQueryPolicy.escapeLikePattern(keyword))
 
     suspend fun clearAll() {
         memoryDao.clearAllMemories()

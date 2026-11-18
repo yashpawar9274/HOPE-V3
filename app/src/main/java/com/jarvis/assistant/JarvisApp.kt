@@ -1,12 +1,8 @@
 package com.jarvis.assistant
 
 import android.app.Application
-import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
+import android.app.Activity
 import com.jarvis.assistant.ai.AiRouter
-import com.jarvis.assistant.ai.GemmaModelManager
-import com.jarvis.assistant.ai.GemmaTextGeneration
 import com.jarvis.assistant.ai.GeminiTextGeneration
 import com.jarvis.assistant.clipboard.ClipboardAIRepository
 import com.jarvis.assistant.clipboard.ClipboardAnalysisManager
@@ -21,6 +17,8 @@ import com.jarvis.assistant.data.memory.MemoryDatabase
 import com.jarvis.assistant.data.memory.MemoryManager
 import com.jarvis.assistant.data.memory.MemoryRepository
 import com.jarvis.assistant.data.memory.CloudMemoryRepository
+import com.jarvis.assistant.data.memory.CoreBehaviorEngine
+import com.jarvis.assistant.data.memory.CoreBehaviorRepository
 import com.jarvis.assistant.data.agent.CloudAgentRepository
 import com.jarvis.assistant.data.preferences.AppPreferences
 import com.jarvis.assistant.data.preferences.YouTubePreferences
@@ -31,6 +29,7 @@ import com.jarvis.assistant.license.LicenseManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,16 +38,15 @@ class JarvisApp : Application() {
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    private fun shouldApplyUserTheme(activity: Activity): Boolean =
+        activity !is com.jarvis.assistant.license.LoginActivity &&
+            activity !is com.jarvis.assistant.license.LicenseGateActivity &&
+            activity !is com.jarvis.assistant.license.LicenseKeyActivity
+
     lateinit var preferences: AppPreferences
         private set
 
     lateinit var chatRepository: ChatRepository
-        private set
-
-    lateinit var gemmaModelManager: GemmaModelManager
-        private set
-
-    lateinit var gemmaTextGeneration: GemmaTextGeneration
         private set
 
     lateinit var aiRouter: AiRouter
@@ -70,6 +68,12 @@ class JarvisApp : Application() {
         private set
 
     lateinit var cloudMemoryRepository: CloudMemoryRepository
+        private set
+
+    lateinit var coreBehaviorRepository: CoreBehaviorRepository
+        private set
+
+    lateinit var coreBehaviorEngine: CoreBehaviorEngine
         private set
 
     lateinit var cloudAgentRepository: CloudAgentRepository
@@ -108,25 +112,25 @@ class JarvisApp : Application() {
         chatRepository = ChatRepository(preferences) {
             LicenseManager.currentUser(this)?.uid
         }
-        gemmaModelManager = GemmaModelManager(this)
-        gemmaTextGeneration = GemmaTextGeneration(this, gemmaModelManager, preferences)
         val geminiTextGeneration = GeminiTextGeneration(preferences)
-        aiRouter = AiRouter(
-            cloud = geminiTextGeneration,
-            local = gemmaTextGeneration,
-            cloudAvailable = {
-                preferences.apiKey.isNotBlank() && hasValidatedInternet()
-            },
-            cloudAllowedInAutomatic = { preferences.cloudAllowedInAutomatic }
-        )
+        aiRouter = AiRouter(cloud = geminiTextGeneration)
         clipboardImageProcessor = ClipboardImageProcessor(contentResolver)
-        clipboardAIRepository = ClipboardAIRepository(geminiTextGeneration, clipboardImageProcessor)
+        clipboardAIRepository = ClipboardAIRepository(
+            aiRouter,
+            geminiTextGeneration,
+            clipboardImageProcessor,
+            personaProvider = { preferences.personality }
+        )
         clipboardAnalysisManager = ClipboardAnalysisManager(this)
 
         // Memory System
         memoryDatabase = MemoryDatabase.getInstance(this)
         memoryRepository = MemoryRepository(memoryDatabase.memoryDao())
         cloudMemoryRepository = CloudMemoryRepository(this)
+        coreBehaviorRepository = CoreBehaviorRepository(memoryDatabase.coreBehaviorDao()) {
+            LicenseManager.currentUser(this)?.uid
+        }
+        coreBehaviorEngine = CoreBehaviorEngine(coreBehaviorRepository, cloudMemoryRepository)
         cloudAgentRepository = CloudAgentRepository(this)
         memoryManager = MemoryManager(
             memoryRepository,
@@ -135,6 +139,24 @@ class JarvisApp : Application() {
             cloudMemoryRepository,
             appScope
         )
+        appScope.launch(Dispatchers.IO) {
+            try {
+                cloudMemoryRepository.schedulePendingSync()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                android.util.Log.e("JarvisApp", "Pending cloud memory sync could not be scheduled.", error)
+            }
+            if (preferences.isCloudMemoryEnabled) {
+                try {
+                    coreBehaviorEngine.syncFromCloud()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    android.util.Log.e("JarvisApp", "Core behaviour cloud sync could not be completed.", error)
+                }
+            }
+        }
 
         // Automation Systems
         youTubePreferences = YouTubePreferences(this)
@@ -157,7 +179,9 @@ class JarvisApp : Application() {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             private var startedActivities = 0
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {
-                com.jarvis.assistant.util.ThemeManager.applyTheme(activity)
+                if (shouldApplyUserTheme(activity)) {
+                    com.jarvis.assistant.util.ThemeManager.applyTheme(activity)
+                }
             }
             override fun onActivityStarted(activity: android.app.Activity) {
                 startedActivities++
@@ -165,7 +189,9 @@ class JarvisApp : Application() {
             }
             override fun onActivityResumed(activity: android.app.Activity) {
                 currentResumedActivity = activity
-                com.jarvis.assistant.util.ThemeManager.applyTheme(activity)
+                if (shouldApplyUserTheme(activity)) {
+                    com.jarvis.assistant.util.ThemeManager.applyTheme(activity)
+                }
             }
             override fun onActivityPaused(activity: android.app.Activity) {
                 if (currentResumedActivity === activity) {
@@ -188,14 +214,6 @@ class JarvisApp : Application() {
     @Volatile
     var currentResumedActivity: android.app.Activity? = null
         private set
-
-    private fun hasValidatedInternet(): Boolean {
-        val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val network = connectivity.activeNetwork ?: return false
-        val capabilities = connectivity.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-    }
 
     fun moveAppToBack(): Boolean {
         val act = currentResumedActivity ?: return false

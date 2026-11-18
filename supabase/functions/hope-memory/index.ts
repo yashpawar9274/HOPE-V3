@@ -868,6 +868,138 @@ Deno.serve(async (request: Request): Promise<Response> => {
     const apiKey = Deno.env.get("MEM0_API_KEY");
     const database = memoryDatabaseClient();
 
+    if (operation === "core_behavior_list") {
+      const { data, error } = await database
+        .from("hope_core_behavior_instructions")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false });
+      if (error) return jsonResponse({ error: "Core behaviour instructions could not be loaded." }, 502);
+      const { data: deletions, error: deletionError } = await database
+        .from("hope_core_behavior_history")
+        .select("instruction_id,instruction_snapshot,occurred_at")
+        .eq("user_id", user.id)
+        .eq("action", "deleted")
+        .order("occurred_at", { ascending: false });
+      if (deletionError) return jsonResponse({ error: "Core behaviour deletion history could not be loaded." }, 502);
+      const latestDeletions = new Map<string, {
+        instruction_id: string;
+        instruction_snapshot: string;
+        occurred_at: number;
+      }>();
+      for (const deletion of deletions ?? []) {
+        if (!latestDeletions.has(deletion.instruction_id)) {
+          latestDeletions.set(deletion.instruction_id, deletion);
+        }
+      }
+      return jsonResponse({
+        instructions: data ?? [],
+        deletedInstructions: Array.from(latestDeletions.values()),
+      });
+    }
+
+    if (operation === "core_behavior_upsert" || operation === "core_behavior_delete") {
+      const eventId = typeof payload.eventId === "string" ? payload.eventId : "";
+      const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const categories = new Set([
+        "communication_preferences",
+        "behavioral_corrections",
+        "whatsapp_communication_rules",
+        "privacy_preferences",
+        "task_execution_preferences",
+        "permanent_restrictions",
+        "user_specific_preferences",
+      ]);
+      const scopes = new Set(["global", "text", "voice", "whatsapp", "background_agent"]);
+      if (typeof payload.rule !== "object" || payload.rule === null || Array.isArray(payload.rule)) {
+        return jsonResponse({ error: "Core behaviour instruction is invalid." }, 400);
+      }
+      const rule = payload.rule as Record<string, unknown>;
+      const instructionId = typeof rule.instructionId === "string" ? rule.instructionId : "";
+      const instructionText = typeof rule.instructionText === "string" ? rule.instructionText : "";
+      const normalizedRule = typeof rule.normalizedRule === "string" ? rule.normalizedRule : "";
+      const category = typeof rule.category === "string" ? rule.category : "";
+      const scope = typeof rule.scope === "string" ? rule.scope : "";
+      const priority = typeof rule.priority === "number" ? rule.priority : -1;
+      const createdAt = typeof rule.createdAt === "number" ? rule.createdAt : -1;
+      const updatedAt = typeof rule.updatedAt === "number" ? rule.updatedAt : -1;
+      const activeStatus = typeof rule.activeStatus === "boolean" ? rule.activeStatus : false;
+      const sourceConversation = rule.sourceConversation;
+      const confirmationStatus = typeof rule.confirmationStatus === "string"
+        ? rule.confirmationStatus
+        : "";
+      const historyAction = operation === "core_behavior_delete"
+        ? "deleted"
+        : typeof payload.action === "string" ? payload.action : "";
+      const cleanSourceConversation = typeof sourceConversation === "string"
+        ? sourceConversation
+        : null;
+      const validBaseRule = uuidPattern.test(instructionId) &&
+        instructionText.trim().length > 0 && instructionText.length <= 2000 &&
+        Number.isSafeInteger(updatedAt);
+      const validUpsertRule = normalizedRule.trim().length > 0 &&
+        normalizedRule.length <= 2000 && categories.has(category) &&
+        scopes.has(scope) && Number.isInteger(priority) && priority >= 0 &&
+        priority <= 100 && Number.isSafeInteger(createdAt) &&
+        typeof rule.activeStatus === "boolean" &&
+        (sourceConversation === null || sourceConversation === undefined ||
+          (typeof sourceConversation === "string" && sourceConversation.length <= 200)) &&
+        confirmationStatus.length > 0 && confirmationStatus.length <= 40;
+      if (!validBaseRule || (operation === "core_behavior_upsert" && !validUpsertRule) ||
+        !uuidPattern.test(String(eventId ?? "")) ||
+        (operation === "core_behavior_upsert" &&
+          !new Set(["created", "edited", "disabled", "reactivated"]).has(historyAction))) {
+        return jsonResponse({ error: "Core behaviour instruction is invalid." }, 400);
+      }
+
+      if (operation === "core_behavior_upsert") {
+        const { error: saveError } = await database
+          .from("hope_core_behavior_instructions")
+          .upsert(
+            {
+              user_id: user.id,
+              instruction_id: instructionId,
+              instruction_text: instructionText,
+              normalized_rule: normalizedRule,
+              category,
+              scope,
+              priority,
+              created_at: createdAt,
+              updated_at: updatedAt,
+              active_status: activeStatus,
+              source_conversation: cleanSourceConversation,
+              confirmation_status: confirmationStatus,
+            },
+            { onConflict: "user_id,instruction_id" },
+          );
+        if (saveError) return jsonResponse({ error: "Core behaviour instruction could not be saved." }, 502);
+      } else {
+        const { error: deleteError } = await database
+          .from("hope_core_behavior_instructions")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("instruction_id", instructionId);
+        if (deleteError) return jsonResponse({ error: "Core behaviour instruction could not be deleted." }, 502);
+      }
+
+      const { error: historyError } = await database
+        .from("hope_core_behavior_history")
+        .upsert(
+          {
+            user_id: user.id,
+            event_id: eventId,
+            instruction_id: instructionId,
+            action: historyAction,
+            instruction_snapshot: instructionText,
+            surface: null,
+            occurred_at: updatedAt,
+          },
+          { onConflict: "user_id,event_id", ignoreDuplicates: true },
+        );
+      if (historyError) return jsonResponse({ error: "Core behaviour was updated, but its history could not be saved." }, 502);
+      return jsonResponse({ saved: true, instructionId });
+    }
+
     if (operation === "save_turn" || operation === "remember") {
       const turnId = payload.turnId;
       const userText = operation === "remember" ? payload.content : payload.userText;

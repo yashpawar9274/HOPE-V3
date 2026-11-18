@@ -18,14 +18,27 @@
 
         <FrameLayout
             android:layout_width="170dp"
-            android:layout_height="170dp">
+            android:layout_height="170dp"
+            android:background="@drawable/bg_hope_auth_orb_glow">
 
             <WebView
                 android:id="@+id/orbView"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
+                android:importantForAccessibility="no"
                 android:background="@android:color/transparent" />
         </FrameLayout>
+
+        <TextView
+            android:id="@+id/brandText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="0dp"
+            android:letterSpacing="0.14"
+            android:text="HOPE AI"
+            android:textColor="@color/hope_auth_cyan"
+            android:textSize="18sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/titleText"
@@ -54,6 +67,7 @@
             android:layout_marginBottom="12dp"
             android:background="@drawable/bg_hope_auth_banner_error"
             android:padding="12dp"
+            android:accessibilityLiveRegion="polite"
             android:textColor="@color/hope_auth_text"
             android:textSize="14sp"
             android:visibility="gone" />
@@ -177,11 +191,15 @@
 
         <TextView
             android:id="@+id/forgotText"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:layout_marginTop="8dp"
-            android:padding="6dp"
+            android:layout_marginTop="4dp"
+            android:gravity="end|center_vertical"
+            android:minHeight="48dp"
+            android:paddingStart="8dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="4dp"
+            android:paddingBottom="8dp"
             android:text="Forgot password?"
             android:textColor="@color/hope_auth_cyan"
             android:textSize="14sp" />
@@ -189,18 +207,27 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/primaryButton"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
+            android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
+            android:minHeight="56dp"
             android:text="Sign in"
             android:textColor="@android:color/white"
             android:textSize="16sp"
             app:cornerRadius="16dp" />
 
+        <com.google.android.material.progressindicator.CircularProgressIndicator
+            android:id="@+id/progress"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginTop="8dp"
+            android:indeterminate="true"
+            android:visibility="gone" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:layout_marginBottom="14dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="10dp"
             android:text="or"
             android:textColor="@color/hope_auth_text_muted" />
 
@@ -208,29 +235,33 @@
             android:id="@+id/googleButton"
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
+            android:layout_height="wrap_content"
+            android:contentDescription="Continue with Google"
+            android:minHeight="56dp"
             android:text="Continue with Google"
             android:textColor="@color/hope_auth_text"
             android:textSize="16sp"
             app:cornerRadius="16dp"
+            app:backgroundTint="@color/hope_auth_surface"
+            app:icon="@drawable/ic_google"
+            app:iconGravity="textStart"
+            app:iconPadding="12dp"
+            app:iconSize="20dp"
+            app:iconTint="@null"
             app:strokeColor="@color/hope_auth_outline" />
 
         <TextView
             android:id="@+id/toggleText"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
+            android:layout_marginTop="12dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:minHeight="48dp"
             android:padding="8dp"
             android:text="New to HOPE? Create account"
             android:textColor="@color/hope_auth_cyan"
             android:textSize="15sp" />
-
-        <com.google.android.material.progressindicator.CircularProgressIndicator
-            android:id="@+id/progress"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:indeterminate="true"
-            android:visibility="gone" />
     </LinearLayout>
 </ScrollView>

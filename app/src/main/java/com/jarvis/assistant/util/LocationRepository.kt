@@ -143,6 +143,8 @@ class LocationRepository(context: Context) {
                         }
                         try {
                             LocationManagerCompat.removeUpdates(manager, this)
+                        } catch (error: SecurityException) {
+                            Log.w(TAG, "Location permission was revoked before the listener could be removed.", error)
                         } catch (error: Exception) {
                             Log.w(TAG, "Could not remove one-shot location listener after receiving a fix.", error)
                         }
@@ -152,6 +154,8 @@ class LocationRepository(context: Context) {
                 continuation.invokeOnCancellation {
                     try {
                         LocationManagerCompat.removeUpdates(manager, listener)
+                    } catch (error: SecurityException) {
+                        Log.w(TAG, "Location permission was revoked before cancellation cleanup.", error)
                     } catch (error: Exception) {
                         Log.w(TAG, "Could not remove one-shot location listener after cancellation.", error)
                     }

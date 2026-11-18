@@ -19,7 +19,7 @@ import java.util.Locale
 
 /**
  * HOPE licence logic (see hope_license_api.md):
- *  - verify()   POST /api/verify   on every app start and at least every 24 h
+ *  - verify()   POST /api/verify   when no fresh cached licence is available and at least every 24 h
  *  - activate() POST /api/activate from the key screen
  *  - offline grace: the cached ES256 licenceToken is accepted when its signature verifies with the
  *    public key, sub == current Firebase uid, dev == this device id and exp is in the future.
@@ -59,15 +59,27 @@ object LicenseManager {
 
     // ---- identity ---------------------------------------------------------------------
 
-    /** False until google-services.json is added to the app (Firebase would crash otherwise). */
-    fun isFirebaseConfigured(context: Context): Boolean = try {
-        FirebaseApp.getApps(context.applicationContext).isNotEmpty()
+    /** FirebaseAuth is optional at build time; its absence must not crash the licence gate. */
+    fun isFirebaseConfigured(context: Context): Boolean = firebaseAuth(context) != null
+
+    fun currentUser(context: Context): FirebaseUser? = try {
+        firebaseAuth(context)?.currentUser
     } catch (error: Exception) {
-        false
+        Log.e(TAG, "Could not read the current Firebase user.", error)
+        null
     }
 
-    fun currentUser(context: Context): FirebaseUser? =
-        if (isFirebaseConfigured(context)) FirebaseAuth.getInstance().currentUser else null
+    private fun firebaseAuth(context: Context): FirebaseAuth? {
+        return try {
+            val app = FirebaseApp.getApps(context.applicationContext)
+                .firstOrNull { it.name == FirebaseApp.DEFAULT_APP_NAME }
+                ?: return null
+            FirebaseAuth.getInstance(app)
+        } catch (error: Exception) {
+            Log.e(TAG, "Firebase Auth is unavailable.", error)
+            null
+        }
+    }
 
     fun deviceId(context: Context): String = store(context).deviceId()
 
@@ -203,19 +215,25 @@ object LicenseManager {
      */
     fun guardAllows(context: Context): Boolean {
         val app = context.applicationContext
-        val user = currentUser(app) ?: return false
-        val uid = user.uid
+        return try {
+            val user = currentUser(app) ?: return false
+            val uid = user.uid
 
-        val verifiedHere = verifiedAtElapsed
-        if (verifiedHere != 0L && verifiedUid == uid &&
-            SystemClock.elapsedRealtime() - verifiedHere < LicenseConfig.REVERIFY_INTERVAL_MS
-        ) return true
+            val verifiedHere = verifiedAtElapsed
+            if (verifiedHere != 0L && verifiedUid == uid &&
+                SystemClock.elapsedRealtime() - verifiedHere < LicenseConfig.REVERIFY_INTERVAL_MS
+            ) return true
 
-        if (!offlineTokenIsValid(app, uid, deviceId(app))) return false
-        val lastVerified = store(app).lastVerifiedAtMs
-        val stale = lastVerified == 0L || System.currentTimeMillis() - lastVerified > LicenseConfig.REVERIFY_INTERVAL_MS
-        val inGrace = graceUid == uid && SystemClock.elapsedRealtime() < graceUntilElapsed
-        return inGrace || !(stale && isOnline(app))
+            if (!offlineTokenIsValid(app, uid, deviceId(app))) return false
+            val lastVerified = store(app).lastVerifiedAtMs
+            val stale = lastVerified == 0L ||
+                System.currentTimeMillis() - lastVerified > LicenseConfig.REVERIFY_INTERVAL_MS
+            val inGrace = graceUid == uid && SystemClock.elapsedRealtime() < graceUntilElapsed
+            inGrace || !(stale && isOnline(app))
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not read cached licence state; online verification is required.", error)
+            false
+        }
     }
 
     // ---- sign out ---------------------------------------------------------------------
@@ -224,7 +242,7 @@ object LicenseManager {
     fun signOut(context: Context) {
         val app = context.applicationContext
         try {
-            if (isFirebaseConfigured(app)) FirebaseAuth.getInstance().signOut()
+            firebaseAuth(app)?.signOut()
         } catch (error: Exception) {
             Log.w(TAG, "Firebase sign-out failed.", error)
         }
@@ -232,18 +250,26 @@ object LicenseManager {
     }
 
     private fun clearCachedLicense(app: Context) {
-        store(app).clearLicense()
         verifiedAtElapsed = 0L
         verifiedUid = null
         graceUntilElapsed = 0L
         graceUid = null
+        try {
+            store(app).clearLicense()
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not clear the cached licence data.", error)
+        }
     }
 
     private fun markVerified(app: Context, uid: String) {
         verifiedAtElapsed = SystemClock.elapsedRealtime().coerceAtLeast(1L)
         verifiedUid = uid
-        store(app).lastVerifiedAtMs = System.currentTimeMillis()
-        touchClock(app)
+        try {
+            store(app).lastVerifiedAtMs = System.currentTimeMillis()
+            touchClock(app)
+        } catch (error: Exception) {
+            Log.e(TAG, "Licence was verified online but its timestamp could not be persisted.", error)
+        }
     }
 
     private fun touchClock(app: Context) {
@@ -277,10 +303,15 @@ object LicenseManager {
     }
 
     private fun offlineTokenIsValid(app: Context, uid: String, deviceId: String): Boolean {
-        val token = store(app).licenseToken ?: return false
-        val valid = inspect(app, token, uid, deviceId) is Inspection.Valid
-        if (valid) touchClock(app)
-        return valid
+        return try {
+            val token = store(app).licenseToken ?: return false
+            val valid = inspect(app, token, uid, deviceId) is Inspection.Valid
+            if (valid) touchClock(app)
+            valid
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not validate the cached licence token.", error)
+            false
+        }
     }
 
     /**
@@ -288,15 +319,28 @@ object LicenseManager {
      * the public key (fetching the key once if it is missing or has been rotated).
      */
     private suspend fun acceptServerToken(app: Context, token: String?, uid: String, deviceId: String) {
-        if (token.isNullOrBlank()) return
-        var inspection = inspect(app, token, uid, deviceId)
-        if (inspection is Inspection.BadSignature && publicKeys(app).refresh(api)) {
-            inspection = inspect(app, token, uid, deviceId)
+        if (token.isNullOrBlank()) {
+            Log.w(TAG, "The server accepted the licence but returned no offline token; a future launch needs internet.")
+            return
         }
-        if (inspection is Inspection.Valid) {
-            store(app).licenseToken = token
-        } else {
-            Log.w(TAG, "The licence token from the server could not be validated locally; offline grace is off.")
+        try {
+            var inspection = inspect(app, token, uid, deviceId)
+            if (inspection is Inspection.BadSignature && publicKeys(app).refresh(api)) {
+                inspection = inspect(app, token, uid, deviceId)
+            }
+            if (inspection is Inspection.Valid) {
+                val secureStore = store(app)
+                secureStore.licenseToken = token
+                if (secureStore.licenseToken != token) {
+                    Log.e(TAG, "The licence was accepted, but its offline token could not be persisted.")
+                }
+            } else {
+                Log.w(TAG, "The server token could not be validated locally; offline grace is unavailable.")
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.e(TAG, "The server accepted the licence, but its offline token could not be cached.", error)
         }
     }
 
